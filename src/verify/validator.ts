@@ -3,13 +3,13 @@ import { createHash } from "crypto";
 
 export class Validator {
   public static backpropagate(engine: SequentialEngine, failures: string[]): void {
-    engine.clearErrors();
-    for (const fail of failures) {
-      engine.addError(fail);
-    }
+    engine.setErrors(failures);
   }
 
   public static verifyHash(content: string, expectedHash: string): boolean {
+    if (!expectedHash || typeof expectedHash !== "string" || !expectedHash.startsWith("ccr:")) {
+      return false;
+    }
     // Expected hash comes in format ccr:sha256
     const cleanHash = expectedHash.replace(/^ccr:/, "");
     const computed = createHash("sha256").update(content).digest("hex");

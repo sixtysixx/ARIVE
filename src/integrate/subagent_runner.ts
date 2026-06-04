@@ -1,4 +1,6 @@
 import { spawnSync } from "child_process";
+import * as fs from "fs";
+import * as path from "path";
 
 export interface ExecResult {
   exitCode: number;
@@ -8,13 +10,30 @@ export interface ExecResult {
 
 export class SubagentRunner {
   public static execute(cwd: string, command: string): ExecResult {
-    // Runs standard commands in shell relative to workspace cwd
+    const absoluteCwd = path.resolve(cwd);
+    const rootDir = path.resolve(process.cwd());
+    const worktreeBaseDir = path.join(rootDir, ".arive-worktrees");
+
+    // Restrict execution to the project root or subdirectories of the worktrees base dir
+    const isInsideRoot = absoluteCwd === rootDir;
+    const isInsideWorktree = absoluteCwd.startsWith(worktreeBaseDir + path.sep) || absoluteCwd === worktreeBaseDir;
+
+    if (!isInsideRoot && !isInsideWorktree) {
+      throw new Error(`Security Exception: Execution directory "${cwd}" is outside allowed workspace boundaries.`);
+    }
+
+    if (!fs.existsSync(absoluteCwd) || !fs.statSync(absoluteCwd).isDirectory()) {
+      throw new Error(`Directory Exception: Execution directory "${cwd}" does not exist or is not a directory.`);
+    }
+
     const isWindows = process.platform === "win32";
     const shell = isWindows ? "powershell.exe" : "sh";
-    const arg = isWindows ? "-Command" : "-c";
+    const args = isWindows
+      ? ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command]
+      : ["-c", command];
 
-    const proc = spawnSync(shell, [arg, command], {
-      cwd,
+    const proc = spawnSync(shell, args, {
+      cwd: absoluteCwd,
       encoding: "utf-8",
       env: {
         ...process.env,
@@ -30,3 +49,4 @@ export class SubagentRunner {
     };
   }
 }
+

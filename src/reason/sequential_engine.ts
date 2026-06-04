@@ -34,28 +34,59 @@ export class SequentialEngine {
     try {
       if (fs.existsSync(this.statePath)) {
         const content = fs.readFileSync(this.statePath, "utf-8");
+        if (!content.trim()) {
+          throw new Error("State file is empty");
+        }
         const data = JSON.parse(content);
-        this.history = data.history || [];
-        this.activePlan = data.activePlan || "";
-        this.errors = data.errors || [];
+        if (data && typeof data === "object") {
+          this.history = Array.isArray(data.history) ? data.history : [];
+          this.activePlan = typeof data.activePlan === "string" ? data.activePlan : "";
+          this.errors = Array.isArray(data.errors) ? data.errors : [];
+        } else {
+          throw new Error("Invalid state format: root must be an object");
+        }
       }
-    } catch (e) {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[SequentialEngine] Failed to load state from ${this.statePath}: ${message}`);
       this.history = [];
+      this.activePlan = "";
+      this.errors = [`Failed to load state: ${message}`];
     }
   }
 
   private save() {
+    let tempPath: string | null = null;
     try {
       const dir = path.dirname(this.statePath);
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
-      fs.writeFileSync(
-        this.statePath,
-        JSON.stringify({ history: this.history, activePlan: this.activePlan, errors: this.errors }, null, 2),
-        "utf-8"
+      tempPath = `${this.statePath}.${Math.random().toString(36).slice(2)}.tmp`;
+      const content = JSON.stringify(
+        {
+          history: this.history,
+          activePlan: this.activePlan,
+          errors: this.errors,
+        },
+        null,
+        2
       );
-    } catch (e) {}
+      fs.writeFileSync(tempPath, content, "utf-8");
+      fs.renameSync(tempPath, this.statePath);
+      tempPath = null;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[SequentialEngine] Failed to save state to ${this.statePath}: ${message}`);
+      this.errors.push(`Failed to save state: ${message}`);
+      if (tempPath && fs.existsSync(tempPath)) {
+        try {
+          fs.unlinkSync(tempPath);
+        } catch {
+          // Ignore secondary failure during cleanup
+        }
+      }
+    }
   }
 
   public addThought(
@@ -100,6 +131,11 @@ export class SequentialEngine {
 
   public clearErrors() {
     this.errors = [];
+    this.save();
+  }
+
+  public setErrors(errors: string[]) {
+    this.errors = [...errors];
     this.save();
   }
 

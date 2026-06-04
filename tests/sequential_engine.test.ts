@@ -34,4 +34,17 @@ describe("Sequential Engine Tests", () => {
     expect(state.history[2].thought).toBe("Revised Hyp 2");
     expect(state.history[2].status).toBe("active");
   });
+
+  test("Corrupted state file handling on load", () => {
+    // Write invalid JSON to statePath
+    fs.writeFileSync(statePath, "{ invalid json", "utf-8");
+    
+    // Engine should load safely and reset state
+    const engine = new SequentialEngine(statePath);
+    const state = engine.getState();
+    expect(state.history.length).toBe(0);
+    expect(state.activePlan).toBe("");
+    expect(state.errors.length).toBe(1);
+    expect(state.errors[0]).toContain("Failed to load state");
+  });
 });

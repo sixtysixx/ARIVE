@@ -34,4 +34,31 @@ describe("CodeMap Scanner Tests", () => {
     expect(parsed.exports.functions).toContain("runUtility");
     expect(parsed.exports.interfaces).toContain("Info");
   });
+
+  test("Respects maxDepth recursion limit", () => {
+    const scanner = new CodeMapScanner();
+    const tree = scanner.scanTree("./src", [], 1);
+    expect(tree).toContain("⚠️ [Max depth of 1 reached]");
+  });
+
+  test("getGitDiff rejects command injection and invalid branch names", () => {
+    const scanner = new CodeMapScanner();
+    const result = scanner.getGitDiff("master; rm -rf /");
+    expect(result).toBe("Git diff failed: Invalid branch name pattern.");
+  });
+
+  test("scanDependencies recursively parses JS/TS files", () => {
+    const scanner = new CodeMapScanner();
+    const results = scanner.scanDependencies("./src/analyze");
+    expect(Object.keys(results).length).toBeGreaterThan(0);
+    // Find one file we know has imports, like codemap.ts or ast_compressor.ts
+    const keys = Object.keys(results);
+    const codemapKey = keys.find(k => k.endsWith("codemap.ts"));
+    if (codemapKey) {
+      expect(results[codemapKey].imports.length).toBeGreaterThan(0);
+      expect(results[codemapKey].exports.classes.length).toBeGreaterThan(0);
+    }
+  });
 });
+
+

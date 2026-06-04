@@ -213,6 +213,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const revNum = args?.revisesThoughtNum !== undefined ? Number(args.revisesThoughtNum) : undefined;
         const branchNum = args?.branchToThoughtNum !== undefined ? Number(args.branchToThoughtNum) : undefined;
 
+        if (args?.thoughtNumber === undefined || Number.isNaN(tNum)) {
+          throw new Error("Invalid parameter: 'thoughtNumber' must be a valid number");
+        }
+        if (args?.totalThoughts === undefined || Number.isNaN(total)) {
+          throw new Error("Invalid parameter: 'totalThoughts' must be a valid number");
+        }
+        if (revNum !== undefined && Number.isNaN(revNum)) {
+          throw new Error("Invalid parameter: 'revisesThoughtNum' must be a valid number");
+        }
+        if (branchNum !== undefined && Number.isNaN(branchNum)) {
+          throw new Error("Invalid parameter: 'branchToThoughtNum' must be a valid number");
+        }
+
         const res = engine.addThought(thought, tNum, total, nextNeeded, isRev, revNum, branchNum);
         return {
           content: [{ type: "text", text: JSON.stringify(res, null, 2) }]
@@ -224,6 +237,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const action = String(args?.action || "");
         const branchName = args?.branchName ? String(args.branchName) : undefined;
         const command = args?.command ? String(args.command) : undefined;
+
+        WorkspaceManager.validateTaskId(taskId);
 
         if (action === "create") {
           const resPath = WorkspaceManager.create(taskId, branchName);
@@ -251,6 +266,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "arive_verify": {
         const taskId = String(args?.taskId || "");
         const testCmd = String(args?.testCommand || "bun test");
+
+        WorkspaceManager.validateTaskId(taskId);
+
         const targetPath = `.arive-worktrees/${taskId}`;
         if (!fs.existsSync(targetPath)) {
           throw new Error(`Workspace path for ${taskId} does not exist. Call integrate create first.`);
@@ -279,8 +297,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const action = String(args?.action || "tree");
         const dir = String(args?.dir || ".");
         const excludes = Array.isArray(args?.excludes) ? args.excludes.map(String) : [];
-        const maxDepth = args?.maxDepth !== undefined ? Number(args.maxDepth) : 10;
         const targetBranch = String(args?.targetBranch || "master");
+
+        let maxDepth = 10;
+        if (args?.maxDepth !== undefined) {
+          const depth = Number(args.maxDepth);
+          if (Number.isNaN(depth) || depth < 0) {
+            throw new Error("Invalid parameter: 'maxDepth' must be a non-negative number");
+          }
+          maxDepth = depth;
+        }
 
         const scanner = new CodeMapScanner();
 
@@ -315,6 +341,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 });
 
 // Start Std Listener
-const transport = new StdioServerTransport();
-await server.connect(transport);
-console.error("ARIVE MCP Server successfully listening on stdio.");
+try {
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+  console.error("ARIVE MCP Server successfully listening on stdio.");
+} catch (error: any) {
+  console.error("Fatal error: Failed to connect to stdio transport:", error);
+  process.exit(1);
+}

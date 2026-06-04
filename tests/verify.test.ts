@@ -44,5 +44,43 @@ describe("TDD & Verification Tests", () => {
     
     expect(Validator.verifyHash(content, expectedHash)).toBe(true);
     expect(Validator.verifyHash(content + " mod", expectedHash)).toBe(false);
+    expect(Validator.verifyHash(content, "invalid-prefix-hash")).toBe(false);
+    expect(Validator.verifyHash(content, "")).toBe(false);
+  });
+
+  test("TDDRunner parseFailures safety with long lines and huge output", () => {
+    // 1. Check extremely long line handling
+    const longLine = "A".repeat(5000) + " Error: Some long trace";
+    const failures = TDDRunner.parseFailures(longLine);
+    // Since it's > 2048 chars, we truncated it to 2048, meaning we might lose the "Error: Some long trace"
+    // if it's placed at the very end. Let's make sure it handles it without crash.
+    expect(failures).toBeArray();
+
+    const longLineWithErrorAtStart = "Error: " + "B".repeat(5000);
+    const failuresStart = TDDRunner.parseFailures(longLineWithErrorAtStart);
+    expect(failuresStart.length).toBe(1);
+    expect(failuresStart[0]).toContain("Error:");
+    expect(failuresStart[0].length).toBe(2048);
+
+    // 2. Check memory limits with massive output (1.5 MB string)
+    const giantLog = ("Simple line\n").repeat(150000); // ~1.8 MB
+    const parseGiant = TDDRunner.parseFailures(giantLog);
+    expect(parseGiant).toBeArray();
+  });
+
+  test("TDDRunner run handles directory and execution exceptions gracefully", () => {
+    // 1. Check Security Exception (outside allowed boundary)
+    const resSec = TDDRunner.run("./invalid-outside-boundary-xyz", "bun test");
+    expect(resSec.success).toBe(false);
+    expect(resSec.failures.length).toBe(1);
+    expect(resSec.failures[0]).toContain("Security Exception");
+    expect(resSec.output).toContain("Runner Execution Failure");
+
+    // 2. Check Directory Exception (inside worktrees but doesn't exist)
+    const resDir = TDDRunner.run(".arive-worktrees/nonexistent-xyz", "bun test");
+    expect(resDir.success).toBe(false);
+    expect(resDir.failures.length).toBe(1);
+    expect(resDir.failures[0]).toContain("Directory Exception");
+    expect(resDir.output).toContain("Runner Execution Failure");
   });
 });

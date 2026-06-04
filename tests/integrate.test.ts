@@ -2,7 +2,7 @@ import { expect, test, describe, beforeAll, afterAll } from "bun:test";
 import { WorkspaceManager } from "../src/integrate/workspace.js";
 import { SubagentRunner } from "../src/integrate/subagent_runner.js";
 import * as fs from "fs";
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 
 describe("Workspace & Subagent Integration Tests", () => {
   const taskId = "test_workspace_runner";
@@ -11,12 +11,12 @@ describe("Workspace & Subagent Integration Tests", () => {
   beforeAll(() => {
     // Ensure standard Git commit exists so worktree works
     try {
-      execSync("git rev-parse HEAD", { stdio: "ignore" });
+      execFileSync("git", ["rev-parse", "HEAD"], { stdio: "ignore" });
     } catch (e) {
-      execSync("git init");
-      execSync("git config user.name 'Test'");
-      execSync("git config user.email 'test@test.com'");
-      execSync("git commit -m 'Initial' --allow-empty");
+      execFileSync("git", ["init"]);
+      execFileSync("git", ["config", "user.name", "Test"]);
+      execFileSync("git", ["config", "user.email", "test@test.com"]);
+      execFileSync("git", ["commit", "-m", "Initial", "--allow-empty"]);
     }
   });
 
@@ -58,4 +58,27 @@ describe("Workspace & Subagent Integration Tests", () => {
     WorkspaceManager.cleanup(taskId);
     expect(fs.existsSync(worktreePath)).toBe(false);
   });
+
+  test("WorkspaceManager rejects invalid taskId patterns to prevent command/path injection", () => {
+    expect(() => {
+      WorkspaceManager.create("invalid-task; rm -rf");
+    }).toThrow();
+
+    expect(() => {
+      WorkspaceManager.create("../escaped-path");
+    }).toThrow();
+  });
+
+  test("WorkspaceManager rejects invalid branchName patterns to prevent command injection", () => {
+    expect(() => {
+      WorkspaceManager.create(taskId, "test-branch; echo injected");
+    }).toThrow();
+  });
+
+  test("SubagentRunner restricts command execution to allowed workspace boundary", () => {
+    expect(() => {
+      SubagentRunner.execute("C:/Windows/System32", "dir");
+    }).toThrow(/Security Exception/);
+  });
 });
+

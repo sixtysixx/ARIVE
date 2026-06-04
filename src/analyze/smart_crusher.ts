@@ -9,6 +9,10 @@ export class SmartCrusher {
     }
   }
 
+  /**
+   * Recursively traverses and crushes elements within an arbitrary JSON structure.
+   * `any` is explicitly used here to allow generic traversal of dynamically typed parsed JSON values (objects, arrays, primitives).
+   */
   private static traverseAndCrush(val: any): any {
     if (Array.isArray(val)) {
       if (val.length <= 2) {

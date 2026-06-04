@@ -43,8 +43,8 @@ export class CodeMapScanner {
       return;
     }
     const base = path.basename(currentPath);
-    // Check if base matches any excluded names or if current path contains them
-    if (excludes.includes(base) || excludes.some(exc => currentPath.split(path.sep).includes(exc))) {
+    // Check if base matches any excluded names or if current path contains them as exact segments
+    if (excludes.includes(base) || excludes.some(exc => currentPath.split(/[\\/]/).includes(exc))) {
       return;
     }
 
@@ -152,7 +152,7 @@ export class CodeMapScanner {
 
   private collectDependencies(currentPath: string, excludes: string[], result: Record<string, FileMeta>) {
     const base = path.basename(currentPath);
-    if (excludes.includes(base) || excludes.some(exc => currentPath.includes(exc))) {
+    if (excludes.includes(base) || excludes.some(exc => currentPath.split(/[\\/]/).includes(exc))) {
       return;
     }
 
