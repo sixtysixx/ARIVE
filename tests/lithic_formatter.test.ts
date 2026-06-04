@@ -24,4 +24,19 @@ describe("Lithic Formatter Tests", () => {
     const formatted = LithicFormatter.format(input, "ultra");
     expect(formatted).toContain("Run test. Task fail tests/verify.test.ts:24");
   });
+
+  test("Normal brevity level", () => {
+    const input = "Please look at this configuration file.";
+    const formatted = LithicFormatter.format(input, "normal");
+    expect(formatted).toBe(input);
+  });
+
+  test("Savings calculation", () => {
+    const original = "The server is running on the local port";
+    const formatted = "Server running on local port";
+    // original has 8 tokens, formatted has 5 tokens.
+    // reduction = round((8 - 5) / 8 * 100) = round(37.5) = 38%
+    const savings = LithicFormatter.getSavings(original, formatted);
+    expect(savings).toBe("38% token reduction (8 -> 5 tokens)");
+  });
 });
