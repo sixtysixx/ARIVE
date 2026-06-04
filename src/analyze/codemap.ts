@@ -1,6 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 import ts from "typescript";
 
 export interface FileMeta {
@@ -13,7 +13,7 @@ export interface FileMeta {
 }
 
 export class CodeMapScanner {
-  private defaultExcludes = [
+  private readonly defaultExcludes: string[] = [
     "node_modules",
     ".git",
     ".arive-worktrees",
@@ -23,14 +23,25 @@ export class CodeMapScanner {
     "bun.lockb"
   ];
 
-  public scanTree(dir: string, excludes: string[] = []): string {
+  public scanTree(dir: string, excludes: string[] = [], maxDepth = 10): string {
     const excludeList = [...this.defaultExcludes, ...excludes];
     const lines: string[] = [];
-    this.traverse(dir, "", excludeList, lines);
+    this.traverse(dir, "", excludeList, lines, 0, maxDepth);
     return lines.join("\n");
   }
 
-  private traverse(currentPath: string, prefix: string, excludes: string[], lines: string[]) {
+  private traverse(
+    currentPath: string,
+    prefix: string,
+    excludes: string[],
+    lines: string[],
+    currentDepth: number,
+    maxDepth: number
+  ) {
+    if (currentDepth > maxDepth) {
+      lines.push(`${prefix}⚠️ [Max depth of ${maxDepth} reached]`);
+      return;
+    }
     const base = path.basename(currentPath);
     // Check if base matches any excluded names or if current path contains them
     if (excludes.includes(base) || excludes.some(exc => currentPath.split(path.sep).includes(exc))) {
@@ -43,12 +54,22 @@ export class CodeMapScanner {
         lines.push(`${prefix}📁 ${base}/`);
         const children = fs.readdirSync(currentPath);
         children.forEach(child => {
-          this.traverse(path.join(currentPath, child), prefix + "  ", excludes, lines);
+          this.traverse(
+            path.join(currentPath, child),
+            prefix + "  ",
+            excludes,
+            lines,
+            currentDepth + 1,
+            maxDepth
+          );
         });
       } else {
         lines.push(`${prefix}📄 ${base} (${stats.size} bytes)`);
       }
-    } catch (e) {}
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      lines.push(`${prefix}⚠️ Error reading ${base}: ${msg}`);
+    }
   }
 
   public parseFileMetadata(code: string): FileMeta {
@@ -99,17 +120,55 @@ export class CodeMapScanner {
       };
 
       visit(sourceFile);
-    } catch (e) {}
+    } catch (e: unknown) {
+      console.warn("TypeScript metadata parsing error:", e);
+    }
 
     return { imports, exports: { classes, functions, interfaces } };
   }
 
   public getGitDiff(targetBranch = "master"): string {
+    // Sanitize target branch name to prevent command injection / unexpected arguments
+    const safeBranchPattern = /^[a-zA-Z0-9_\-\/\.\+]+$/;
+    if (!safeBranchPattern.test(targetBranch)) {
+      return "Git diff failed: Invalid branch name pattern.";
+    }
+
     try {
-      const diff = execSync(`git diff ${targetBranch} --stat`, { encoding: "utf-8" });
+      const diff = execFileSync("git", ["diff", targetBranch, "--stat"], { encoding: "utf-8" });
       return diff || "No differences against target branch.";
-    } catch (e: any) {
-      return `Git diff failed: ${e.message}`;
+    } catch (e: unknown) {
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      return `Git diff failed: ${errorMessage}`;
     }
   }
+
+  public scanDependencies(dir: string, excludes: string[] = []): Record<string, FileMeta> {
+    const excludeList = [...this.defaultExcludes, ...excludes];
+    const result: Record<string, FileMeta> = {};
+    this.collectDependencies(dir, excludeList, result);
+    return result;
+  }
+
+  private collectDependencies(currentPath: string, excludes: string[], result: Record<string, FileMeta>) {
+    const base = path.basename(currentPath);
+    if (excludes.includes(base) || excludes.some(exc => currentPath.includes(exc))) {
+      return;
+    }
+
+    try {
+      const stats = fs.statSync(currentPath);
+      if (stats.isDirectory()) {
+        const children = fs.readdirSync(currentPath);
+        children.forEach(child => {
+          this.collectDependencies(path.join(currentPath, child), excludes, result);
+        });
+      } else if (stats.isFile() && /\.(js|ts|jsx|tsx)$/.test(currentPath)) {
+        const code = fs.readFileSync(currentPath, "utf-8");
+        const relative = path.relative(".", currentPath).replace(/\\/g, "/");
+        result[relative] = this.parseFileMetadata(code);
+      }
+    } catch (e) {}
+  }
 }
+
