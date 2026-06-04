@@ -621,6 +621,190 @@
 
 ---
 
+### Task 4.5: Implement CodeMap Project Brain Scanner
+**Files:**
+*   Create: `src/analyze/codemap.ts`
+*   Test: `tests/codemap.test.ts`
+
+- [ ] **Step 1: Write CodeMap failing test suite**
+    Create `tests/codemap.test.ts`:
+    ```typescript
+    import { expect, test, describe } from "bun:test";
+    import { CodeMapScanner } from "../src/analyze/codemap.js";
+    import * as fs from "fs";
+    import * as path from "path";
+
+    describe("CodeMap Scanner Tests", () => {
+      test("Build folder structure tree", () => {
+        const scanner = new CodeMapScanner();
+        const tree = scanner.scanTree("./src");
+        expect(tree).toContain("analyze");
+        expect(tree).toContain("reason");
+      });
+
+      test("Parse TypeScript exports & imports", () => {
+        const dummyCode = `
+          import { Helper } from "./helper.js";
+          import ts from "typescript";
+
+          export interface Info {
+            name: string;
+          }
+
+          export class Analyzer {
+            public analyze() { return true; }
+          }
+
+          export function runUtility() {}
+        `;
+        const scanner = new CodeMapScanner();
+        const parsed = scanner.parseFileMetadata(dummyCode);
+        
+        expect(parsed.imports).toContain("./helper.js");
+        expect(parsed.imports).toContain("typescript");
+        expect(parsed.exports.classes[0].name).toBe("Analyzer");
+        expect(parsed.exports.classes[0].methods).toContain("analyze");
+        expect(parsed.exports.functions).toContain("runUtility");
+        expect(parsed.exports.interfaces).toContain("Info");
+      });
+    });
+    ```
+
+- [ ] **Step 2: Run test to verify it fails**
+    Run: `bun test tests/codemap.test.ts`
+    Expected: FAIL (Cannot find module '../src/analyze/codemap.js')
+
+- [ ] **Step 3: Implement CodeMapScanner**
+    Create `src/analyze/codemap.ts`:
+    ```typescript
+    import * as fs from "fs";
+    import * as path from "path";
+    import { execSync } from "child_process";
+    import ts from "typescript";
+
+    export interface FileMeta {
+      imports: string[];
+      exports: {
+        classes: { name: string; methods: string[] }[];
+        functions: string[];
+        interfaces: string[];
+      };
+    }
+
+    export class CodeMapScanner {
+      private defaultExcludes = [
+        "node_modules",
+        ".git",
+        ".arive-worktrees",
+        "dist",
+        ".arive",
+        "package-lock.json",
+        "bun.lockb"
+      ];
+
+      public scanTree(dir: string, excludes: string[] = []): string {
+        const excludeList = [...this.defaultExcludes, ...excludes];
+        const lines: string[] = [];
+        this.traverse(dir, "", excludeList, lines);
+        return lines.join("\n");
+      }
+
+      private traverse(currentPath: string, prefix: string, excludes: string[], lines: string[]) {
+        const base = path.basename(currentPath);
+        if (excludes.includes(base) || excludes.some(exc => currentPath.includes(exc))) {
+          return;
+        }
+
+        try {
+          const stats = fs.statSync(currentPath);
+          if (stats.isDirectory()) {
+            lines.push(`${prefix}📁 ${base}/`);
+            const children = fs.readdirSync(currentPath);
+            children.forEach(child => {
+              this.traverse(path.join(currentPath, child), prefix + "  ", excludes, lines);
+            });
+          } else {
+            lines.push(`${prefix}📄 ${base} (${stats.size} bytes)`);
+          }
+        } catch (e) {}
+      }
+
+      public parseFileMetadata(code: string): FileMeta {
+        const imports: string[] = [];
+        const classes: { name: string; methods: string[] }[] = [];
+        const functions: string[] = [];
+        const interfaces: string[] = [];
+
+        try {
+          const sourceFile = ts.createSourceFile(
+            "temp.ts",
+            code,
+            ts.ScriptTarget.Latest,
+            true,
+            ts.ScriptKind.TS
+          );
+
+          const visit = (node: ts.Node) => {
+            // Find Imports
+            if (ts.isImportDeclaration(node)) {
+              const specifier = node.moduleSpecifier;
+              if (ts.isStringLiteral(specifier)) {
+                imports.push(specifier.text);
+              }
+            }
+
+            // Find Exported Items
+            const isExported = node.modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword);
+            if (isExported) {
+              if (ts.isClassDeclaration(node) && node.name) {
+                const className = node.name.text;
+                const methods: string[] = [];
+                node.members.forEach(member => {
+                  if (ts.isMethodDeclaration(member) && member.name && ts.isIdentifier(member.name)) {
+                    methods.push(member.name.text);
+                  }
+                });
+                classes.push({ name: className, methods });
+              } else if (ts.isFunctionDeclaration(node) && node.name) {
+                functions.push(node.name.text);
+              } else if (ts.isInterfaceDeclaration(node) && node.name) {
+                interfaces.push(node.name.text);
+              }
+            }
+
+            ts.forEachChild(node, visit);
+          };
+
+          visit(sourceFile);
+        } catch (e) {}
+
+        return { imports, exports: { classes, functions, interfaces } };
+      }
+
+      public getGitDiff(targetBranch = "master"): string {
+        try {
+          const diff = execSync(`git diff ${targetBranch} --stat`, { encoding: "utf-8" });
+          return diff || "No differences against target branch.";
+        } catch (e: any) {
+          return `Git diff failed: ${e.message}`;
+        }
+      }
+    }
+    ```
+
+- [ ] **Step 4: Run test to verify it passes**
+    Run: `bun test tests/codemap.test.ts`
+    Expected: PASS
+
+- [ ] **Step 5: Commit task 4.5**
+    Run:
+    ```bash
+    git add src/analyze/codemap.ts tests/codemap.test.ts
+    git commit -m "feat: implement JordanCoin/codemap project brain scanner"
+    ```
+
+---
+
 ### Task 5: Isolated Git Worktree Workspaces & Subagent Runners
 **Files:**
 *   Create: `src/integrate/workspace.ts`
