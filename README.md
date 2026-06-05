@@ -119,10 +119,9 @@ Add this configuration to your local config at `%USERPROFILE%\.gemini\antigravit
 {
   "mcpServers": {
     "arive": {
-      "command": "bun",
+      "command": "bunx",
       "args": [
-        "run",
-        "C:/Users/sixxx/Documents/development/ARIVE_Analyze_Reason_Integrate_Verify_Explain_MCP/src/index.ts"
+        "github:sixtysixx/ARIVE"
       ]
     }
   }
@@ -130,15 +129,14 @@ Add this configuration to your local config at `%USERPROFILE%\.gemini\antigravit
 ```
 
 ### Claude Desktop
-Add this to your configuration under `appData/Roaming/EasyCode/claude_desktop_config.json` (or standard `claude_desktop_config.json` configuration path):
+Add this to your configuration (e.g. `appData/Roaming/EasyCode/claude_desktop_config.json` or standard `claude_desktop_config.json` configuration path):
 ```json
 {
   "mcpServers": {
     "arive": {
-      "command": "bun",
+      "command": "bunx",
       "args": [
-        "run",
-        "C:/Users/sixxx/Documents/development/ARIVE_Analyze_Reason_Integrate_Verify_Explain_MCP/src/index.ts"
+        "github:sixtysixx/ARIVE"
       ]
     }
   }
