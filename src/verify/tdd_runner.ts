@@ -1,71 +1,62 @@
-import { SubagentRunner } from "../integrate/subagent_runner.js";
+import { spawnSync } from "child_process";
+import * as fs from "fs";
 
 export class TDDRunner {
-  public static run(cwd: string, testCommand: string): { success: boolean; failures: string[]; output: string } {
-    try {
-      const result = SubagentRunner.execute(cwd, testCommand);
-      const combinedOutput = `${result.stdout}\n${result.stderr}`;
-      const failures = this.parseFailures(combinedOutput);
+  public static run(cwd: string, testCommand: string): {
+    success: boolean;
+    failures: string[];
+    exitCode: number;
+    stdout: string;
+    stderr: string;
+  } {
+    const parts = testCommand.split(" ");
+    const cmd = parts[0];
+    const args = parts.slice(1);
 
-      return {
-        success: result.exitCode === 0 && failures.length === 0,
-        failures,
-        output: combinedOutput
-      };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return {
-        success: false,
-        failures: [message],
-        output: `Runner Execution Failure: ${message}`
-      };
-    }
-  }
-
-  public static parseFailures(output: string): string[] {
-    if (!output || typeof output !== "string") {
-      return [];
-    }
-
-    // Safety: limit total output size to process to prevent OOM
-    const maxOutputLength = 1024 * 1024; // 1 MB
-    const targetOutput = output.length > maxOutputLength ? output.slice(0, maxOutputLength) : output;
-
-    const lines = targetOutput.slice().split("\n");
+    let stdoutAccum = "";
+    let stderrAccum = "";
     const failures: string[] = [];
+    let success = true;
+    let exitCode = 0;
 
-    // Safety: limit maximum line length and total failures captured to prevent performance/memory degradation
-    const maxLineLength = 2048;
-    const maxFailures = 100;
+    const failRegex = /(FAIL|failing|Error:|Exception|failed)/i;
 
-    for (let i = 0; i < lines.length; i++) {
-      if (failures.length >= maxFailures) {
-        break;
+    try {
+      const child = spawnSync(cmd, args, {
+        cwd,
+        env: { ...process.env, FORCE_COLOR: "0" },
+        shell: true,
+        timeout: 10000,
+        encoding: "utf-8"
+      });
+
+      stdoutAccum = child.stdout || "";
+      stderrAccum = child.stderr || "";
+      exitCode = child.status !== null ? child.status : 1;
+
+      const lines = (stdoutAccum + "\n" + stderrAccum).split("\n");
+      lines.forEach(line => {
+        if (failRegex.test(line)) {
+          success = false;
+          failures.push(line.trim());
+        }
+      });
+
+      if (exitCode !== 0) {
+        success = false;
       }
 
-      let line = lines[i];
-      if (line.length > maxLineLength) {
-        // Truncate line instead of skipping, so we can still detect failure signatures
-        line = line.slice(0, maxLineLength);
-      }
-
-      const trimmed = line.trim();
-      if (!trimmed) {
-        continue;
-      }
-
-      // Detect failure signatures from common runners (bun, jest, pytest, cargo)
-      if (
-        (trimmed.startsWith("FAIL") && !/^FAIL\s+\S+$/.test(trimmed)) ||
-        trimmed.includes("Error:") ||
-        trimmed.includes("Exception:") ||
-        trimmed.startsWith("assertion failed") ||
-        trimmed.startsWith("failed:")
-      ) {
-        failures.push(trimmed);
-      }
+    } catch (e: any) {
+      success = false;
+      failures.push(e.message || "Failed to execute test command execution");
     }
 
-    return failures;
+    return {
+      success,
+      failures: failures.slice(0, 10),
+      exitCode,
+      stdout: stdoutAccum,
+      stderr: stderrAccum
+    };
   }
 }

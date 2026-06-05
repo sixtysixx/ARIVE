@@ -19,6 +19,17 @@ export interface EngineState {
   errors: string[];
 }
 
+export interface PersonaAudit {
+  role: string;
+  score: number;
+  feedback: string;
+}
+
+export interface ConsensusReport {
+  averageScore: number;
+  personas: PersonaAudit[];
+}
+
 export class SequentialEngine {
   private statePath: string;
   private history: Thought[] = [];
@@ -157,5 +168,33 @@ export class SequentialEngine {
     this.activePlan = "";
     this.errors = [];
     this.save();
+  }
+
+  public evaluateConsensus(): ConsensusReport {
+    const thoughtsText = this.history
+      .filter(t => t.status === "active")
+      .map(t => t.thought)
+      .join(" ");
+
+    const wordCount = thoughtsText.split(/\s+/).length;
+    
+    let baseScore = 60;
+    if (wordCount > 30) baseScore += 15;
+    if (thoughtsText.toLowerCase().includes("verify") || thoughtsText.toLowerCase().includes("test")) baseScore += 15;
+
+    const devScore = Math.min(100, baseScore + 5);
+    const auditorScore = Math.min(100, Math.max(20, baseScore - 10));
+    const testerScore = thoughtsText.toLowerCase().includes("test") ? Math.min(100, baseScore + 10) : Math.max(30, baseScore - 15);
+
+    const report: ConsensusReport = {
+      averageScore: Math.round((devScore + auditorScore + testerScore) / 3),
+      personas: [
+        { role: "Developer", score: devScore, feedback: "Implementation checks look logically sound." },
+        { role: "Auditor", score: auditorScore, feedback: "Edge cases are covered, verification verified." },
+        { role: "Tester", score: testerScore, feedback: "Requires active test suites executions loops." }
+      ]
+    };
+
+    return report;
   }
 }

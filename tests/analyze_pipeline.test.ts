@@ -11,6 +11,18 @@ describe("Analyze Pipeline Tests", () => {
     expect(ContentRouter.classify("This is just standard prose writing.")).toBe("prose");
   });
 
+  describe("Semantic Term Classification", () => {
+    test("Routes JSON messages correctly by cosine-similarity keyword profiles", () => {
+      const jsonPayload = `{"status": 200, "data": {"items": [1, 2, 3]}, "message": "success"}`;
+      expect(ContentRouter.classify(jsonPayload)).toBe("json");
+    });
+
+    test("Routes standard prose logs correctly by logs profile features", () => {
+      const logsPayload = `at Socket.EventEmitter.emit (node:events:394) error unhandled exception in database connection`;
+      expect(ContentRouter.classify(logsPayload)).toBe("logs");
+    });
+  });
+
   test("Smart Crusher JSON array flattening", () => {
     const rawJson = JSON.stringify({
       users: [

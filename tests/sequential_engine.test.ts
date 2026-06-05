@@ -47,4 +47,13 @@ describe("Sequential Engine Tests", () => {
     expect(state.errors.length).toBe(1);
     expect(state.errors[0]).toContain("Failed to load state");
   });
+
+  test("Evaluates consensus scoring across virtual agent personas", () => {
+    const engine = new SequentialEngine(statePath);
+    engine.addThought("Verify implementation of sqlite integration checks", 1, 3, true);
+    const debate = engine.evaluateConsensus();
+    expect(debate.averageScore).toBeGreaterThanOrEqual(0);
+    expect(debate.averageScore).toBeLessThanOrEqual(100);
+    expect(debate.personas.length).toBe(3);
+  });
 });

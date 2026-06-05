@@ -87,6 +87,12 @@ export class WorkspaceManager {
       this.cleanup(taskId);
     }
 
+    // Ensure the parent directory exists before git worktree add
+    const parentDir = path.dirname(targetPath);
+    if (!fs.existsSync(parentDir)) {
+      fs.mkdirSync(parentDir, { recursive: true });
+    }
+
     // Clean worktree registry if needed
     try {
       execFileSync("git", ["worktree", "prune"], { stdio: "ignore" });
@@ -97,8 +103,29 @@ export class WorkspaceManager {
       execFileSync("git", ["branch", "-D", targetBranch], { stdio: "ignore" });
     } catch (e) {}
 
-    // Add the worktree
-    execFileSync("git", ["worktree", "add", "-b", targetBranch, targetPath], { stdio: "ignore" });
+    // Add the worktree with retry logic for Windows lock issues
+    let lastError: Error | null = null;
+    for (let i = 0; i < 3; i++) {
+      try {
+        execFileSync("git", ["worktree", "add", "-b", targetBranch, targetPath], { 
+          stdio: ["ignore", "pipe", "pipe"],
+          env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1" }
+        });
+        lastError = null;
+        break;
+      } catch (e: any) {
+        const stderr = e.stderr?.toString() || "";
+        lastError = new Error(`Failed to add git worktree: ${stderr || e.message}`);
+        // Wait briefly before retry
+        const delay = (i + 1) * 200;
+        const start = Date.now();
+        while (Date.now() - start < delay) { /* sync sleep */ }
+      }
+    }
+
+    if (lastError) {
+      throw lastError;
+    }
 
     return path.resolve(targetPath);
   }
