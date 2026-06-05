@@ -3,33 +3,48 @@ import ts from "typescript";
 export class ASTCompressor {
   public static compress(code: string): string {
     try {
-      const sourceFile = ts.createSourceFile(
-        "temp.ts",
-        code,
-        ts.ScriptTarget.Latest,
-        true,
-        ts.ScriptKind.TS
-      );
-
-      return this.printNodeMinified(sourceFile, sourceFile).trim();
+      const sourceFile = ts.createSourceFile("temp.ts", code, ts.ScriptTarget.Latest, true);
+      let result = "";
+      const visit = (node: ts.Node) => {
+        if (ts.isSourceFile(node)) {
+          ts.forEachChild(node, visit);
+        } else {
+          const text = node.getText(sourceFile);
+          result += text + "\n";
+        }
+      };
+      visit(sourceFile);
+      return code.replace(/\/\*[\s\S]*?\*\/|([^\\:]|^)\/\/.*$/gm, "").replace(/\s+/g, " ").trim();
     } catch (e) {
       return code;
     }
   }
 
-  private static printNodeMinified(node: ts.Node, sourceFile: ts.SourceFile): string {
-    const printer = ts.createPrinter({
-      removeComments: true,
-      newLine: ts.NewLineKind.LineFeed
-    });
+  public static compressMultiLanguage(code: string, language: string): string {
+    const lang = language.toLowerCase();
+    if (lang === "typescript" || lang === "javascript" || lang === "ts" || lang === "js") {
+      return this.compress(code);
+    }
 
-    const result = printer.printNode(ts.EmitHint.Unspecified, node, sourceFile);
-    
-    // Minimize blank lines & formatting whitespace runs
+    let result = code;
+    if (lang === "python") {
+      // Strip docstrings
+      result = result.replace(/\"\"\"[\s\S]*?\"\"\"/g, "");
+      result = result.replace(/\'\'\'[\s\S]*?\'\'\'/g, "");
+      // Strip inline comments
+      result = result.replace(/#.*$/gm, "");
+    } else if (["go", "rust", "cpp", "c", "java"].includes(lang)) {
+      // Strip block comments
+      result = result.replace(/\/\*[\s\S]*?\*\//g, "");
+      // Strip inline comments
+      result = result.replace(/\/\/.*$/gm, "");
+    }
+
+    // Cleanup whitespace lines
     return result
       .split("\n")
-      .map(line => line.trim())
-      .filter(line => line.length > 0)
+      .map(line => line.trimEnd())
+      .filter(line => line.trim().length > 0)
       .join("\n");
   }
 }

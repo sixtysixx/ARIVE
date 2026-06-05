@@ -50,4 +50,31 @@ describe("Analyze Pipeline Tests", () => {
     const prompt = "  Line 1   \r\n\r\n   Line 2 \n ";
     expect(CacheAligner.align(prompt)).toBe("Line 1\nLine 2");
   });
+
+  describe("Multi-Language Compression", () => {
+    test("Compresses Python code comments and docstrings", () => {
+      const pythonRaw = `def add(a, b):
+    \"\"\"This is a docstring
+    with multiple lines\"\"\"
+    # Inline comment
+    return a + b  # inline addition`;
+      const compressed = ASTCompressor.compressMultiLanguage(pythonRaw, "python");
+      expect(compressed.includes("docstring")).toBe(false);
+      expect(compressed.includes("Inline comment")).toBe(false);
+      expect(compressed.trim()).toBe("def add(a, b):\n    return a + b");
+    });
+
+    test("Compresses Go/Rust/C++ comments", () => {
+      const rustRaw = `fn main() {
+    /* Block comment
+       spanning multiple lines */
+    let x = 5; // inline comment
+    println!("{}", x);
+}`;
+      const compressed = ASTCompressor.compressMultiLanguage(rustRaw, "rust");
+      expect(compressed.includes("Block comment")).toBe(false);
+      expect(compressed.includes("inline comment")).toBe(false);
+      expect(compressed.includes("x = 5")).toBe(true);
+    });
+  });
 });
