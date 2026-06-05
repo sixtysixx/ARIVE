@@ -176,7 +176,72 @@ Add this configuration to your local config at `%USERPROFILE%\.gemini\antigravit
 ```
 
 ### Claude Desktop
-Add this to your configuration (e.g., `appData/Roaming/EasyCode/claude_desktop_config.json` or standard `claude_desktop_config.json` configuration path):
+Add this to your configuration (e.g., `%APPDATA%\EasyCode\claude_desktop_config.json` or standard `claude_desktop_config.json` configuration path):
+```json
+{
+  "mcpServers": {
+    "arive": {
+      "command": "bunx",
+      "args": [
+        "github:sixtysixx/ARIVE"
+      ]
+    }
+  }
+}
+```
+
+### OpenCode
+Add this to your organizational remote config, global configuration `~/.config/opencode/opencode.json` (or `opencode.jsonc`), or project config `opencode.json` inside your project root:
+```json
+{
+  "mcp": {
+    "arive": {
+      "type": "local",
+      "command": [
+        "bunx",
+        "github:sixtysixx/ARIVE"
+      ],
+      "enabled": true
+    }
+  }
+}
+```
+
+### KiloCode
+You can use the **MCP Servers** panel UI by clicking the gear icon and clicking **Edit Global MCP**, or you can define it locally inside your workspace under `.kilocode/mcp.json`:
+```json
+{
+  "mcpServers": {
+    "arive": {
+      "command": "bunx",
+      "args": [
+        "github:sixtysixx/ARIVE"
+      ]
+    }
+  }
+}
+```
+
+### VS Code (Cline & Roo Code)
+You can configure this globally (via the **MCP Servers** tab in the Cline/Roo Code pane, clicking **Edit Global MCP**) or locally for a specific workspace:
+*   **Cline Project-Level Config:** `.cline/mcp.json`
+*   **Roo Code Project-Level Config:** `.roo/mcp.json`
+
+```json
+{
+  "mcpServers": {
+    "arive": {
+      "command": "bunx",
+      "args": [
+        "github:sixtysixx/ARIVE"
+      ]
+    }
+  }
+}
+```
+
+### Cursor
+Add this through the Cursor settings UI under **Settings > Features > MCP**, clicking **Add new MCP server** (with type `stdio` and command `bunx github:sixtysixx/ARIVE`), or add it manually to your project's `.cursor/mcp.json`:
 ```json
 {
   "mcpServers": {
