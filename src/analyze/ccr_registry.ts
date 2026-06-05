@@ -1,48 +1,40 @@
+import { Database } from "bun:sqlite";
+import * as crypto from "crypto";
 import * as fs from "fs";
 import * as path from "path";
-import { createHash } from "crypto";
 
 export class CCRRegistry {
-  private dbPath: string;
-  private storeMap: Record<string, string> = {};
+  private db: Database;
 
-  constructor(dbPath = ".arive/ccr_store.json") {
-    this.dbPath = dbPath;
-    this.load();
-  }
-
-  private load() {
-    try {
-      if (fs.existsSync(this.dbPath)) {
-        const fileContent = fs.readFileSync(this.dbPath, "utf-8");
-        this.storeMap = JSON.parse(fileContent);
-      }
-    } catch (e) {
-      this.storeMap = {};
+  constructor(dbPath: string = ".arive/ccr_store.db") {
+    const dir = path.dirname(dbPath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
     }
-  }
-
-  private save() {
-    try {
-      const dir = path.dirname(this.dbPath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-      fs.writeFileSync(this.dbPath, JSON.stringify(this.storeMap, null, 2), "utf-8");
-    } catch (e) {
-      // Silent save failure
-    }
+    this.db = new Database(dbPath);
+    this.db.run(
+      "CREATE TABLE IF NOT EXISTS ccr_cache (hash TEXT PRIMARY KEY, content TEXT);"
+    );
   }
 
   public store(content: string): string {
-    const sha = createHash("sha256").update(content).digest("hex");
-    const key = `ccr:${sha}`;
-    this.storeMap[key] = content;
-    this.save();
-    return key;
+    const hash = "ccr:" + crypto.createHash("sha256").update(content).digest("hex");
+    const query = this.db.prepare("INSERT OR REPLACE INTO ccr_cache (hash, content) VALUES (?, ?);");
+    query.run(hash, content);
+    return hash;
   }
 
-  public retrieve(hash: string): string | undefined {
-    return this.storeMap[hash];
+  public retrieve(hash: string): string | null {
+    const query = this.db.prepare("SELECT content FROM ccr_cache WHERE hash = ?;");
+    const row = query.get(hash) as { content: string } | undefined;
+    return row ? row.content : null;
+  }
+
+  public clear(): void {
+    this.db.run("DELETE FROM ccr_cache;");
+  }
+
+  public close(): void {
+    this.db.close();
   }
 }

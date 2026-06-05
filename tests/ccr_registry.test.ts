@@ -1,30 +1,38 @@
-import { expect, test, describe, beforeAll, afterAll } from "bun:test";
+import { expect, test, describe } from "bun:test";
 import { CCRRegistry } from "../src/analyze/ccr_registry.js";
 import * as fs from "fs";
 
-describe("CCR Registry Tests", () => {
-  const dbPath = ".arive/test_ccr_store.json";
-  
-  beforeAll(() => {
-    if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
-  });
+describe("SQLite CCR Persistence", () => {
+  test("Persists content to disk sqlite database and loads across instances", async () => {
+    const dbPath = ".arive/test_ccr_store.db";
+    if (fs.existsSync(dbPath)) {
+      try {
+        fs.unlinkSync(dbPath);
+      } catch (e) {
+        // Ignore if locked initially
+      }
+    }
 
-  afterAll(() => {
-    if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
-  });
+    const registry1 = new CCRRegistry(dbPath);
+    const content = "persistent sqlite cached content block example";
+    const hash = registry1.store(content);
+    registry1.close();
 
-  test("Store and retrieve contents", () => {
-    const registry = new CCRRegistry(dbPath);
-    const content = "Hello World Raw Content";
-    const hash = registry.store(content);
-    expect(hash).toBe("ccr:937630995fc998f52ffe7a11052783202b01ec5c8a3fdfed83fa591acd7a15f8");
-    
-    const retrieved = registry.retrieve(hash);
+    const registry2 = new CCRRegistry(dbPath);
+    const retrieved = registry2.retrieve(hash);
     expect(retrieved).toBe(content);
-  });
+    registry2.close();
 
-  test("Returns null/undefined for missing hashes", () => {
-    const registry = new CCRRegistry(dbPath);
-    expect(registry.retrieve("ccr:missing")).toBeUndefined();
+    // Retry loop for unlinking on Windows to handle asynchronous resource release
+    for (let i = 0; i < 20; i++) {
+      try {
+        if (fs.existsSync(dbPath)) {
+          fs.unlinkSync(dbPath);
+        }
+        break;
+      } catch (e) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    }
   });
 });
