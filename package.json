@@ -6,6 +6,10 @@
   "bin": {
     "arive": "./src/index.ts"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sixtysixx/ARIVE.git"
+  },
   "scripts": {
     "start": "bun run src/index.ts",
     "test": "bun test"
