@@ -1,59 +1,54 @@
-import { expect, test, describe, beforeAll, afterAll } from "bun:test";
-import { SequentialEngine } from "../src/reason/sequential_engine.js";
+import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach } from "bun:test";
+import { SequentialEngine, Thought } from "../src/reason/sequential_engine.js";
 import * as fs from "fs";
+import * as path from "path";
 
 describe("Sequential Engine Tests", () => {
-  const statePath = ".arive/test_thinking_state.json";
+  const statePath = ".arive/test_thinking_state.db";
+  let engine: SequentialEngine;
 
-  beforeAll(() => {
+  beforeEach(() => {
     if (fs.existsSync(statePath)) fs.unlinkSync(statePath);
+    engine = new SequentialEngine(statePath);
   });
 
-  afterAll(() => {
-    if (fs.existsSync(statePath)) fs.unlinkSync(statePath);
+  afterEach(() => {
+    engine.close();
+    if (fs.existsSync(statePath)) {
+      try {
+        fs.unlinkSync(statePath);
+      } catch {}
+    }
   });
 
   test("Thought tracking and branching", () => {
-    const engine = new SequentialEngine(statePath);
-    
-    // Add thoughts
-    engine.addThought("Hypothesis 1", 1, 3, true);
-    engine.addThought("Hypothesis 2", 2, 3, true);
+    engine.addThought("Initial thought", 1, 3, true);
+    engine.addThought("Second thought", 2, 3, true);
     
     let state = engine.getState();
     expect(state.history.length).toBe(2);
-    expect(state.history[0].thought).toBe("Hypothesis 1");
+    expect(state.history[0].thought).toBe("Initial thought");
     expect(state.history[1].status).toBe("active");
 
-    // Backtrack
-    engine.addThought("Revised Hyp 2", 2, 3, true, true, 1);
-    
+    // Revision: revise thought 1 (backtracks all after 1)
+    engine.addThought("Revised thought 2", 2, 3, false, true, 1);
     state = engine.getState();
-    // Index 1 (Hypothesis 2) should be backtracked
-    expect(state.history[1].status).toBe("backtracked");
-    expect(state.history[2].thought).toBe("Revised Hyp 2");
-    expect(state.history[2].status).toBe("active");
-  });
-
-  test("Corrupted state file handling on load", () => {
-    // Write invalid JSON to statePath
-    fs.writeFileSync(statePath, "{ invalid json", "utf-8");
     
-    // Engine should load safely and reset state
-    const engine = new SequentialEngine(statePath);
-    const state = engine.getState();
-    expect(state.history.length).toBe(0);
-    expect(state.activePlan).toBe("");
-    expect(state.errors.length).toBe(1);
-    expect(state.errors[0]).toContain("Failed to load state");
+    expect(state.history.length).toBe(3);
+    // Original thought 2 should be backtracked
+    const t2 = state.history.find((t: Thought) => t.thought === "Second thought");
+    expect(t2?.status).toBe("backtracked");
+    
+    const rev2 = state.history.find((t: Thought) => t.thought === "Revised thought 2");
+    expect(rev2?.status).toBe("active");
   });
 
   test("Evaluates consensus scoring across virtual agent personas", () => {
-    const engine = new SequentialEngine(statePath);
-    engine.addThought("Verify implementation of sqlite integration checks", 1, 3, true);
-    const debate = engine.evaluateConsensus();
-    expect(debate.averageScore).toBeGreaterThanOrEqual(0);
-    expect(debate.averageScore).toBeLessThanOrEqual(100);
-    expect(debate.personas.length).toBe(3);
+    engine.addThought("We should implement a robust verification loop using bun test and verify all edge cases.", 1, 1, false);
+    const report = engine.evaluateConsensus();
+    
+    expect(report.averageScore).toBeGreaterThan(60);
+    expect(report.personas.length).toBe(3);
+    expect(report.personas[0].role).toBe("Developer");
   });
 });

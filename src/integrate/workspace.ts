@@ -46,6 +46,13 @@ function execGitWithRetry(args: string[], retries = 3, delayMs = 150): void {
   }
 }
 
+export interface WorkspaceInfo {
+  taskId: string;
+  path: string;
+  branch: string;
+  createdAt?: string;
+}
+
 export class WorkspaceManager {
   public static validateTaskId(taskId: string): void {
     const taskIdRegex = /^[a-zA-Z0-9_\-]+$/;
@@ -82,10 +89,8 @@ export class WorkspaceManager {
       execFileSync("git", ["commit", "-m", "chore: initialize Git and gitignore"]);
     }
 
-    // Check if target directory already exists
-    if (fs.existsSync(targetPath)) {
-      this.cleanup(taskId);
-    }
+    // Comprehensive cleanup before creation
+    this.cleanup(taskId, targetBranch);
 
     // Ensure the parent directory exists before git worktree add
     const parentDir = path.dirname(targetPath);
@@ -93,21 +98,12 @@ export class WorkspaceManager {
       fs.mkdirSync(parentDir, { recursive: true });
     }
 
-    // Clean worktree registry if needed
-    try {
-      execFileSync("git", ["worktree", "prune"], { stdio: "ignore" });
-    } catch (e) {}
-
-    // If the branch already exists, delete it first to ensure a fresh one
-    try {
-      execFileSync("git", ["branch", "-D", targetBranch], { stdio: "ignore" });
-    } catch (e) {}
-
     // Add the worktree with retry logic for Windows lock issues
     let lastError: Error | null = null;
     for (let i = 0; i < 3; i++) {
       try {
-        execFileSync("git", ["worktree", "add", "-b", targetBranch, targetPath], { 
+        // Use -B to create or reset the branch, which is more robust than manual deletion
+        execFileSync("git", ["worktree", "add", "-B", targetBranch, targetPath], { 
           stdio: ["ignore", "pipe", "pipe"],
           env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1" }
         });
@@ -127,21 +123,74 @@ export class WorkspaceManager {
       throw lastError;
     }
 
+    // Dependency Isolation: Symlink node_modules
+    const sourceModules = path.resolve("node_modules");
+    const targetModules = path.join(path.resolve(targetPath), "node_modules");
+    if (fs.existsSync(sourceModules)) {
+      try {
+        // On Windows, symlink requires elevation or Developer Mode, but junction works for directories
+        fs.symlinkSync(sourceModules, targetModules, "junction");
+      } catch (e) {
+        console.warn(`[WorkspaceManager] Failed to symlink node_modules: ${e}`);
+      }
+    }
+
     return path.resolve(targetPath);
   }
 
-  public static cleanup(taskId: string): void {
+  public static list(): WorkspaceInfo[] {
+    try {
+      const output = execFileSync("git", ["worktree", "list", "--porcelain"], { encoding: "utf-8" });
+      const worktrees: WorkspaceInfo[] = [];
+      const blocks = output.split("\n\n");
+
+      for (const block of blocks) {
+        if (!block.trim()) continue;
+        const lines = block.split("\n");
+        const info: any = {};
+        for (const line of lines) {
+          const [key, ...valueParts] = line.split(" ");
+          const value = valueParts.join(" ");
+          if (key === "worktree") info.path = value;
+          if (key === "branch") info.branch = value.replace("refs/heads/", "");
+        }
+
+        if (info.path && info.path.includes(".arive-worktrees")) {
+          const taskId = path.basename(info.path);
+          worktrees.push({
+            taskId,
+            path: info.path,
+            branch: info.branch || "detached",
+            createdAt: fs.statSync(info.path).birthtime.toISOString()
+          });
+        }
+      }
+      return worktrees;
+    } catch (e) {
+      return [];
+    }
+  }
+
+  public static cleanup(taskId: string, branchName?: string): void {
     this.validateTaskId(taskId);
     const targetPath = path.join(".arive-worktrees", taskId);
-    const branchName = `arive-task-${taskId}`;
+    const defaultBranch = `arive-task-${taskId}`;
+    const targetBranch = branchName || defaultBranch;
 
+    // Always try to prune first to clean up any "ghost" worktrees in git's internal state
+    try {
+      execFileSync("git", ["worktree", "prune"], { stdio: "ignore" });
+    } catch (e) {}
+
+    // Try to remove the worktree by path if git knows about it
+    try {
+      execGitWithRetry(["worktree", "remove", "--force", targetPath], 3, 150);
+    } catch (e) {
+      // It might not be a registered worktree, which is fine
+    }
+
+    // Ensure directory is gone from disk
     if (fs.existsSync(targetPath)) {
-      try {
-        execGitWithRetry(["worktree", "remove", "--force", targetPath], 3, 150);
-      } catch (e) {
-        // Attempt file cleanup even if worktree remove fails
-      }
-
       try {
         rmSyncWithRetry(targetPath, 5, 150);
       } catch (e) {
@@ -149,17 +198,21 @@ export class WorkspaceManager {
       }
     }
 
+    // Clean up the target branch if it's not the current one
     try {
-      execFileSync("git", ["branch", "-D", branchName], { stdio: "ignore" });
+      execFileSync("git", ["branch", "-D", targetBranch], { stdio: "ignore" });
     } catch (e) {}
 
-    try {
-      execFileSync("git", ["branch", "-D", "arive-test-branch"], { stdio: "ignore" });
-    } catch (e) {}
+    // Also clean up the default branch if it's different
+    if (targetBranch !== defaultBranch) {
+      try {
+        execFileSync("git", ["branch", "-D", defaultBranch], { stdio: "ignore" });
+      } catch (e) {}
+    }
 
+    // Final prune
     try {
       execFileSync("git", ["worktree", "prune"], { stdio: "ignore" });
     } catch (e) {}
   }
 }
-

@@ -5,14 +5,18 @@ import { SequentialEngine } from "../src/reason/sequential_engine.js";
 import * as fs from "fs";
 
 describe("TDD & Verification Tests", () => {
-  const statePath = ".arive/test_thinking_verify.json";
+  const statePath = ".arive/test_thinking_verify.db";
 
   beforeAll(() => {
     if (fs.existsSync(statePath)) fs.unlinkSync(statePath);
   });
 
   afterAll(() => {
-    if (fs.existsSync(statePath)) fs.unlinkSync(statePath);
+    if (fs.existsSync(statePath)) {
+      try {
+        fs.unlinkSync(statePath);
+      } catch {}
+    }
   });
 
   test("Backprop reflex feedback loop integration", () => {
@@ -25,6 +29,7 @@ describe("TDD & Verification Tests", () => {
     const state = engine.getState();
     expect(state.errors.length).toBe(1);
     expect(state.errors[0]).toBe("Test failure line 20");
+    engine.close();
   });
 
   test("CCR hash verification using verifyHash", () => {
