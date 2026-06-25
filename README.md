@@ -304,7 +304,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Credits
 
-ARIVE integrates, models, and adapts ideas and pipelines from the following core development paradigms:
+ARIVE integrates ideas and pipelines from the following core development paradigms - Thank you for the inspiration:
 
 - **headroom** (`chopratejas/headroom`): Local, reversible context compression.
 - **sequentialthinking** (`modelcontextprotocol/servers/sequentialthinking`): Step-by-step reasoning with reflective backtracking.
