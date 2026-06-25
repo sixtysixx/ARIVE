@@ -207,6 +207,13 @@ export default async ({ client } = {}) => {
 
 export function installAll(workspacePath?: string): void {
   const wsRoot = workspacePath ? path.resolve(workspacePath) : process.cwd();
+  const rootDir = path.resolve(process.cwd());
+  const relativePath = path.relative(rootDir, wsRoot);
+  const isOutside = relativePath.startsWith("..") || path.isAbsolute(relativePath);
+  if (isOutside && wsRoot !== rootDir) {
+    throw new Error(`Security Exception: Workspace path "${wsRoot}" is outside the allowed project directory.`);
+  }
+
   console.log(`Starting ARIVE installer for workspace: ${wsRoot}`);
 
   // 1. Install Git pre-commit hooks if inside Git repository
@@ -229,8 +236,8 @@ export function installAll(workspacePath?: string): void {
     fs.mkdirSync(cursorRulesDir, { recursive: true });
     fs.writeFileSync(
       path.join(cursorRulesDir, "ponytail.mdc"),
-      `---\ndescription: Ponytail, lazy senior dev mode\nglobs:\nalwaysApply: true\n---\n${ponytailRules}`,
-      "utf-8",
+      `---\ndescription: Ponytail, lazy senior dev mode\nglobs: "*"\nalwaysApply: true\n---\n${ponytailRules}`,
+      "utf-8"
     );
 
     // B. Cline, Roo Code

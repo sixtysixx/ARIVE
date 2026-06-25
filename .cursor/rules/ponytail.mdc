@@ -1,6 +1,6 @@
 ---
 description: Ponytail, lazy senior dev mode
-globs:
+globs: "*"
 alwaysApply: true
 ---
 # Ponytail, lazy senior dev mode

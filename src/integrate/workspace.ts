@@ -64,7 +64,8 @@ export class WorkspaceManager {
     const targetModules = path.join(absoluteTargetPath, "node_modules");
     if (fs.existsSync(sourceModules)) {
       try {
-        fs.symlinkSync(sourceModules, targetModules, "junction");
+        const type = process.platform === "win32" ? "junction" : "dir";
+        fs.symlinkSync(sourceModules, targetModules, type);
       } catch (e: unknown) {
         const message = e instanceof Error ? e.message : String(e);
         console.warn(

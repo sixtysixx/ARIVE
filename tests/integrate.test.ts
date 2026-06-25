@@ -68,7 +68,7 @@ describe("Workspace & Subagent Integration Tests", () => {
     expect(result.exitCode).toBe(123);
   });
 
-  test("Subagent runner handles subprocess runerrs", () => {
+  test("Subagent runner handles subprocess run errors", () => {
     // Use an invalid command name to trigger spawnSync error
     const result = SubagentRunner.execute(
       taskPath,

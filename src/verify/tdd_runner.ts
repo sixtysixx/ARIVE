@@ -12,8 +12,19 @@ export class TDDRunner {
     stdout: string;
     stderr: string;
   } {
-    const parts = testCommand.split(" ");
-    const cmd = parts[0];
+    const parts: string[] = [];
+    const regex = /"[^"\\]*(?:\\.[^"\\]*)*"|'[^'\\]*(?:\\.[^'\\]*)*'|[^\s]+/g;
+    let match;
+    while ((match = regex.exec(testCommand)) !== null) {
+      let part = match[0];
+      if (part.startsWith('"') && part.endsWith('"')) {
+        part = part.slice(1, -1).replace(/\\"/g, '"');
+      } else if (part.startsWith("'") && part.endsWith("'")) {
+        part = part.slice(1, -1).replace(/\\'/g, "'");
+      }
+      parts.push(part);
+    }
+    const cmd = parts[0] || "";
     const args = parts.slice(1);
 
     let stdoutAccum = "";
