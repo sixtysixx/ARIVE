@@ -11,6 +11,18 @@ describe("Analyze Pipeline Tests", () => {
     expect(ContentRouter.classify("This is just standard prose writing.")).toBe("prose");
   });
 
+  describe("Semantic Term Classification", () => {
+    test("Routes JSON messages correctly by cosine-similarity keyword profiles", () => {
+      const jsonPayload = `{"status": 200, "data": {"items": [1, 2, 3]}, "message": "success"}`;
+      expect(ContentRouter.classify(jsonPayload)).toBe("json");
+    });
+
+    test("Routes standard prose logs correctly by logs profile features", () => {
+      const logsPayload = `at Socket.EventEmitter.emit (node:events:394) error unhandled exception in database connection`;
+      expect(ContentRouter.classify(logsPayload)).toBe("logs");
+    });
+  });
+
   test("Smart Crusher JSON array flattening", () => {
     const rawJson = JSON.stringify({
       users: [
@@ -49,5 +61,32 @@ describe("Analyze Pipeline Tests", () => {
   test("Cache Aligner normalizes content whitespace", () => {
     const prompt = "  Line 1   \r\n\r\n   Line 2 \n ";
     expect(CacheAligner.align(prompt)).toBe("Line 1\nLine 2");
+  });
+
+  describe("Multi-Language Compression", () => {
+    test("Compresses Python code comments and docstrings", () => {
+      const pythonRaw = `def add(a, b):
+    \"\"\"This is a docstring
+    with multiple lines\"\"\"
+    # Inline comment
+    return a + b  # inline addition`;
+      const compressed = ASTCompressor.compressMultiLanguage(pythonRaw, "python");
+      expect(compressed.includes("docstring")).toBe(false);
+      expect(compressed.includes("Inline comment")).toBe(false);
+      expect(compressed.trim()).toBe("def add(a, b):\n    return a + b");
+    });
+
+    test("Compresses Go/Rust/C++ comments", () => {
+      const rustRaw = `fn main() {
+    /* Block comment
+       spanning multiple lines */
+    let x = 5; // inline comment
+    println!("{}", x);
+}`;
+      const compressed = ASTCompressor.compressMultiLanguage(rustRaw, "rust");
+      expect(compressed.includes("Block comment")).toBe(false);
+      expect(compressed.includes("inline comment")).toBe(false);
+      expect(compressed.includes("x = 5")).toBe(true);
+    });
   });
 });

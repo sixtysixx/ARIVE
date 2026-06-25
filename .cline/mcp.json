@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "arive": {
+      "command": "bunx",
+      "args": [
+        "github:sixtysixx/ARIVE"
+      ]
+    }
+  }
+}

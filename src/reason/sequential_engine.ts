@@ -1,3 +1,4 @@
+import { Database, Statement } from "bun:sqlite";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -19,74 +20,55 @@ export interface EngineState {
   errors: string[];
 }
 
+export interface PersonaAudit {
+  role: string;
+  score: number;
+  feedback: string;
+}
+
+export interface ConsensusReport {
+  averageScore: number;
+  personas: PersonaAudit[];
+}
+
 export class SequentialEngine {
+  private db: Database;
   private statePath: string;
-  private history: Thought[] = [];
-  private activePlan: string = "";
-  private errors: string[] = [];
 
-  constructor(statePath = ".arive/thinking_state.json") {
+  constructor(statePath = ".arive/thinking_state.db") {
+    // Handle migration or different extension if needed, but the plan says use .db
     this.statePath = statePath;
-    this.load();
-  }
-
-  private load() {
-    try {
-      if (fs.existsSync(this.statePath)) {
-        const content = fs.readFileSync(this.statePath, "utf-8");
-        if (!content.trim()) {
-          throw new Error("State file is empty");
-        }
-        const data = JSON.parse(content);
-        if (data && typeof data === "object") {
-          this.history = Array.isArray(data.history) ? data.history : [];
-          this.activePlan = typeof data.activePlan === "string" ? data.activePlan : "";
-          this.errors = Array.isArray(data.errors) ? data.errors : [];
-        } else {
-          throw new Error("Invalid state format: root must be an object");
-        }
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`[SequentialEngine] Failed to load state from ${this.statePath}: ${message}`);
-      this.history = [];
-      this.activePlan = "";
-      this.errors = [`Failed to load state: ${message}`];
+    const dir = path.dirname(statePath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
     }
+    this.db = new Database(statePath);
+    this.initDb();
   }
 
-  private save() {
-    let tempPath: string | null = null;
-    try {
-      const dir = path.dirname(this.statePath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-      tempPath = `${this.statePath}.${Math.random().toString(36).slice(2)}.tmp`;
-      const content = JSON.stringify(
-        {
-          history: this.history,
-          activePlan: this.activePlan,
-          errors: this.errors,
-        },
-        null,
-        2
+  private initDb() {
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS thoughts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT DEFAULT 'default',
+        thought_number INTEGER,
+        total_thoughts INTEGER,
+        thought TEXT,
+        next_thought_needed BOOLEAN,
+        is_revision BOOLEAN,
+        revises_thought_num INTEGER,
+        branch_to_thought_num INTEGER,
+        timestamp TEXT,
+        status TEXT
       );
-      fs.writeFileSync(tempPath, content, "utf-8");
-      fs.renameSync(tempPath, this.statePath);
-      tempPath = null;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`[SequentialEngine] Failed to save state to ${this.statePath}: ${message}`);
-      this.errors.push(`Failed to save state: ${message}`);
-      if (tempPath && fs.existsSync(tempPath)) {
-        try {
-          fs.unlinkSync(tempPath);
-        } catch {
-          // Ignore secondary failure during cleanup
-        }
-      }
-    }
+    `);
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS engine_state (
+        session_id TEXT PRIMARY KEY,
+        active_plan TEXT,
+        errors TEXT
+      );
+    `);
   }
 
   public addThought(
@@ -96,66 +78,148 @@ export class SequentialEngine {
     nextThoughtNeeded: boolean,
     isRevision?: boolean,
     revisesThoughtNum?: number,
-    branchToThoughtNum?: number
+    branchToThoughtNum?: number,
+    sessionId: string = "default"
   ): EngineState {
     if (isRevision && revisesThoughtNum !== undefined) {
-      // Deactivate all thoughts after the target revision index
-      for (const item of this.history) {
-        if (item.thoughtNumber > revisesThoughtNum) {
-          item.status = "backtracked";
-        }
-      }
+      this.db.run(
+        "UPDATE thoughts SET status = 'backtracked' WHERE session_id = ? AND thought_number > ?",
+        [sessionId, revisesThoughtNum]
+      );
     }
 
-    const newThought: Thought = {
-      thoughtNumber,
-      totalThoughts,
-      thought,
-      nextThoughtNeeded,
-      isRevision,
-      revisesThoughtNum,
-      branchToThoughtNum,
-      timestamp: new Date().toISOString(),
-      status: "active"
-    };
+    this.db.run(
+      `INSERT INTO thoughts (
+        session_id, thought_number, total_thoughts, thought, next_thought_needed, 
+        is_revision, revises_thought_num, branch_to_thought_num, timestamp, status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        sessionId,
+        thoughtNumber,
+        totalThoughts,
+        thought,
+        nextThoughtNeeded ? 1 : 0,
+        isRevision ? 1 : 0,
+        revisesThoughtNum ?? null,
+        branchToThoughtNum ?? null,
+        new Date().toISOString(),
+        "active"
+      ]
+    );
 
-    this.history.push(newThought);
-    this.save();
-    return this.getState();
+    return this.getState(sessionId);
   }
 
-  public addError(err: string) {
-    this.errors.push(err);
-    this.save();
+  public addError(err: string, sessionId: string = "default") {
+    const state = this.getInternalState(sessionId);
+    const errors = [...state.errors, err];
+    this.saveInternalState(sessionId, state.activePlan, errors);
   }
 
-  public clearErrors() {
-    this.errors = [];
-    this.save();
+  public clearErrors(sessionId: string = "default") {
+    const state = this.getInternalState(sessionId);
+    this.saveInternalState(sessionId, state.activePlan, []);
   }
 
-  public setErrors(errors: string[]) {
-    this.errors = [...errors];
-    this.save();
+  public setErrors(errors: string[], sessionId: string = "default") {
+    const state = this.getInternalState(sessionId);
+    this.saveInternalState(sessionId, state.activePlan, errors);
   }
 
-  public updatePlan(plan: string) {
-    this.activePlan = plan;
-    this.save();
+  public updatePlan(plan: string, sessionId: string = "default") {
+    const state = this.getInternalState(sessionId);
+    this.saveInternalState(sessionId, plan, state.errors);
   }
 
-  public getState(): EngineState {
+  private getInternalState(sessionId: string): { activePlan: string, errors: string[] } {
+    const row = this.db.query("SELECT active_plan, errors FROM engine_state WHERE session_id = ?").get(sessionId) as any;
+    if (row) {
+      return {
+        activePlan: row.active_plan || "",
+        errors: JSON.parse(row.errors || "[]")
+      };
+    }
+    return { activePlan: "", errors: [] };
+  }
+
+  private saveInternalState(sessionId: string, activePlan: string, errors: string[]) {
+    this.db.run(
+      "INSERT OR REPLACE INTO engine_state (session_id, active_plan, errors) VALUES (?, ?, ?)",
+      [sessionId, activePlan, JSON.stringify(errors)]
+    );
+  }
+
+  public getState(sessionId: string = "default"): EngineState {
+    const internal = this.getInternalState(sessionId);
+    const thoughtsRows = this.db.query("SELECT * FROM thoughts WHERE session_id = ? ORDER BY id ASC").all(sessionId) as any[];
+    
+    const history: Thought[] = thoughtsRows.map(row => ({
+      thoughtNumber: row.thought_number,
+      totalThoughts: row.total_thoughts,
+      thought: row.thought,
+      nextThoughtNeeded: Boolean(row.next_thought_needed),
+      isRevision: Boolean(row.is_revision),
+      revisesThoughtNum: row.revises_thought_num,
+      branchToThoughtNum: row.branch_to_thought_num,
+      timestamp: row.timestamp,
+      status: row.status
+    }));
+
     return {
-      history: this.history,
-      activePlan: this.activePlan,
-      errors: this.errors
+      history,
+      activePlan: internal.activePlan,
+      errors: internal.errors
     };
   }
 
-  public clear() {
-    this.history = [];
-    this.activePlan = "";
-    this.errors = [];
-    this.save();
+  public clear(sessionId: string = "default") {
+    this.db.run("DELETE FROM thoughts WHERE session_id = ?", [sessionId]);
+    this.db.run("DELETE FROM engine_state WHERE session_id = ?", [sessionId]);
+  }
+
+  public close() {
+    this.db.close();
+  }
+
+  public evaluateConsensus(sessionId: string = "default"): ConsensusReport {
+    const state = this.getState(sessionId);
+    const thoughtsText = state.history
+      .filter(t => t.status === "active")
+      .map(t => t.thought)
+      .join(" ");
+
+    const wordCount = thoughtsText.split(/\s+/).length;
+    
+    // Refined heuristic
+    let baseScore = 50;
+    
+    // Density of technical terms (simple heuristic: words > 5 chars or containing special symbols)
+    const techWords = thoughtsText.split(/\s+/).filter(w => w.length > 5 || /[\._\(\)\[\]\{\}]/.test(w)).length;
+    const techDensity = wordCount > 0 ? techWords / wordCount : 0;
+    
+    baseScore += Math.min(20, techDensity * 100);
+    
+    if (thoughtsText.toLowerCase().includes("verify") || thoughtsText.toLowerCase().includes("test")) {
+      baseScore += 15;
+    }
+    
+    // Check for explicit verification steps
+    const verifySteps = (thoughtsText.match(/verify|test|run|check/gi) || []).length;
+    baseScore += Math.min(15, verifySteps * 3);
+
+    const devScore = Math.min(100, baseScore + 5);
+    const auditorScore = Math.min(100, Math.max(20, baseScore - 10));
+    const testerScore = thoughtsText.toLowerCase().includes("test") ? Math.min(100, baseScore + 10) : Math.max(30, baseScore - 15);
+
+    const report: ConsensusReport = {
+      averageScore: Math.round((devScore + auditorScore + testerScore) / 3),
+      personas: [
+        { role: "Developer", score: devScore, feedback: techDensity > 0.2 ? "High technical density noted." : "Basic implementation coverage." },
+        { role: "Auditor", score: auditorScore, feedback: verifySteps > 2 ? "Strong verification sequence." : "Needs more explicit verification steps." },
+        { role: "Tester", score: testerScore, feedback: thoughtsText.toLowerCase().includes("test") ? "Test scenarios included." : "No explicit test scenarios found." }
+      ]
+    };
+
+    return report;
   }
 }

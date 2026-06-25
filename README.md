@@ -3,15 +3,11 @@
 [![Bun](https://img.shields.io/badge/Bun-%23000000.svg?style=flat&logo=bun&logoColor=white)](https://bun.sh/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-%23007ACC.svg?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Model Context Protocol](https://img.shields.io/badge/MCP-Protocol-blue.svg?style=flat)](https://modelcontextprotocol.io/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A complete, production-ready TypeScript/Node.js Model Context Protocol (MCP) server that implements the **ARIVE** framework: **Analyze**, **Reason**, **Integrate**, **Verify**, **Explain**. 
+A complete, production-ready TypeScript Model Context Protocol (MCP) server that implements the **ARIVE** framework: **Analyze**, **Reason**, **Integrate**, **Verify**, **Explain**. 
 
-ARIVE merges the concepts, workflows, and efficiency pipelines of four core development paradigms into a unified local assistant engine:
-1.  **headroom** (`chopratejas/headroom`): Local, reversible context compression.
-2.  **sequentialthinking** (`modelcontextprotocol/servers/sequentialthinking`): Step-by-step reasoning with reflective backtracking.
-3.  **superpowers** (`obra/superpowers`): Isolated Git worktree workspaces, subprocess runners, and Test-Driven Development (TDD) loop verification.
-4.  **caveman** (`JuliusBrussee/caveman`): Lithic, token-saving telegraphic communication formatters.
-5.  **codemap** (`JordanCoin/codemap`): Compact structural file tree and dependency flow mapping.
+ARIVE merges local context compression, step-by-step backtracking reasoning graphs, isolated directory task runners, test verification loops, and telegraphic language output into a single, cohesive developer assistant engine.
 
 ---
 
@@ -20,7 +16,7 @@ ARIVE merges the concepts, workflows, and efficiency pipelines of four core deve
 ```mermaid
 graph TD
     A[Analyze: Router & Compressor] --> R[Reason: Reflective Engine]
-    R --> I[Integrate: Git Worktrees]
+    R --> I[Integrate: Task Directories]
     I --> V[Verify: TDD Loop]
     V -- Failure Backprop --> R
     V --> E[Explain: Lithic Formatter]
@@ -34,19 +30,19 @@ graph TD
 ```
 
 ### A - Analyze (Context Compression)
-*   **Content Router**: Automatically classifies incoming text blocks into `json`, `code`, `logs`, or `prose` to determine the best compression strategy.
-*   **Smart JSON Crusher**: Recursively traverses JSON data, collapsing large arrays with more than 2 elements and replacing them with a summary description while maintaining SRE/error fields.
+*   **Content Router**: Automatically classifies incoming text blocks into `json`, `code`, `logs`, or `prose` to determine the optimal compression strategy.
+*   **Smart JSON Crusher**: Recursively traverses JSON data, collapsing large arrays with more than 2 elements and replacing them with a summary description while preserving SRE/error fields.
 *   **AST Code Compressor**: Discards comments, JSDocs, whitespace runs, and formatting details using the TypeScript Compiler API.
 *   **Cache Aligner**: Normalizes spacing and carriage returns to ensure maximum KV cache hit rates on providers like Anthropic or Gemini.
 *   **CCR Registry**: A hash-based Content-Compressed Retrieval store (`ccr:sha256_hash`). Allows referencing large payloads using 68-character hashes.
-*   **CodeMap Scanner**: Inspired by `JordanCoin/codemap`. Recursively scans folders to generate directory trees, maps TypeScript export/import dependency flows, and queries Git branch statistics.
+*   **CodeMap Scanner**: Recursively scans folders to generate directory trees, maps TypeScript export/import dependency flows, and queries Git branch statistics.
 
 ### R - Reason (Step-by-Step Logic Sequences)
 *   **Reflective Engine**: Tracks thought sequences in a graph. Supports branching and backtracking: if a backtracking revision is requested, thoughts after the revision target are flagged as `"backtracked"` (retained in log but deactivated), and a new active sequence branches out. State is saved atomically to `.arive/thinking_state.json`.
 
 ### I - Integrate (Isolated Workspaces)
-*   **Git Worktree Isolation**: Spawns isolated, concurrent task directories under `.arive-worktrees/<taskId>` using Git worktrees. Prevents modifying the user's active files during automated refactoring/mutation runs.
-*   **Subagent Runner**: Spawns CLI commands inside the isolated directory, guarding against sandbox directory escapes and command injection.
+*   **Directory Isolation**: Spawns isolated, concurrent task directories under `.arive-tasks/<taskId>`. Prevents modifying the user's active files during automated refactoring/mutation runs.
+*   **Subagent Runner**: Spawns CLI commands inside the isolated directory, guarding against sandbox directory escapes and command injection, and capturing subprocess runtime errors.
 
 ### V - Verify (TDD & Verification Loops)
 *   **TDD Orchestrator**: Executes verification tests (e.g., `bun test`, `pytest`) inside the isolated CWD.
@@ -64,38 +60,94 @@ graph TD
 
 ## Exposed MCP Tools
 
-1.  **`arive_compress`**: Takes a string and returns compressed text. Large payloads are stored in the CCR registry and return a `ccr:sha256` reference.
-    *   *Parameters*: `content` (string), `contentType` (`"json" | "code" | "logs" | "prose" | "auto"`), `forceCcr` (boolean).
-2.  **`arive_decompress`**: Expands a `ccr:sha256` reference back to original raw content.
-    *   *Parameters*: `hash` (string).
-3.  **`arive_think`**: Adds a step to the reflective reasoning graph, supporting backtracking.
-    *   *Parameters*: `thought` (string), `thoughtNumber` (number), `totalThoughts` (number), `nextThoughtNeeded` (boolean), `isRevision` (boolean), `revisesThoughtNum` (number), `branchToThoughtNum` (number).
-4.  **`arive_integrate`**: Controls Git worktree workspace creation, execution, and cleanup.
-    *   *Parameters*: `taskId` (string), `action` (`"create" | "execute" | "cleanup"`), `branchName` (string), `command` (string).
-5.  **`arive_verify`**: Runs tests in the isolated worktree directory and injects failures back into the reasoning history.
-    *   *Parameters*: `taskId` (string), `testCommand` (string).
-6.  **`arive_explain`**: Formats conversational text into a token-saving lithic brevity style.
-    *   *Parameters*: `message` (string), `brevity` (`"lite" | "full" | "ultra" | "normal"`).
-7.  **`arive_codemap`**: Generates project structures, directory trees, imports/exports dependency flows, or Git diff stats.
-    *   *Parameters*: `action` (`"tree" | "dependencies" | "diff"`), `dir` (string), `excludes` (string[]), `maxDepth` (number), `targetBranch` (string).
+### `arive_compress`
+Compresses strings based on code, JSON, logs or prose optimizations, returning hash references for large sizes.
+
+| Parameter | Type | Required | Default | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `content` | string | Yes | | The content raw text block to compress. |
+| `contentType` | enum | No | `auto` | Category of content: `json`, `code`, `logs`, `prose`, or `auto`. |
+| `forceCcr` | boolean | No | `false` | Force storing the result in the CCR registry. |
+
+### `arive_decompress`
+Resolves CCR reference hashes back to their raw uncompressed representation.
+
+| Parameter | Type | Required | Default | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `hash` | string | Yes | | The CCR hash (e.g., `ccr:sha256_hash`). |
+
+### `arive_think`
+Records a single thought block in the reasoning sequence, managing backtracking.
+
+| Parameter | Type | Required | Default | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `thought` | string | Yes | | The reasoning thought text. |
+| `thoughtNumber` | integer | Yes | | The current thought index. |
+| `totalThoughts` | integer | Yes | | The estimated total thoughts. |
+| `nextThoughtNeeded` | boolean | Yes | | Whether another thought is expected after this one. |
+| `isRevision` | boolean | No | | Flag indicating this thought revises a previous one. |
+| `revisesThoughtNum` | integer | No | | The thought number being revised. |
+| `branchToThoughtNum` | integer | No | | The thought number to branch from (if backtracking). |
+
+### `arive_integrate`
+Controls the workspace lifecycle (local directory tasks) and spawns subprocesses.
+
+| Parameter | Type | Required | Default | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `taskId` | string | Yes | | Unique identifier for the task workspace. |
+| `action` | enum | Yes | | The action to perform: `create`, `execute`, or `cleanup`. |
+| `command` | string | No | | CLI command to execute when action is `execute`. |
+
+### `arive_verify`
+Runs testing suites in the task directory workspace path and backpropagates failures.
+
+| Parameter | Type | Required | Default | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `taskId` | string | Yes | | Unique identifier for the task workspace. |
+| `testCommand` | string | Yes | | The test command to run (e.g., `bun test`). |
+
+### `arive_explain`
+Transforms conversational messages into telegraphic token-saving ponytail styles, or returns ponytail instruction rules.
+
+| Parameter | Type | Required | Default | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `message` | string | Yes | | The natural language text to compress, or get instructions for. |
+| `brevity` | enum | No | `full` | The level of brevity/laziness: `lite`, `full`, `ultra`, or `normal`. |
+### `arive_codemap`
+Scans folder structure tree, maps imports/exports, or runs git diff checks.
+
+| Parameter | Type | Required | Default | Description|
+| :--- | :--- | :--- | :--- | :--- |
+| `action` | enum | Yes | | The codemap operation: `tree`, `dependencies`, or `diff`. |
+| `dir` | string | No | `.` | The directory to scan for tree or dependencies. |
+| `excludes` | array | No | `[]` | List of directories or files to exclude. |
+| `maxDepth` | integer | No | `10` | Max depth to scan for directory tree. |
+| `targetBranch` | string | No | `master` | Target branch for git diff comparison. |
 
 ---
 
 ## Installation & Setup
 
 ### Requirements
-*   [Bun](https://bun.sh/)
+*   [Bun](https://bun.sh/) (runtime & package manager)
 *   [Git](https://git-scm.com/)
 
 ### Clone and Install
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/arive.git
-cd arive
+git clone https://github.com/sixtysixx/ARIVE.git
+cd ARIVE
 
 # Install dependencies
 bun install
 ```
+
+### Automatic Installation
+You can automatically register the ARIVE MCP server in all detected AI clients (Claude Desktop, Claude Code, Cline, Roo Code, Cursor, Windsurf, Antigravity, OpenCode, KiloCode) and install Git pre-commit hooks, ponytail skills/rules, and plugins:
+```bash
+bun run install
+```
+Or use the `arive_install` MCP tool from within any active client.
 
 ### Running Tests
 ```bash
@@ -128,8 +180,88 @@ Add this configuration to your local config at `%USERPROFILE%\.gemini\antigravit
 }
 ```
 
+### OMP (omp)
+Add this configuration to your user-level config at `~/.omp/agent/mcp.json` or your project-level config at `.omp/mcp.json`:
+```json
+{
+  "mcpServers": {
+    "arive": {
+      "command": "bunx",
+      "args": [
+        "github:sixtysixx/ARIVE"
+      ]
+    }
+  }
+}
+```
+
 ### Claude Desktop
-Add this to your configuration (e.g. `appData/Roaming/EasyCode/claude_desktop_config.json` or standard `claude_desktop_config.json` configuration path):
+Add this to your configuration (e.g., `%APPDATA%\EasyCode\claude_desktop_config.json` or standard `claude_desktop_config.json` configuration path):
+```json
+{
+  "mcpServers": {
+    "arive": {
+      "command": "bunx",
+      "args": [
+        "github:sixtysixx/ARIVE"
+      ]
+    }
+  }
+}
+```
+
+### OpenCode
+Add this to your organizational remote config, global configuration `~/.config/opencode/opencode.json` (or `opencode.jsonc`), or project config `opencode.json` inside your project root:
+```json
+{
+  "mcp": {
+    "arive": {
+      "type": "local",
+      "command": [
+        "bunx",
+        "github:sixtysixx/ARIVE"
+      ],
+      "enabled": true
+    }
+  }
+}
+```
+
+### KiloCode
+You can use the **MCP Servers** panel UI by clicking the gear icon and clicking **Edit Global MCP**, or you can define it locally inside your workspace under `.kilocode/mcp.json`:
+```json
+{
+  "mcpServers": {
+    "arive": {
+      "command": "bunx",
+      "args": [
+        "github:sixtysixx/ARIVE"
+      ]
+    }
+  }
+}
+```
+
+### VS Code (Cline & Roo Code)
+You can configure this globally (via the **MCP Servers** tab in the Cline/Roo Code pane, clicking **Edit Global MCP**) or locally for a specific workspace:
+*   **Cline Project-Level Config:** `.cline/mcp.json`
+*   **Roo Code Project-Level Config:** `.roo/mcp.json`
+
+```json
+{
+  "mcpServers": {
+    "arive": {
+      "command": "bunx",
+      "args": [
+        "github:sixtysixx/ARIVE"
+      ]
+    }
+  }
+}
+```
+
+### Cursor
+Add this through the Cursor settings UI under **Settings > Features > MCP**, clicking **Add new MCP server** (with type `stdio` and command `bunx github:sixtysixx/ARIVE`), or add it manually to your project's `.cursor/mcp.json`:
 ```json
 {
   "mcpServers": {
@@ -146,4 +278,15 @@ Add this to your configuration (e.g. `appData/Roaming/EasyCode/claude_desktop_co
 ---
 
 ## License
-MIT License. See [LICENSE](LICENSE) for more details.
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+## Credits
+
+ARIVE integrates, models, and adapts ideas and pipelines from the following core development paradigms:
+*   **headroom** (`chopratejas/headroom`): Local, reversible context compression.
+*   **sequentialthinking** (`modelcontextprotocol/servers/sequentialthinking`): Step-by-step reasoning with reflective backtracking.
+*   **ponytail** (`DietrichGebert/ponytail`): Lazy senior dev mode rulesets, skills, and plugins.
+*   **codemap** (`JordanCoin/codemap`): Compact structural file tree and dependency flow mapping.

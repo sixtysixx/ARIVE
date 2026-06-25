@@ -12,13 +12,13 @@ export class SubagentRunner {
   public static execute(cwd: string, command: string): ExecResult {
     const absoluteCwd = path.resolve(cwd);
     const rootDir = path.resolve(process.cwd());
-    const worktreeBaseDir = path.join(rootDir, ".arive-worktrees");
+    const taskBaseDir = path.join(rootDir, ".arive-tasks");
 
-    // Restrict execution to the project root or subdirectories of the worktrees base dir
+    // Restrict execution to the project root or subdirectories of the task base dir
     const isInsideRoot = absoluteCwd === rootDir;
-    const isInsideWorktree = absoluteCwd.startsWith(worktreeBaseDir + path.sep) || absoluteCwd === worktreeBaseDir;
+    const isInsideTask = absoluteCwd.startsWith(taskBaseDir + path.sep) || absoluteCwd === taskBaseDir;
 
-    if (!isInsideRoot && !isInsideWorktree) {
+    if (!isInsideRoot && !isInsideTask) {
       throw new Error(`Security Exception: Execution directory "${cwd}" is outside allowed workspace boundaries.`);
     }
 
@@ -42,10 +42,26 @@ export class SubagentRunner {
       }
     });
 
+    if (proc.error) {
+      return {
+        exitCode: proc.status ?? -1,
+        stdout: proc.stdout || "",
+        stderr: `Subprocess execution failed: ${proc.error.message}`
+      };
+    }
+
+    if (proc.signal) {
+      return {
+        exitCode: -1,
+        stdout: proc.stdout || "",
+        stderr: `Subprocess terminated by signal: ${proc.signal}`
+      };
+    }
+
     return {
-      exitCode: proc.status ?? (proc.error ? 1 : 0),
+      exitCode: proc.status ?? 0,
       stdout: proc.stdout || "",
-      stderr: proc.stderr || (proc.error ? proc.error.message : "")
+      stderr: proc.stderr || ""
     };
   }
 }

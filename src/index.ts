@@ -15,7 +15,7 @@ import { SequentialEngine } from "./reason/sequential_engine.js";
 import { WorkspaceManager } from "./integrate/workspace.js";
 import { TDDRunner } from "./verify/tdd_runner.js";
 import { Validator } from "./verify/validator.js";
-import { LithicFormatter } from "./explain/lithic_formatter.js";
+import { PonytailFormatter } from "./explain/ponytail_formatter.js";
 import * as fs from "fs";
 
 // Setup server instance
@@ -47,7 +47,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           properties: {
             content: { type: "string", description: "The content raw text block" },
             contentType: { type: "string", enum: ["json", "code", "logs", "prose", "auto"], default: "auto" },
-            forceCcr: { type: "boolean", default: false }
+            forceCcr: { type: "boolean", default: false },
+            ccrThreshold: { type: "integer", description: "Character length threshold for CCR storage", default: 1000 }
           },
           required: ["content"]
         }
@@ -75,7 +76,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             nextThoughtNeeded: { type: "boolean" },
             isRevision: { type: "boolean" },
             revisesThoughtNum: { type: "integer" },
-            branchToThoughtNum: { type: "integer" }
+            branchToThoughtNum: { type: "integer" },
+            sessionId: { type: "string", description: "Optional session ID for multi-session reasoning", default: "default" }
           },
           required: ["thought", "thoughtNumber", "totalThoughts", "nextThoughtNeeded"]
         }
@@ -95,6 +97,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         }
       },
       {
+        name: "arive_workspace_list",
+        description: "Lists all active ARIVE worktree workspaces.",
+        inputSchema: {
+          type: "object",
+          properties: {}
+        }
+      },
+      {
         name: "arive_verify",
         description: "Runs testing suites in the isolated workspace path and backpropagates failures.",
         inputSchema: {
@@ -108,12 +118,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "arive_explain",
-        description: "Transforms conversational messages into telegraphic token-saving caveman styles.",
+        description: "Transforms conversational messages into telegraphic token-saving ponytail styles, or returns ponytail instruction rules.",
         inputSchema: {
           type: "object",
           properties: {
-            message: { type: "string" },
-            brevity: { type: "string", enum: ["lite", "full", "ultra", "normal"], default: "full" }
+            message: { type: "string", description: "The natural language message, or prompt to get ponytail instructions for" },
+            brevity: { type: "string", enum: ["lite", "full", "ultra", "normal"], default: "full", description: "The ponytail level of brevity/laziness" }
           },
           required: ["message"]
         }
@@ -150,6 +160,17 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ["action"]
         }
       }
+      ,
+      {
+        name: "arive_install",
+        description: "Automatically registers the ARIVE MCP server in all detected AI clients and installs pre-commit hooks, ponytail skills/rules, and plugins.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            workspacePath: { type: "string", description: "Optional path to the project/workspace root directory to install rules, skills, and plugins in" }
+          }
+        }
+      }
     ]
   };
 });
@@ -164,6 +185,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const content = String(args?.content || "");
         const forceCcr = Boolean(args?.forceCcr);
         const userType = String(args?.contentType || "auto");
+        const threshold = args?.ccrThreshold !== undefined ? Number(args.ccrThreshold) : 1000;
 
         const detectedType = userType === "auto" ? ContentRouter.classify(content) : userType;
         let compressed = content;
@@ -176,21 +198,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           compressed = CacheAligner.align(content);
         }
 
-        // Always store in CCR if > 1000 characters or forced
-        const threshold = 1000;
+        // Always store in CCR if > threshold or forced
         const useCcr = forceCcr || content.length > threshold;
         let resultHash = "";
 
         if (useCcr) {
-          resultHash = ccr.store(content);
+          resultHash = ccr.store(content, detectedType);
           return {
-            content: [{ type: "text", text: JSON.stringify({ compressed: resultHash, hash: resultHash, wasStoredInCcr: true }, null, 2) }]
+            content: [{ type: "text", text: JSON.stringify({ compressed: resultHash, hash: resultHash, wasStoredInCcr: true, type: detectedType }, null, 2) }]
           };
         }
 
-        const rawHash = ccr.store(content);
+        const rawHash = ccr.store(content, detectedType);
         return {
-          content: [{ type: "text", text: JSON.stringify({ compressed, hash: rawHash, wasStoredInCcr: false }, null, 2) }]
+          content: [{ type: "text", text: JSON.stringify({ compressed, hash: rawHash, wasStoredInCcr: false, type: detectedType }, null, 2) }]
         };
       }
 
@@ -213,6 +234,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const isRev = args?.isRevision !== undefined ? Boolean(args.isRevision) : undefined;
         const revNum = args?.revisesThoughtNum !== undefined ? Number(args.revisesThoughtNum) : undefined;
         const branchNum = args?.branchToThoughtNum !== undefined ? Number(args.branchToThoughtNum) : undefined;
+        const sessionId = args?.sessionId !== undefined ? String(args.sessionId) : "default";
 
         if (args?.thoughtNumber === undefined || Number.isNaN(tNum)) {
           throw new Error("Invalid parameter: 'thoughtNumber' must be a valid number");
@@ -227,7 +249,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           throw new Error("Invalid parameter: 'branchToThoughtNum' must be a valid number");
         }
 
-        const res = engine.addThought(thought, tNum, total, nextNeeded, isRev, revNum, branchNum);
+        const res = engine.addThought(thought, tNum, total, nextNeeded, isRev, revNum, branchNum, sessionId);
         return {
           content: [{ type: "text", text: JSON.stringify(res, null, 2) }]
         };
@@ -242,12 +264,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         WorkspaceManager.validateTaskId(taskId);
 
         if (action === "create") {
-          const resPath = WorkspaceManager.create(taskId, branchName);
+          const resPath = WorkspaceManager.create(taskId);
           return {
             content: [{ type: "text", text: JSON.stringify({ taskId, status: "created", path: resPath }) }]
           };
         } else if (action === "execute") {
-          const targetPath = `.arive-worktrees/${taskId}`;
+          const targetPath = `.arive-tasks/${taskId}`;
           if (!fs.existsSync(targetPath)) {
             throw new Error(`Workspace path for ${taskId} does not exist. Call create first.`);
           }
@@ -264,13 +286,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         throw new Error(`Unknown integrate action: ${action}`);
       }
 
+      case "arive_workspace_list": {
+        const list = WorkspaceManager.list();
+        return {
+          content: [{ type: "text", text: JSON.stringify(list, null, 2) }]
+        };
+      }
+
       case "arive_verify": {
         const taskId = String(args?.taskId || "");
         const testCmd = String(args?.testCommand || "bun test");
 
         WorkspaceManager.validateTaskId(taskId);
 
-        const targetPath = `.arive-worktrees/${taskId}`;
+        const targetPath = `.arive-tasks/${taskId}`;
         if (!fs.existsSync(targetPath)) {
           throw new Error(`Workspace path for ${taskId} does not exist. Call integrate create first.`);
         }
@@ -287,10 +316,28 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "arive_explain": {
         const message = String(args?.message || "");
         const brevity = (args?.brevity || "full") as "lite" | "full" | "ultra" | "normal";
-        const formatted = LithicFormatter.format(message, brevity);
-        const savings = LithicFormatter.getSavings(message, formatted);
+        const formatted = PonytailFormatter.format(message, brevity);
+        const savingsText = PonytailFormatter.getSavings(message, formatted);
+        const charSavings = message.length - formatted.length;
+        const charPercentage = message.length > 0 ? Math.round((charSavings / message.length) * 100) : 0;
+        const instructions = PonytailFormatter.getInstructions(brevity);
+        
         return {
-          content: [{ type: "text", text: JSON.stringify({ formatted, savings }) }]
+          content: [{ 
+            type: "text", 
+            text: JSON.stringify({ 
+              explanation: {
+                formatted,
+                brevity,
+                savings: {
+                  summary: savingsText,
+                  characterSavings: charSavings,
+                  characterPercentage: `${charPercentage}%`
+                },
+                instructions
+              }
+            }, null, 2) 
+          }]
         };
       }
 
@@ -330,13 +377,23 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         throw new Error(`Unknown codemap action: ${action}`);
       }
 
+      case "arive_install": {
+        const workspacePath = args?.workspacePath ? String(args.workspacePath) : undefined;
+        const { installAll } = await import("./cli/installer.js");
+        installAll(workspacePath);
+        return {
+          content: [{ type: "text", text: JSON.stringify({ status: "success", message: "ARIVE automatically installed successfully" }) }]
+        };
+      }
+
       default:
         throw new Error(`Unknown tool name: ${name}`);
     }
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
     return {
       isError: true,
-      content: [{ type: "text", text: JSON.stringify({ error: error.message }) }]
+      content: [{ type: "text", text: JSON.stringify({ error: message }) }]
     };
   }
 });
@@ -346,7 +403,7 @@ try {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("ARIVE MCP Server successfully listening on stdio.");
-} catch (error: any) {
+} catch (error: unknown) {
   console.error("Fatal error: Failed to connect to stdio transport:", error);
   process.exit(1);
 }
