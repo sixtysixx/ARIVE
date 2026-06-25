@@ -1,7 +1,6 @@
 ---
 description: Ponytail ponytail-debt command
 ---
-
 Scan the repository for 'ponytail:' comments and group them into a debt ledger.
 
 Output:

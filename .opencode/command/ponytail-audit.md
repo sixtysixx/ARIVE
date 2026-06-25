@@ -1,7 +1,6 @@
 ---
 description: Ponytail ponytail-audit command
 ---
-
 Audit the whole repo for over-engineering and complexity. Scan the whole tree. Rank findings biggest cut first.
 
 Tags: Same as ponytail-review (delete, stdlib, native, yagni, shrink).

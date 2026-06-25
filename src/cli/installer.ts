@@ -342,7 +342,7 @@ export function installAll(workspacePath?: string): void {
 
   // 3. Register MCP configurations globally
   const command = "bunx";
-  const args = ["github:sixtysixx/ARIVE"];
+  const args = ["--silent", "github:sixtysixx/ARIVE"];
 
   // A. Antigravity CLI config
   const antigravityConfigPath = path.join(

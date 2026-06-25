@@ -194,7 +194,7 @@ Add this configuration to your local config at `%USERPROFILE%\.gemini\antigravit
   "mcpServers": {
     "arive": {
       "command": "bunx",
-      "args": ["github:sixtysixx/ARIVE"]
+      "args": ["--silent", "github:sixtysixx/ARIVE"]
     }
   }
 }
@@ -209,7 +209,7 @@ Add this configuration to your user-level config at `~/.omp/agent/mcp.json` or y
   "mcpServers": {
     "arive": {
       "command": "bunx",
-      "args": ["github:sixtysixx/ARIVE"]
+      "args": ["--silent", "github:sixtysixx/ARIVE"]
     }
   }
 }
@@ -224,7 +224,7 @@ Add this to your configuration (e.g., `%APPDATA%\EasyCode\claude_desktop_config.
   "mcpServers": {
     "arive": {
       "command": "bunx",
-      "args": ["github:sixtysixx/ARIVE"]
+      "args": ["--silent", "github:sixtysixx/ARIVE"]
     }
   }
 }
@@ -239,7 +239,7 @@ Add this to your organizational remote config, global configuration `~/.config/o
   "mcp": {
     "arive": {
       "type": "local",
-      "command": ["bunx", "github:sixtysixx/ARIVE"],
+      "command": ["bunx", "--silent", "github:sixtysixx/ARIVE"],
       "enabled": true
     }
   }
@@ -255,7 +255,7 @@ You can use the **MCP Servers** panel UI by clicking the gear icon and clicking 
   "mcpServers": {
     "arive": {
       "command": "bunx",
-      "args": ["github:sixtysixx/ARIVE"]
+      "args": ["--silent", "github:sixtysixx/ARIVE"]
     }
   }
 }
@@ -273,7 +273,7 @@ You can configure this globally (via the **MCP Servers** tab in the Cline/Roo Co
   "mcpServers": {
     "arive": {
       "command": "bunx",
-      "args": ["github:sixtysixx/ARIVE"]
+      "args": ["--silent", "github:sixtysixx/ARIVE"]
     }
   }
 }
@@ -281,14 +281,14 @@ You can configure this globally (via the **MCP Servers** tab in the Cline/Roo Co
 
 ### Cursor
 
-Add this through the Cursor settings UI under **Settings > Features > MCP**, clicking **Add new MCP server** (with type `stdio` and command `bunx github:sixtysixx/ARIVE`), or add it manually to your project's `.cursor/mcp.json`:
+Add this through the Cursor settings UI under **Settings > Features > MCP**, clicking **Add new MCP server** (with type `stdio` and command `bunx --silent github:sixtysixx/ARIVE`), or add it manually to your project's `.cursor/mcp.json`:
 
 ```json
 {
   "mcpServers": {
     "arive": {
       "command": "bunx",
-      "args": ["github:sixtysixx/ARIVE"]
+      "args": ["--silent", "github:sixtysixx/ARIVE"]
     }
   }
 }
