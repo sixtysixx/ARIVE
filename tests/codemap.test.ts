@@ -26,7 +26,7 @@ describe("CodeMap Scanner Tests", () => {
     `;
     const scanner = new CodeMapScanner();
     const parsed = scanner.parseFileMetadata(dummyCode);
-    
+
     expect(parsed.imports).toContain("./helper.js");
     expect(parsed.imports).toContain("typescript");
     expect(parsed.exports.classes[0].name).toBe("Analyzer");
@@ -53,12 +53,10 @@ describe("CodeMap Scanner Tests", () => {
     expect(Object.keys(results).length).toBeGreaterThan(0);
     // Find one file we know has imports, like codemap.ts or ast_compressor.ts
     const keys = Object.keys(results);
-    const codemapKey = keys.find(k => k.endsWith("codemap.ts"));
+    const codemapKey = keys.find((k) => k.endsWith("codemap.ts"));
     if (codemapKey) {
       expect(results[codemapKey].imports.length).toBeGreaterThan(0);
       expect(results[codemapKey].exports.classes.length).toBeGreaterThan(0);
     }
   });
 });
-
-

@@ -5,18 +5,24 @@ import { installPreCommitHook } from "./init_hooks.js";
 
 // Types
 interface MCPConfig {
-  mcpServers?: Record<string, {
-    command: string;
-    args: string[];
-  }>;
+  mcpServers?: Record<
+    string,
+    {
+      command: string;
+      args: string[];
+    }
+  >;
 }
 
 interface OpenCodeConfig {
-  mcp?: Record<string, {
-    type: string;
-    command: string[];
-    enabled: boolean;
-  }>;
+  mcp?: Record<
+    string,
+    {
+      type: string;
+      command: string[];
+      enabled: boolean;
+    }
+  >;
 }
 
 // Helper to resolve app data directories
@@ -31,7 +37,11 @@ function getAppDataPath(): string {
 }
 
 // Update helper for normal MCP JSON configs
-function updateMCPConfig(filePath: string, command: string, args: string[]): void {
+function updateMCPConfig(
+  filePath: string,
+  command: string,
+  args: string[],
+): void {
   try {
     const parentDir = path.dirname(filePath);
     if (!fs.existsSync(parentDir)) {
@@ -58,7 +68,7 @@ function updateMCPConfig(filePath: string, command: string, args: string[]): voi
 
     config.mcpServers["arive"] = {
       command,
-      args
+      args,
     };
 
     fs.writeFileSync(filePath, JSON.stringify(config, null, 2), "utf-8");
@@ -98,14 +108,18 @@ function updateOpenCodeConfig(filePath: string, command: string[]): void {
     config.mcp["arive"] = {
       type: "local",
       command,
-      enabled: true
+      enabled: true,
     };
 
     fs.writeFileSync(filePath, JSON.stringify(config, null, 2), "utf-8");
-    console.log(`✓ Registered ARIVE MCP server in OpenCode config: ${filePath}`);
+    console.log(
+      `✓ Registered ARIVE MCP server in OpenCode config: ${filePath}`,
+    );
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : String(e);
-    console.warn(`✗ Failed to update OpenCode config at ${filePath}: ${message}`);
+    console.warn(
+      `✗ Failed to update OpenCode config at ${filePath}: ${message}`,
+    );
   }
 }
 
@@ -216,7 +230,7 @@ export function installAll(workspacePath?: string): void {
     fs.writeFileSync(
       path.join(cursorRulesDir, "ponytail.mdc"),
       `---\ndescription: Ponytail, lazy senior dev mode\nglobs:\nalwaysApply: true\n---\n${ponytailRules}`,
-      "utf-8"
+      "utf-8",
     );
 
     // B. Cline, Roo Code
@@ -225,7 +239,11 @@ export function installAll(workspacePath?: string): void {
     // C. Windsurf
     const windsurfDir = path.join(wsRoot, ".windsurf", "rules");
     fs.mkdirSync(windsurfDir, { recursive: true });
-    fs.writeFileSync(path.join(windsurfDir, "ponytail.md"), ponytailRules, "utf-8");
+    fs.writeFileSync(
+      path.join(windsurfDir, "ponytail.md"),
+      ponytailRules,
+      "utf-8",
+    );
 
     // D. Kiro
     const kiroDir = path.join(wsRoot, ".kiro", "steering");
@@ -235,7 +253,11 @@ export function installAll(workspacePath?: string): void {
     // E. Agents
     const agentsDir = path.join(wsRoot, ".agents", "rules");
     fs.mkdirSync(agentsDir, { recursive: true });
-    fs.writeFileSync(path.join(agentsDir, "ponytail.md"), ponytailRules, "utf-8");
+    fs.writeFileSync(
+      path.join(agentsDir, "ponytail.md"),
+      ponytailRules,
+      "utf-8",
+    );
 
     // F. OpenClaw Skills
     const clawSkills = [
@@ -244,7 +266,7 @@ export function installAll(workspacePath?: string): void {
       { name: "ponytail-audit", content: ponytailAudit },
       { name: "ponytail-debt", content: ponytailDebt },
       { name: "ponytail-gain", content: ponytailGain },
-      { name: "ponytail-help", content: ponytailHelp }
+      { name: "ponytail-help", content: ponytailHelp },
     ];
 
     for (const skill of clawSkills) {
@@ -253,7 +275,7 @@ export function installAll(workspacePath?: string): void {
       fs.writeFileSync(
         path.join(skillDir, "SKILL.md"),
         `---\nname: ${skill.name}\ndescription: Ponytail ${skill.name} skill\n---\n${skill.content}`,
-        "utf-8"
+        "utf-8",
       );
     }
 
@@ -264,20 +286,26 @@ export function installAll(workspacePath?: string): void {
       fs.writeFileSync(
         path.join(cmdDir, `${skill.name}.md`),
         `---\ndescription: Ponytail ${skill.name} command\n---\n${skill.content}`,
-        "utf-8"
+        "utf-8",
       );
     }
 
     const opencodePluginsDir = path.join(wsRoot, ".opencode", "plugins");
     fs.mkdirSync(opencodePluginsDir, { recursive: true });
-    fs.writeFileSync(path.join(opencodePluginsDir, "ponytail.mjs"), ponytailPlugin, "utf-8");
+    fs.writeFileSync(
+      path.join(opencodePluginsDir, "ponytail.mjs"),
+      ponytailPlugin,
+      "utf-8",
+    );
 
     // Write opencode.json if not present or append plugin
     const opencodeJsonPath = path.join(wsRoot, "opencode.json");
     let opencodeConfig: { plugin?: string[] } = {};
     if (fs.existsSync(opencodeJsonPath)) {
       try {
-        opencodeConfig = JSON.parse(fs.readFileSync(opencodeJsonPath, "utf-8")) as { plugin?: string[] };
+        opencodeConfig = JSON.parse(
+          fs.readFileSync(opencodeJsonPath, "utf-8"),
+        ) as { plugin?: string[] };
       } catch {
         // Ignore
       }
@@ -288,9 +316,15 @@ export function installAll(workspacePath?: string): void {
     if (!opencodeConfig.plugin.includes(".opencode/plugins/ponytail.mjs")) {
       opencodeConfig.plugin.push(".opencode/plugins/ponytail.mjs");
     }
-    fs.writeFileSync(opencodeJsonPath, JSON.stringify(opencodeConfig, null, 2), "utf-8");
+    fs.writeFileSync(
+      opencodeJsonPath,
+      JSON.stringify(opencodeConfig, null, 2),
+      "utf-8",
+    );
 
-    console.log("✓ Successfully installed all Ponytail rules, skills, and plugins.");
+    console.log(
+      "✓ Successfully installed all Ponytail rules, skills, and plugins.",
+    );
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : String(e);
     console.warn(`✗ Failed to write rule/skill/plugin files: ${message}`);
@@ -301,40 +335,93 @@ export function installAll(workspacePath?: string): void {
   const args = ["github:sixtysixx/ARIVE"];
 
   // A. Antigravity CLI config
-  const antigravityConfigPath = path.join(os.homedir(), ".gemini", "antigravity-cli", "mcp_config.json");
+  const antigravityConfigPath = path.join(
+    os.homedir(),
+    ".gemini",
+    "antigravity-cli",
+    "mcp_config.json",
+  );
   updateMCPConfig(antigravityConfigPath, command, args);
 
   // B. Claude Desktop
   const appData = getAppDataPath();
-  const claudeDesktopConfigPath = path.join(appData, "Claude", "claude_desktop_config.json");
+  const claudeDesktopConfigPath = path.join(
+    appData,
+    "Claude",
+    "claude_desktop_config.json",
+  );
   updateMCPConfig(claudeDesktopConfigPath, command, args);
 
   // C. Claude Code
-  const claudeCodeConfigPath = path.join(os.homedir(), ".config", "claude-code", "config.json");
+  const claudeCodeConfigPath = path.join(
+    os.homedir(),
+    ".config",
+    "claude-code",
+    "config.json",
+  );
   updateMCPConfig(claudeCodeConfigPath, command, args);
 
   // D. Cline Global config
-  const clineGlobalConfigPath = path.join(appData, "Code", "User", "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json");
+  const clineGlobalConfigPath = path.join(
+    appData,
+    "Code",
+    "User",
+    "globalStorage",
+    "saoudrizwan.claude-dev",
+    "settings",
+    "cline_mcp_settings.json",
+  );
   updateMCPConfig(clineGlobalConfigPath, command, args);
 
   // E. Roo Code Global config
-  const rooGlobalConfigPath = path.join(appData, "Code", "User", "globalStorage", "roodev.roo-cline", "settings", "cline_mcp_settings.json");
+  const rooGlobalConfigPath = path.join(
+    appData,
+    "Code",
+    "User",
+    "globalStorage",
+    "roodev.roo-cline",
+    "settings",
+    "cline_mcp_settings.json",
+  );
   updateMCPConfig(rooGlobalConfigPath, command, args);
 
   // F. Cursor Global config
-  const cursorGlobalConfigPath = path.join(appData, "Cursor", "User", "globalStorage", "mohammad-rahimi.cursor-mcp", "settings", "mcp_settings.json");
+  const cursorGlobalConfigPath = path.join(
+    appData,
+    "Cursor",
+    "User",
+    "globalStorage",
+    "mohammad-rahimi.cursor-mcp",
+    "settings",
+    "mcp_settings.json",
+  );
   updateMCPConfig(cursorGlobalConfigPath, command, args);
 
   // G. Windsurf Global config
-  const windsurfGlobalConfigPath = path.join(os.homedir(), ".codeium", "windsurf", "mcp_config.json");
+  const windsurfGlobalConfigPath = path.join(
+    os.homedir(),
+    ".codeium",
+    "windsurf",
+    "mcp_config.json",
+  );
   updateMCPConfig(windsurfGlobalConfigPath, command, args);
 
   // H. OpenCode Global config
-  const opencodeGlobalConfigPath = path.join(os.homedir(), ".config", "opencode", "opencode.json");
+  const opencodeGlobalConfigPath = path.join(
+    os.homedir(),
+    ".config",
+    "opencode",
+    "opencode.json",
+  );
   updateOpenCodeConfig(opencodeGlobalConfigPath, [command, ...args]);
 
   // I. OMP Global config
-  const ompGlobalConfigPath = path.join(os.homedir(), ".omp", "agent", "mcp.json");
+  const ompGlobalConfigPath = path.join(
+    os.homedir(),
+    ".omp",
+    "agent",
+    "mcp.json",
+  );
   updateMCPConfig(ompGlobalConfigPath, command, args);
 
   // 4. Register local project-level MCP configurations in the workspace

@@ -15,7 +15,7 @@ describe("Workspace & Subagent Integration Tests", () => {
     originalCwd = process.cwd();
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "arive-test-"));
     process.chdir(tempDir);
-    
+
     // Create a dummy file in root to verify it gets copied
     fs.writeFileSync("dummy.txt", "hello", "utf-8");
     // Create a dummy node_modules to verify it gets symlinked
@@ -44,11 +44,17 @@ describe("Workspace & Subagent Integration Tests", () => {
 
   test("Workspace creation handles existing path by cleaning it up first", () => {
     // Add a file in the workspace
-    fs.writeFileSync(path.join(taskPath, "should_be_deleted.txt"), "delete me", "utf-8");
-    
+    fs.writeFileSync(
+      path.join(taskPath, "should_be_deleted.txt"),
+      "delete me",
+      "utf-8",
+    );
+
     // Recreate
     WorkspaceManager.create(taskId);
-    expect(fs.existsSync(path.join(taskPath, "should_be_deleted.txt"))).toBe(false);
+    expect(fs.existsSync(path.join(taskPath, "should_be_deleted.txt"))).toBe(
+      false,
+    );
   });
 
   test("Run custom command via subagent runner inside workspace", () => {
@@ -64,7 +70,10 @@ describe("Workspace & Subagent Integration Tests", () => {
 
   test("Subagent runner handles subprocess runerrs", () => {
     // Use an invalid command name to trigger spawnSync error
-    const result = SubagentRunner.execute(taskPath, "thiscommanddoesnotexist_abc123");
+    const result = SubagentRunner.execute(
+      taskPath,
+      "thiscommanddoesnotexist_abc123",
+    );
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr.length).toBeGreaterThan(0);
   });

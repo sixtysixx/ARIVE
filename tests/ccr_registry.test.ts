@@ -65,23 +65,23 @@ describe("SQLite CCR Persistence", () => {
     // limit to 2 entries for testing LRU
     // @ts-ignore
     const registry = new CCRRegistry(dbPath, 2);
-    
+
     // @ts-ignore
     const h1 = registry.store("content 1", "prose");
     // @ts-ignore
     const h2 = registry.store("content 2", "code");
-    
+
     expect(registry.retrieve(h1)).toBe("content 1");
-    
+
     // @ts-ignore
     const h3 = registry.store("content 3", "json"); // Should evict h2 because h1 was accessed
-    
+
     expect(registry.retrieve(h1)).toBe("content 1");
     expect(registry.retrieve(h3)).toBe("content 3");
     expect(registry.retrieve(h2)).toBeNull();
 
     registry.close();
-    
+
     // Retry loop for unlinking on Windows
     for (let i = 0; i < 20; i++) {
       try {

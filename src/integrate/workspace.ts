@@ -9,8 +9,14 @@ export interface WorkspaceInfo {
 
 export class WorkspaceManager {
   public static validateTaskId(taskId: string): void {
-    if (!taskId || typeof taskId !== "string" || !/^[a-zA-Z0-9_-]+$/.test(taskId)) {
-      throw new Error("Invalid taskId: must be alphanumeric, underscores, or dashes only");
+    if (
+      !taskId ||
+      typeof taskId !== "string" ||
+      !/^[a-zA-Z0-9_-]+$/.test(taskId)
+    ) {
+      throw new Error(
+        "Invalid taskId: must be alphanumeric, underscores, or dashes only",
+      );
     }
   }
 
@@ -29,11 +35,11 @@ export class WorkspaceManager {
     const sourceDir = path.resolve(process.cwd());
     const excludeList: Record<string, boolean> = {
       ".git": true,
-      "node_modules": true,
+      node_modules: true,
       ".arive-tasks": true,
       ".arive-worktrees": true,
       ".arive": true,
-      "bun.lock": true
+      "bun.lock": true,
     };
 
     const entries = fs.readdirSync(sourceDir);
@@ -47,7 +53,9 @@ export class WorkspaceManager {
         fs.cpSync(srcPath, destPath, { recursive: true });
       } catch (e: unknown) {
         const message = e instanceof Error ? e.message : String(e);
-        console.warn(`[WorkspaceManager] Failed to copy ${srcPath}: ${message}`);
+        console.warn(
+          `[WorkspaceManager] Failed to copy ${srcPath}: ${message}`,
+        );
       }
     }
 
@@ -59,7 +67,9 @@ export class WorkspaceManager {
         fs.symlinkSync(sourceModules, targetModules, "junction");
       } catch (e: unknown) {
         const message = e instanceof Error ? e.message : String(e);
-        console.warn(`[WorkspaceManager] Failed to symlink node_modules: ${message}`);
+        console.warn(
+          `[WorkspaceManager] Failed to symlink node_modules: ${message}`,
+        );
       }
     }
 
@@ -84,7 +94,7 @@ export class WorkspaceManager {
           workspaces.push({
             taskId,
             path: targetPath,
-            createdAt: stat.birthtime.toISOString()
+            createdAt: stat.birthtime.toISOString(),
           });
         } catch {
           // Ignore stats errors
@@ -109,7 +119,9 @@ export class WorkspaceManager {
         } catch (err: unknown) {
           if (attempt === 5) {
             const message = err instanceof Error ? err.message : String(err);
-            console.warn(`[WorkspaceManager] Failed to clean up directory after 5 attempts: ${absoluteTargetPath} - ${message}`);
+            console.warn(
+              `[WorkspaceManager] Failed to clean up directory after 5 attempts: ${absoluteTargetPath} - ${message}`,
+            );
           }
           // Sleep sync
           const start = Date.now();

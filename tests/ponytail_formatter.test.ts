@@ -3,14 +3,16 @@ import { PonytailFormatter } from "../src/explain/ponytail_formatter.js";
 
 describe("Ponytail Formatter Tests", () => {
   test("Lite brevity level", () => {
-    const input = "Please look at this. We literally just updated the configuration file.";
+    const input =
+      "Please look at this. We literally just updated the configuration file.";
     const formatted = PonytailFormatter.format(input, "lite");
     expect(formatted).not.toContain("literally");
     expect(formatted).not.toContain("just");
   });
 
   test("Full brevity level (default)", () => {
-    const input = "The server is running on the local port and it has successfully verified the results.";
+    const input =
+      "The server is running on the local port and it has successfully verified the results.";
     const formatted = PonytailFormatter.format(input, "full");
     expect(formatted).not.toContain("The");
     expect(formatted).not.toContain("is");
@@ -20,7 +22,8 @@ describe("Ponytail Formatter Tests", () => {
   });
 
   test("Ultra brevity level", () => {
-    const input = "Run test suite. Task failed inside file tests/verify.test.ts at line number 24.";
+    const input =
+      "Run test suite. Task failed inside file tests/verify.test.ts at line number 24.";
     const formatted = PonytailFormatter.format(input, "ultra");
     expect(formatted).toContain("Run test. Task fail tests/verify.test.ts:24");
   });

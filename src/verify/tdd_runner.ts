@@ -2,7 +2,10 @@ import { spawnSync } from "child_process";
 import * as fs from "fs";
 
 export class TDDRunner {
-  public static run(cwd: string, testCommand: string): {
+  public static run(
+    cwd: string,
+    testCommand: string,
+  ): {
     success: boolean;
     failures: string[];
     exitCode: number;
@@ -27,7 +30,7 @@ export class TDDRunner {
         env: { ...process.env, FORCE_COLOR: "0" },
         shell: true,
         timeout: 10000,
-        encoding: "utf-8"
+        encoding: "utf-8",
       });
       if (child.error) {
         success = false;
@@ -39,7 +42,7 @@ export class TDDRunner {
       exitCode = child.status !== null ? child.status : 1;
 
       const lines = (stdoutAccum + "\n" + stderrAccum).split("\n");
-      lines.forEach(line => {
+      lines.forEach((line) => {
         if (failRegex.test(line)) {
           success = false;
           failures.push(line.trim());
@@ -49,7 +52,6 @@ export class TDDRunner {
       if (exitCode !== 0) {
         success = false;
       }
-
     } catch (e: unknown) {
       success = false;
       const message = e instanceof Error ? e.message : String(e);
@@ -61,7 +63,7 @@ export class TDDRunner {
       failures: failures.slice(0, 10),
       exitCode,
       stdout: stdoutAccum,
-      stderr: stderrAccum
+      stderr: stderrAccum,
     };
   }
 }

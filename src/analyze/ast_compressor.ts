@@ -3,7 +3,12 @@ import ts from "typescript";
 export class ASTCompressor {
   public static compress(code: string): string {
     try {
-      const sourceFile = ts.createSourceFile("temp.ts", code, ts.ScriptTarget.Latest, true);
+      const sourceFile = ts.createSourceFile(
+        "temp.ts",
+        code,
+        ts.ScriptTarget.Latest,
+        true,
+      );
       let result = "";
       const visit = (node: ts.Node) => {
         if (ts.isSourceFile(node)) {
@@ -14,7 +19,10 @@ export class ASTCompressor {
         }
       };
       visit(sourceFile);
-      return code.replace(/\/\*[\s\S]*?\*\/|([^\\:]|^)\/\/.*$/gm, "").replace(/\s+/g, " ").trim();
+      return code
+        .replace(/\/\*[\s\S]*?\*\/|([^\\:]|^)\/\/.*$/gm, "")
+        .replace(/\s+/g, " ")
+        .trim();
     } catch (e) {
       return code;
     }
@@ -22,7 +30,12 @@ export class ASTCompressor {
 
   public static compressMultiLanguage(code: string, language: string): string {
     const lang = language.toLowerCase();
-    if (lang === "typescript" || lang === "javascript" || lang === "ts" || lang === "js") {
+    if (
+      lang === "typescript" ||
+      lang === "javascript" ||
+      lang === "ts" ||
+      lang === "js"
+    ) {
       return this.compress(code);
     }
 
@@ -43,8 +56,8 @@ export class ASTCompressor {
     // Cleanup whitespace lines
     return result
       .split("\n")
-      .map(line => line.trimEnd())
-      .filter(line => line.trim().length > 0)
+      .map((line) => line.trimEnd())
+      .filter((line) => line.trim().length > 0)
       .join("\n");
   }
 }

@@ -79,12 +79,12 @@ export class SequentialEngine {
     isRevision?: boolean,
     revisesThoughtNum?: number,
     branchToThoughtNum?: number,
-    sessionId: string = "default"
+    sessionId: string = "default",
   ): EngineState {
     if (isRevision && revisesThoughtNum !== undefined) {
       this.db.run(
         "UPDATE thoughts SET status = 'backtracked' WHERE session_id = ? AND thought_number > ?",
-        [sessionId, revisesThoughtNum]
+        [sessionId, revisesThoughtNum],
       );
     }
 
@@ -103,8 +103,8 @@ export class SequentialEngine {
         revisesThoughtNum ?? null,
         branchToThoughtNum ?? null,
         new Date().toISOString(),
-        "active"
-      ]
+        "active",
+      ],
     );
 
     return this.getState(sessionId);
@@ -131,29 +131,42 @@ export class SequentialEngine {
     this.saveInternalState(sessionId, plan, state.errors);
   }
 
-  private getInternalState(sessionId: string): { activePlan: string, errors: string[] } {
-    const row = this.db.query("SELECT active_plan, errors FROM engine_state WHERE session_id = ?").get(sessionId) as any;
+  private getInternalState(sessionId: string): {
+    activePlan: string;
+    errors: string[];
+  } {
+    const row = this.db
+      .query(
+        "SELECT active_plan, errors FROM engine_state WHERE session_id = ?",
+      )
+      .get(sessionId) as any;
     if (row) {
       return {
         activePlan: row.active_plan || "",
-        errors: JSON.parse(row.errors || "[]")
+        errors: JSON.parse(row.errors || "[]"),
       };
     }
     return { activePlan: "", errors: [] };
   }
 
-  private saveInternalState(sessionId: string, activePlan: string, errors: string[]) {
+  private saveInternalState(
+    sessionId: string,
+    activePlan: string,
+    errors: string[],
+  ) {
     this.db.run(
       "INSERT OR REPLACE INTO engine_state (session_id, active_plan, errors) VALUES (?, ?, ?)",
-      [sessionId, activePlan, JSON.stringify(errors)]
+      [sessionId, activePlan, JSON.stringify(errors)],
     );
   }
 
   public getState(sessionId: string = "default"): EngineState {
     const internal = this.getInternalState(sessionId);
-    const thoughtsRows = this.db.query("SELECT * FROM thoughts WHERE session_id = ? ORDER BY id ASC").all(sessionId) as any[];
-    
-    const history: Thought[] = thoughtsRows.map(row => ({
+    const thoughtsRows = this.db
+      .query("SELECT * FROM thoughts WHERE session_id = ? ORDER BY id ASC")
+      .all(sessionId) as any[];
+
+    const history: Thought[] = thoughtsRows.map((row) => ({
       thoughtNumber: row.thought_number,
       totalThoughts: row.total_thoughts,
       thought: row.thought,
@@ -162,13 +175,13 @@ export class SequentialEngine {
       revisesThoughtNum: row.revises_thought_num,
       branchToThoughtNum: row.branch_to_thought_num,
       timestamp: row.timestamp,
-      status: row.status
+      status: row.status,
     }));
 
     return {
       history,
       activePlan: internal.activePlan,
-      errors: internal.errors
+      errors: internal.errors,
     };
   }
 
@@ -184,40 +197,68 @@ export class SequentialEngine {
   public evaluateConsensus(sessionId: string = "default"): ConsensusReport {
     const state = this.getState(sessionId);
     const thoughtsText = state.history
-      .filter(t => t.status === "active")
-      .map(t => t.thought)
+      .filter((t) => t.status === "active")
+      .map((t) => t.thought)
       .join(" ");
 
     const wordCount = thoughtsText.split(/\s+/).length;
-    
+
     // Refined heuristic
     let baseScore = 50;
-    
+
     // Density of technical terms (simple heuristic: words > 5 chars or containing special symbols)
-    const techWords = thoughtsText.split(/\s+/).filter(w => w.length > 5 || /[\._\(\)\[\]\{\}]/.test(w)).length;
+    const techWords = thoughtsText
+      .split(/\s+/)
+      .filter((w) => w.length > 5 || /[\._\(\)\[\]\{\}]/.test(w)).length;
     const techDensity = wordCount > 0 ? techWords / wordCount : 0;
-    
+
     baseScore += Math.min(20, techDensity * 100);
-    
-    if (thoughtsText.toLowerCase().includes("verify") || thoughtsText.toLowerCase().includes("test")) {
+
+    if (
+      thoughtsText.toLowerCase().includes("verify") ||
+      thoughtsText.toLowerCase().includes("test")
+    ) {
       baseScore += 15;
     }
-    
+
     // Check for explicit verification steps
-    const verifySteps = (thoughtsText.match(/verify|test|run|check/gi) || []).length;
+    const verifySteps = (thoughtsText.match(/verify|test|run|check/gi) || [])
+      .length;
     baseScore += Math.min(15, verifySteps * 3);
 
     const devScore = Math.min(100, baseScore + 5);
     const auditorScore = Math.min(100, Math.max(20, baseScore - 10));
-    const testerScore = thoughtsText.toLowerCase().includes("test") ? Math.min(100, baseScore + 10) : Math.max(30, baseScore - 15);
+    const testerScore = thoughtsText.toLowerCase().includes("test")
+      ? Math.min(100, baseScore + 10)
+      : Math.max(30, baseScore - 15);
 
     const report: ConsensusReport = {
       averageScore: Math.round((devScore + auditorScore + testerScore) / 3),
       personas: [
-        { role: "Developer", score: devScore, feedback: techDensity > 0.2 ? "High technical density noted." : "Basic implementation coverage." },
-        { role: "Auditor", score: auditorScore, feedback: verifySteps > 2 ? "Strong verification sequence." : "Needs more explicit verification steps." },
-        { role: "Tester", score: testerScore, feedback: thoughtsText.toLowerCase().includes("test") ? "Test scenarios included." : "No explicit test scenarios found." }
-      ]
+        {
+          role: "Developer",
+          score: devScore,
+          feedback:
+            techDensity > 0.2
+              ? "High technical density noted."
+              : "Basic implementation coverage.",
+        },
+        {
+          role: "Auditor",
+          score: auditorScore,
+          feedback:
+            verifySteps > 2
+              ? "Strong verification sequence."
+              : "Needs more explicit verification steps.",
+        },
+        {
+          role: "Tester",
+          score: testerScore,
+          feedback: thoughtsText.toLowerCase().includes("test")
+            ? "Test scenarios included."
+            : "No explicit test scenarios found.",
+        },
+      ],
     };
 
     return report;

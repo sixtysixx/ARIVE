@@ -34,8 +34,9 @@ describe("TDD & Verification Tests", () => {
 
   test("CCR hash verification using verifyHash", () => {
     const content = "Hello World Raw Content";
-    const expectedHash = "ccr:937630995fc998f52ffe7a11052783202b01ec5c8a3fdfed83fa591acd7a15f8";
-    
+    const expectedHash =
+      "ccr:937630995fc998f52ffe7a11052783202b01ec5c8a3fdfed83fa591acd7a15f8";
+
     expect(Validator.verifyHash(content, expectedHash)).toBe(true);
     expect(Validator.verifyHash(content + " mod", expectedHash)).toBe(false);
     expect(Validator.verifyHash(content, "invalid-prefix-hash")).toBe(false);
@@ -46,7 +47,10 @@ describe("TDD & Verification Tests", () => {
     test("Aborts testing immediately when failure string is encountered", () => {
       const targetCwd = ".";
       // Using a command that outputs a failure string and exits non-zero
-      const result = TDDRunner.run(targetCwd, "echo FAIL test abort error && exit 1");
+      const result = TDDRunner.run(
+        targetCwd,
+        "echo FAIL test abort error && exit 1",
+      );
       expect(result.success).toBe(false);
       expect(result.failures.length).toBeGreaterThan(0);
       expect(result.failures[0]).toContain("FAIL");

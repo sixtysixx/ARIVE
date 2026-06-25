@@ -16,9 +16,9 @@ export class SmartCrusher {
   private static traverseAndCrush(val: any): any {
     if (Array.isArray(val)) {
       if (val.length <= 2) {
-        return val.map(item => this.traverseAndCrush(item));
+        return val.map((item) => this.traverseAndCrush(item));
       }
-      const slice = val.slice(0, 2).map(item => this.traverseAndCrush(item));
+      const slice = val.slice(0, 2).map((item) => this.traverseAndCrush(item));
       return [...slice, `<truncated ${val.length - 2} items>`];
     }
     if (val !== null && typeof val === "object") {

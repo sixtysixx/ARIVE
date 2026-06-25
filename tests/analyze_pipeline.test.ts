@@ -6,9 +6,13 @@ import { CacheAligner } from "../src/analyze/cache_aligner.js";
 
 describe("Analyze Pipeline Tests", () => {
   test("Content Router classification", () => {
-    expect(ContentRouter.classify("{ \"a\": 1 }")).toBe("json");
-    expect(ContentRouter.classify("function test() { console.log('hi'); }")).toBe("code");
-    expect(ContentRouter.classify("This is just standard prose writing.")).toBe("prose");
+    expect(ContentRouter.classify('{ "a": 1 }')).toBe("json");
+    expect(
+      ContentRouter.classify("function test() { console.log('hi'); }"),
+    ).toBe("code");
+    expect(ContentRouter.classify("This is just standard prose writing.")).toBe(
+      "prose",
+    );
   });
 
   describe("Semantic Term Classification", () => {
@@ -29,9 +33,9 @@ describe("Analyze Pipeline Tests", () => {
         { id: 1, name: "Alice" },
         { id: 2, name: "Bob" },
         { id: 3, name: "Charlie" },
-        { id: 4, name: "Dave" }
+        { id: 4, name: "Dave" },
       ],
-      errors: { message: "Internal Failure", code: 500 }
+      errors: { message: "Internal Failure", code: 500 },
     });
     const crushed = SmartCrusher.crush(rawJson);
     const parsed = JSON.parse(crushed);
@@ -55,7 +59,9 @@ describe("Analyze Pipeline Tests", () => {
     expect(compressed).not.toContain("JSDoc");
     expect(compressed).not.toContain("Single-line comment");
     expect(compressed).not.toContain("Inline comment");
-    expect(compressed.replace(/\s/g, "")).toContain("functionrun(x:number){consty=x*2;returny;}");
+    expect(compressed.replace(/\s/g, "")).toContain(
+      "functionrun(x:number){consty=x*2;returny;}",
+    );
   });
 
   test("Cache Aligner normalizes content whitespace", () => {
@@ -70,7 +76,10 @@ describe("Analyze Pipeline Tests", () => {
     with multiple lines\"\"\"
     # Inline comment
     return a + b  # inline addition`;
-      const compressed = ASTCompressor.compressMultiLanguage(pythonRaw, "python");
+      const compressed = ASTCompressor.compressMultiLanguage(
+        pythonRaw,
+        "python",
+      );
       expect(compressed.includes("docstring")).toBe(false);
       expect(compressed.includes("Inline comment")).toBe(false);
       expect(compressed.trim()).toBe("def add(a, b):\n    return a + b");

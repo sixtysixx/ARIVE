@@ -20,7 +20,7 @@ export class CodeMapScanner {
     "dist",
     ".arive",
     "package-lock.json",
-    "bun.lockb"
+    "bun.lockb",
   ];
 
   public scanTree(dir: string, excludes: string[] = [], maxDepth = 10): string {
@@ -36,7 +36,7 @@ export class CodeMapScanner {
     excludes: string[],
     lines: string[],
     currentDepth: number,
-    maxDepth: number
+    maxDepth: number,
   ) {
     if (currentDepth > maxDepth) {
       lines.push(`${prefix}⚠️ [Max depth of ${maxDepth} reached]`);
@@ -44,7 +44,10 @@ export class CodeMapScanner {
     }
     const base = path.basename(currentPath);
     // Check if base matches any excluded names or if current path contains them as exact segments
-    if (excludes.includes(base) || excludes.some(exc => currentPath.split(/[\\/]/).includes(exc))) {
+    if (
+      excludes.includes(base) ||
+      excludes.some((exc) => currentPath.split(/[\\/]/).includes(exc))
+    ) {
       return;
     }
 
@@ -53,14 +56,14 @@ export class CodeMapScanner {
       if (stats.isDirectory()) {
         lines.push(`${prefix}📁 ${base}/`);
         const children = fs.readdirSync(currentPath);
-        children.forEach(child => {
+        children.forEach((child) => {
           this.traverse(
             path.join(currentPath, child),
             prefix + "  ",
             excludes,
             lines,
             currentDepth + 1,
-            maxDepth
+            maxDepth,
           );
         });
       } else {
@@ -84,7 +87,7 @@ export class CodeMapScanner {
         code,
         ts.ScriptTarget.Latest,
         true,
-        ts.ScriptKind.TS
+        ts.ScriptKind.TS,
       );
 
       const visit = (node: ts.Node) => {
@@ -97,14 +100,22 @@ export class CodeMapScanner {
         }
 
         // Find Exported Items
-        const modifiers = ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined;
-        const isExported = modifiers?.some((m: ts.ModifierLike) => m.kind === ts.SyntaxKind.ExportKeyword);
+        const modifiers = ts.canHaveModifiers(node)
+          ? ts.getModifiers(node)
+          : undefined;
+        const isExported = modifiers?.some(
+          (m: ts.ModifierLike) => m.kind === ts.SyntaxKind.ExportKeyword,
+        );
         if (isExported) {
           if (ts.isClassDeclaration(node) && node.name) {
             const className = node.name.text;
             const methods: string[] = [];
-            node.members.forEach(member => {
-              if (ts.isMethodDeclaration(member) && member.name && ts.isIdentifier(member.name)) {
+            node.members.forEach((member) => {
+              if (
+                ts.isMethodDeclaration(member) &&
+                member.name &&
+                ts.isIdentifier(member.name)
+              ) {
                 methods.push(member.name.text);
               }
             });
@@ -135,7 +146,9 @@ export class CodeMapScanner {
     }
 
     try {
-      const diff = execFileSync("git", ["diff", targetBranch, "--stat"], { encoding: "utf-8" });
+      const diff = execFileSync("git", ["diff", targetBranch, "--stat"], {
+        encoding: "utf-8",
+      });
       return diff || "No differences against target branch.";
     } catch (e: unknown) {
       const errorMessage = e instanceof Error ? e.message : String(e);
@@ -143,16 +156,26 @@ export class CodeMapScanner {
     }
   }
 
-  public scanDependencies(dir: string, excludes: string[] = []): Record<string, FileMeta> {
+  public scanDependencies(
+    dir: string,
+    excludes: string[] = [],
+  ): Record<string, FileMeta> {
     const excludeList = [...this.defaultExcludes, ...excludes];
     const result: Record<string, FileMeta> = {};
     this.collectDependencies(dir, excludeList, result);
     return result;
   }
 
-  private collectDependencies(currentPath: string, excludes: string[], result: Record<string, FileMeta>) {
+  private collectDependencies(
+    currentPath: string,
+    excludes: string[],
+    result: Record<string, FileMeta>,
+  ) {
     const base = path.basename(currentPath);
-    if (excludes.includes(base) || excludes.some(exc => currentPath.split(/[\\/]/).includes(exc))) {
+    if (
+      excludes.includes(base) ||
+      excludes.some((exc) => currentPath.split(/[\\/]/).includes(exc))
+    ) {
       return;
     }
 
@@ -160,8 +183,12 @@ export class CodeMapScanner {
       const stats = fs.statSync(currentPath);
       if (stats.isDirectory()) {
         const children = fs.readdirSync(currentPath);
-        children.forEach(child => {
-          this.collectDependencies(path.join(currentPath, child), excludes, result);
+        children.forEach((child) => {
+          this.collectDependencies(
+            path.join(currentPath, child),
+            excludes,
+            result,
+          );
         });
       } else if (stats.isFile() && /\.(js|ts|jsx|tsx)$/.test(currentPath)) {
         const code = fs.readFileSync(currentPath, "utf-8");
@@ -171,4 +198,3 @@ export class CodeMapScanner {
     } catch (e) {}
   }
 }
-

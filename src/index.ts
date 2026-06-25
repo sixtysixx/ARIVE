@@ -28,7 +28,7 @@ const server = new Server(
     capabilities: {
       tools: {},
     },
-  }
+  },
 );
 
 // Registries and Engine State
@@ -41,32 +41,49 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     tools: [
       {
         name: "arive_compress",
-        description: "Compresses strings based on code, JSON, logs or prose optimizations, return hash references for large sizes.",
+        description:
+          "Compresses strings based on code, JSON, logs or prose optimizations, return hash references for large sizes.",
         inputSchema: {
           type: "object",
           properties: {
-            content: { type: "string", description: "The content raw text block" },
-            contentType: { type: "string", enum: ["json", "code", "logs", "prose", "auto"], default: "auto" },
+            content: {
+              type: "string",
+              description: "The content raw text block",
+            },
+            contentType: {
+              type: "string",
+              enum: ["json", "code", "logs", "prose", "auto"],
+              default: "auto",
+            },
             forceCcr: { type: "boolean", default: false },
-            ccrThreshold: { type: "integer", description: "Character length threshold for CCR storage", default: 1000 }
+            ccrThreshold: {
+              type: "integer",
+              description: "Character length threshold for CCR storage",
+              default: 1000,
+            },
           },
-          required: ["content"]
-        }
+          required: ["content"],
+        },
       },
       {
         name: "arive_decompress",
-        description: "Resolves CCR reference hashes back to their raw uncompressed representation.",
+        description:
+          "Resolves CCR reference hashes back to their raw uncompressed representation.",
         inputSchema: {
           type: "object",
           properties: {
-            hash: { type: "string", description: "The CCR hash (e.g. ccr:sha256_hash)" }
+            hash: {
+              type: "string",
+              description: "The CCR hash (e.g. ccr:sha256_hash)",
+            },
           },
-          required: ["hash"]
-        }
+          required: ["hash"],
+        },
       },
       {
         name: "arive_think",
-        description: "Records a single thought block in the reasoning sequence, managing backtracking.",
+        description:
+          "Records a single thought block in the reasoning sequence, managing backtracking.",
         inputSchema: {
           type: "object",
           properties: {
@@ -77,101 +94,127 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             isRevision: { type: "boolean" },
             revisesThoughtNum: { type: "integer" },
             branchToThoughtNum: { type: "integer" },
-            sessionId: { type: "string", description: "Optional session ID for multi-session reasoning", default: "default" }
+            sessionId: {
+              type: "string",
+              description: "Optional session ID for multi-session reasoning",
+              default: "default",
+            },
           },
-          required: ["thought", "thoughtNumber", "totalThoughts", "nextThoughtNeeded"]
-        }
+          required: [
+            "thought",
+            "thoughtNumber",
+            "totalThoughts",
+            "nextThoughtNeeded",
+          ],
+        },
       },
       {
         name: "arive_integrate",
-        description: "Controls the workspace lifecycle (Git worktrees) and spawns subprocesses.",
+        description:
+          "Controls the workspace lifecycle (Git worktrees) and spawns subprocesses.",
         inputSchema: {
           type: "object",
           properties: {
             taskId: { type: "string" },
             action: { type: "string", enum: ["create", "execute", "cleanup"] },
             branchName: { type: "string" },
-            command: { type: "string" }
+            command: { type: "string" },
           },
-          required: ["taskId", "action"]
-        }
+          required: ["taskId", "action"],
+        },
       },
       {
         name: "arive_workspace_list",
         description: "Lists all active ARIVE worktree workspaces.",
         inputSchema: {
           type: "object",
-          properties: {}
-        }
+          properties: {},
+        },
       },
       {
         name: "arive_verify",
-        description: "Runs testing suites in the isolated workspace path and backpropagates failures.",
+        description:
+          "Runs testing suites in the isolated workspace path and backpropagates failures.",
         inputSchema: {
           type: "object",
           properties: {
             taskId: { type: "string" },
-            testCommand: { type: "string" }
+            testCommand: { type: "string" },
           },
-          required: ["taskId", "testCommand"]
-        }
+          required: ["taskId", "testCommand"],
+        },
       },
       {
         name: "arive_explain",
-        description: "Transforms conversational messages into telegraphic token-saving ponytail styles, or returns ponytail instruction rules.",
+        description:
+          "Transforms conversational messages into telegraphic token-saving ponytail styles, or returns ponytail instruction rules.",
         inputSchema: {
           type: "object",
           properties: {
-            message: { type: "string", description: "The natural language message, or prompt to get ponytail instructions for" },
-            brevity: { type: "string", enum: ["lite", "full", "ultra", "normal"], default: "full", description: "The ponytail level of brevity/laziness" }
+            message: {
+              type: "string",
+              description:
+                "The natural language message, or prompt to get ponytail instructions for",
+            },
+            brevity: {
+              type: "string",
+              enum: ["lite", "full", "ultra", "normal"],
+              default: "full",
+              description: "The ponytail level of brevity/laziness",
+            },
           },
-          required: ["message"]
-        }
+          required: ["message"],
+        },
       },
       {
         name: "arive_codemap",
-        description: "Scans folder structure tree, maps imports/exports, or runs git diff checks.",
+        description:
+          "Scans folder structure tree, maps imports/exports, or runs git diff checks.",
         inputSchema: {
           type: "object",
           properties: {
             action: {
               type: "string",
               enum: ["tree", "dependencies", "diff"],
-              description: "The codemap operation to perform"
+              description: "The codemap operation to perform",
             },
             dir: {
               type: "string",
-              description: "The directory to scan for tree/dependencies"
+              description: "The directory to scan for tree/dependencies",
             },
             excludes: {
               type: "array",
               items: { type: "string" },
-              description: "List of directories to exclude"
+              description: "List of directories to exclude",
             },
             maxDepth: {
               type: "integer",
-              description: "Max depth to scan for directory tree"
+              description: "Max depth to scan for directory tree",
             },
             targetBranch: {
               type: "string",
-              description: "Target branch for git diff comparison"
-            }
+              description: "Target branch for git diff comparison",
+            },
           },
-          required: ["action"]
-        }
-      }
-      ,
+          required: ["action"],
+        },
+      },
       {
         name: "arive_install",
-        description: "Automatically registers the ARIVE MCP server in all detected AI clients and installs pre-commit hooks, ponytail skills/rules, and plugins.",
+        description:
+          "Automatically registers the ARIVE MCP server in all detected AI clients and installs pre-commit hooks, ponytail skills/rules, and plugins.",
         inputSchema: {
           type: "object",
           properties: {
-            workspacePath: { type: "string", description: "Optional path to the project/workspace root directory to install rules, skills, and plugins in" }
-          }
-        }
-      }
-    ]
+            workspacePath: {
+              type: "string",
+              description:
+                "Optional path to the project/workspace root directory to install rules, skills, and plugins in",
+            },
+          },
+        },
+      },
+    ],
   };
 });
 
@@ -185,9 +228,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const content = String(args?.content || "");
         const forceCcr = Boolean(args?.forceCcr);
         const userType = String(args?.contentType || "auto");
-        const threshold = args?.ccrThreshold !== undefined ? Number(args.ccrThreshold) : 1000;
+        const threshold =
+          args?.ccrThreshold !== undefined ? Number(args.ccrThreshold) : 1000;
 
-        const detectedType = userType === "auto" ? ContentRouter.classify(content) : userType;
+        const detectedType =
+          userType === "auto" ? ContentRouter.classify(content) : userType;
         let compressed = content;
 
         if (detectedType === "json") {
@@ -205,13 +250,41 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (useCcr) {
           resultHash = ccr.store(content, detectedType);
           return {
-            content: [{ type: "text", text: JSON.stringify({ compressed: resultHash, hash: resultHash, wasStoredInCcr: true, type: detectedType }, null, 2) }]
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    compressed: resultHash,
+                    hash: resultHash,
+                    wasStoredInCcr: true,
+                    type: detectedType,
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
           };
         }
 
         const rawHash = ccr.store(content, detectedType);
         return {
-          content: [{ type: "text", text: JSON.stringify({ compressed, hash: rawHash, wasStoredInCcr: false, type: detectedType }, null, 2) }]
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  compressed,
+                  hash: rawHash,
+                  wasStoredInCcr: false,
+                  type: detectedType,
+                },
+                null,
+                2,
+              ),
+            },
+          ],
         };
       }
 
@@ -222,7 +295,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           throw new Error(`CCR Key ${hash} not found in database registry.`);
         }
         return {
-          content: [{ type: "text", text: JSON.stringify({ content: original }) }]
+          content: [
+            { type: "text", text: JSON.stringify({ content: original }) },
+          ],
         };
       }
 
@@ -231,34 +306,61 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const tNum = Number(args?.thoughtNumber);
         const total = Number(args?.totalThoughts);
         const nextNeeded = Boolean(args?.nextThoughtNeeded);
-        const isRev = args?.isRevision !== undefined ? Boolean(args.isRevision) : undefined;
-        const revNum = args?.revisesThoughtNum !== undefined ? Number(args.revisesThoughtNum) : undefined;
-        const branchNum = args?.branchToThoughtNum !== undefined ? Number(args.branchToThoughtNum) : undefined;
-        const sessionId = args?.sessionId !== undefined ? String(args.sessionId) : "default";
+        const isRev =
+          args?.isRevision !== undefined ? Boolean(args.isRevision) : undefined;
+        const revNum =
+          args?.revisesThoughtNum !== undefined
+            ? Number(args.revisesThoughtNum)
+            : undefined;
+        const branchNum =
+          args?.branchToThoughtNum !== undefined
+            ? Number(args.branchToThoughtNum)
+            : undefined;
+        const sessionId =
+          args?.sessionId !== undefined ? String(args.sessionId) : "default";
 
         if (args?.thoughtNumber === undefined || Number.isNaN(tNum)) {
-          throw new Error("Invalid parameter: 'thoughtNumber' must be a valid number");
+          throw new Error(
+            "Invalid parameter: 'thoughtNumber' must be a valid number",
+          );
         }
         if (args?.totalThoughts === undefined || Number.isNaN(total)) {
-          throw new Error("Invalid parameter: 'totalThoughts' must be a valid number");
+          throw new Error(
+            "Invalid parameter: 'totalThoughts' must be a valid number",
+          );
         }
         if (revNum !== undefined && Number.isNaN(revNum)) {
-          throw new Error("Invalid parameter: 'revisesThoughtNum' must be a valid number");
+          throw new Error(
+            "Invalid parameter: 'revisesThoughtNum' must be a valid number",
+          );
         }
         if (branchNum !== undefined && Number.isNaN(branchNum)) {
-          throw new Error("Invalid parameter: 'branchToThoughtNum' must be a valid number");
+          throw new Error(
+            "Invalid parameter: 'branchToThoughtNum' must be a valid number",
+          );
         }
 
-        const res = engine.addThought(thought, tNum, total, nextNeeded, isRev, revNum, branchNum, sessionId);
+        const res = engine.addThought(
+          thought,
+          tNum,
+          total,
+          nextNeeded,
+          isRev,
+          revNum,
+          branchNum,
+          sessionId,
+        );
         return {
-          content: [{ type: "text", text: JSON.stringify(res, null, 2) }]
+          content: [{ type: "text", text: JSON.stringify(res, null, 2) }],
         };
       }
 
       case "arive_integrate": {
         const taskId = String(args?.taskId || "");
         const action = String(args?.action || "");
-        const branchName = args?.branchName ? String(args.branchName) : undefined;
+        const branchName = args?.branchName
+          ? String(args.branchName)
+          : undefined;
         const command = args?.command ? String(args.command) : undefined;
 
         WorkspaceManager.validateTaskId(taskId);
@@ -266,21 +368,46 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (action === "create") {
           const resPath = WorkspaceManager.create(taskId);
           return {
-            content: [{ type: "text", text: JSON.stringify({ taskId, status: "created", path: resPath }) }]
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  taskId,
+                  status: "created",
+                  path: resPath,
+                }),
+              },
+            ],
           };
         } else if (action === "execute") {
           const targetPath = `.arive-tasks/${taskId}`;
           if (!fs.existsSync(targetPath)) {
-            throw new Error(`Workspace path for ${taskId} does not exist. Call create first.`);
+            throw new Error(
+              `Workspace path for ${taskId} does not exist. Call create first.`,
+            );
           }
           const execRes = TDDRunner.run(targetPath, command || "bun test");
           return {
-            content: [{ type: "text", text: JSON.stringify({ taskId, status: "executed", ...execRes }) }]
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  taskId,
+                  status: "executed",
+                  ...execRes,
+                }),
+              },
+            ],
           };
         } else if (action === "cleanup") {
           WorkspaceManager.cleanup(taskId);
           return {
-            content: [{ type: "text", text: JSON.stringify({ taskId, status: "cleaned" }) }]
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({ taskId, status: "cleaned" }),
+              },
+            ],
           };
         }
         throw new Error(`Unknown integrate action: ${action}`);
@@ -289,7 +416,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "arive_workspace_list": {
         const list = WorkspaceManager.list();
         return {
-          content: [{ type: "text", text: JSON.stringify(list, null, 2) }]
+          content: [{ type: "text", text: JSON.stringify(list, null, 2) }],
         };
       }
 
@@ -301,7 +428,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         const targetPath = `.arive-tasks/${taskId}`;
         if (!fs.existsSync(targetPath)) {
-          throw new Error(`Workspace path for ${taskId} does not exist. Call integrate create first.`);
+          throw new Error(
+            `Workspace path for ${taskId} does not exist. Call integrate create first.`,
+          );
         }
 
         const res = TDDRunner.run(targetPath, testCmd);
@@ -309,49 +438,66 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           Validator.backpropagate(engine, res.failures);
         }
         return {
-          content: [{ type: "text", text: JSON.stringify(res, null, 2) }]
+          content: [{ type: "text", text: JSON.stringify(res, null, 2) }],
         };
       }
 
       case "arive_explain": {
         const message = String(args?.message || "");
-        const brevity = (args?.brevity || "full") as "lite" | "full" | "ultra" | "normal";
+        const brevity = (args?.brevity || "full") as
+          | "lite"
+          | "full"
+          | "ultra"
+          | "normal";
         const formatted = PonytailFormatter.format(message, brevity);
         const savingsText = PonytailFormatter.getSavings(message, formatted);
         const charSavings = message.length - formatted.length;
-        const charPercentage = message.length > 0 ? Math.round((charSavings / message.length) * 100) : 0;
+        const charPercentage =
+          message.length > 0
+            ? Math.round((charSavings / message.length) * 100)
+            : 0;
         const instructions = PonytailFormatter.getInstructions(brevity);
-        
+
         return {
-          content: [{ 
-            type: "text", 
-            text: JSON.stringify({ 
-              explanation: {
-                formatted,
-                brevity,
-                savings: {
-                  summary: savingsText,
-                  characterSavings: charSavings,
-                  characterPercentage: `${charPercentage}%`
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  explanation: {
+                    formatted,
+                    brevity,
+                    savings: {
+                      summary: savingsText,
+                      characterSavings: charSavings,
+                      characterPercentage: `${charPercentage}%`,
+                    },
+                    instructions,
+                  },
                 },
-                instructions
-              }
-            }, null, 2) 
-          }]
+                null,
+                2,
+              ),
+            },
+          ],
         };
       }
 
       case "arive_codemap": {
         const action = String(args?.action || "tree");
         const dir = String(args?.dir || ".");
-        const excludes = Array.isArray(args?.excludes) ? args.excludes.map(String) : [];
+        const excludes = Array.isArray(args?.excludes)
+          ? args.excludes.map(String)
+          : [];
         const targetBranch = String(args?.targetBranch || "master");
 
         let maxDepth = 10;
         if (args?.maxDepth !== undefined) {
           const depth = Number(args.maxDepth);
           if (Number.isNaN(depth) || depth < 0) {
-            throw new Error("Invalid parameter: 'maxDepth' must be a non-negative number");
+            throw new Error(
+              "Invalid parameter: 'maxDepth' must be a non-negative number",
+            );
           }
           maxDepth = depth;
         }
@@ -361,28 +507,38 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (action === "tree") {
           const res = scanner.scanTree(dir, excludes, maxDepth);
           return {
-            content: [{ type: "text", text: res }]
+            content: [{ type: "text", text: res }],
           };
         } else if (action === "dependencies") {
           const res = scanner.scanDependencies(dir, excludes);
           return {
-            content: [{ type: "text", text: JSON.stringify(res, null, 2) }]
+            content: [{ type: "text", text: JSON.stringify(res, null, 2) }],
           };
         } else if (action === "diff") {
           const res = scanner.getGitDiff(targetBranch);
           return {
-            content: [{ type: "text", text: res }]
+            content: [{ type: "text", text: res }],
           };
         }
         throw new Error(`Unknown codemap action: ${action}`);
       }
 
       case "arive_install": {
-        const workspacePath = args?.workspacePath ? String(args.workspacePath) : undefined;
+        const workspacePath = args?.workspacePath
+          ? String(args.workspacePath)
+          : undefined;
         const { installAll } = await import("./cli/installer.js");
         installAll(workspacePath);
         return {
-          content: [{ type: "text", text: JSON.stringify({ status: "success", message: "ARIVE automatically installed successfully" }) }]
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                status: "success",
+                message: "ARIVE automatically installed successfully",
+              }),
+            },
+          ],
         };
       }
 
@@ -393,7 +549,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const message = error instanceof Error ? error.message : String(error);
     return {
       isError: true,
-      content: [{ type: "text", text: JSON.stringify({ error: message }) }]
+      content: [{ type: "text", text: JSON.stringify({ error: message }) }],
     };
   }
 });

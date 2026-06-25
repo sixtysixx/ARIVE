@@ -1,5 +1,7 @@
 export class PonytailFormatter {
-  public static getInstructions(brevity: "lite" | "full" | "ultra" | "normal" = "full"): string {
+  public static getInstructions(
+    brevity: "lite" | "full" | "ultra" | "normal" = "full",
+  ): string {
     if (brevity === "normal") {
       return "";
     }
@@ -30,7 +32,10 @@ Output:
 Code first. Then at most three short lines: what was skipped, when to add it. No essays.`;
   }
 
-  public static format(message: string, brevity: "lite" | "full" | "ultra" | "normal" = "full"): string {
+  public static format(
+    message: string,
+    brevity: "lite" | "full" | "ultra" | "normal" = "full",
+  ): string {
     if (brevity === "normal") {
       return message;
     }
@@ -47,7 +52,7 @@ Code first. Then at most three short lines: what was skipped, when to add it. No
       /\bsimply\b/gi,
       /\bkind of\b/gi,
       /\bsort of\b/gi,
-      /\bhonestly\b/gi
+      /\bhonestly\b/gi,
     ];
 
     for (const pattern of conversationalPadding) {
@@ -69,7 +74,7 @@ Code first. Then at most three short lines: what was skipped, when to add it. No
         /\b(is|are|was|were|been)\b/gi,
         /\b(have|has|had)\b/gi,
         /\b(do|does|did)\b/gi,
-        /\b(successfully|extremely|highly|properly)\b/gi
+        /\b(successfully|extremely|highly|properly)\b/gi,
       ];
 
       for (const pattern of fullFilters) {
@@ -105,7 +110,10 @@ Code first. Then at most three short lines: what was skipped, when to add it. No
   public static getSavings(original: string, formatted: string): string {
     const origTokens = original.split(/\s+/).length;
     const formTokens = formatted.split(/\s+/).length;
-    const reduction = origTokens > 0 ? Math.round(((origTokens - formTokens) / origTokens) * 100) : 0;
+    const reduction =
+      origTokens > 0
+        ? Math.round(((origTokens - formTokens) / origTokens) * 100)
+        : 0;
     return `${reduction}% token reduction (${origTokens} -> ${formTokens} tokens)`;
   }
 }

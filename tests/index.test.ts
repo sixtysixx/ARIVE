@@ -32,7 +32,7 @@ describe("MCP Entrypoint Shell Run Tests", () => {
       jsonrpc: "2.0",
       id: 1,
       method: "tools/list",
-      params: {}
+      params: {},
     };
     proc.stdin.write(JSON.stringify(listRequest) + "\n");
 
@@ -54,9 +54,9 @@ describe("MCP Entrypoint Shell Run Tests", () => {
         name: "arive_codemap",
         arguments: {
           action: "tree",
-          maxDepth: -1
-        }
-      }
+          maxDepth: -1,
+        },
+      },
     };
     proc.stdin.write(JSON.stringify(invalidDepthRequest) + "\n");
 
@@ -74,9 +74,9 @@ describe("MCP Entrypoint Shell Run Tests", () => {
         name: "arive_integrate",
         arguments: {
           action: "execute",
-          taskId: "../escaped-path"
-        }
-      }
+          taskId: "../escaped-path",
+        },
+      },
     };
     proc.stdin.write(JSON.stringify(invalidTaskRequest) + "\n");
 

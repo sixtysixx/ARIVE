@@ -16,20 +16,36 @@ export class SubagentRunner {
 
     // Restrict execution to the project root or subdirectories of the task base dir
     const isInsideRoot = absoluteCwd === rootDir;
-    const isInsideTask = absoluteCwd.startsWith(taskBaseDir + path.sep) || absoluteCwd === taskBaseDir;
+    const isInsideTask =
+      absoluteCwd.startsWith(taskBaseDir + path.sep) ||
+      absoluteCwd === taskBaseDir;
 
     if (!isInsideRoot && !isInsideTask) {
-      throw new Error(`Security Exception: Execution directory "${cwd}" is outside allowed workspace boundaries.`);
+      throw new Error(
+        `Security Exception: Execution directory "${cwd}" is outside allowed workspace boundaries.`,
+      );
     }
 
-    if (!fs.existsSync(absoluteCwd) || !fs.statSync(absoluteCwd).isDirectory()) {
-      throw new Error(`Directory Exception: Execution directory "${cwd}" does not exist or is not a directory.`);
+    if (
+      !fs.existsSync(absoluteCwd) ||
+      !fs.statSync(absoluteCwd).isDirectory()
+    ) {
+      throw new Error(
+        `Directory Exception: Execution directory "${cwd}" does not exist or is not a directory.`,
+      );
     }
 
     const isWindows = process.platform === "win32";
     const shell = isWindows ? "powershell.exe" : "sh";
     const args = isWindows
-      ? ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command]
+      ? [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-Command",
+          command,
+        ]
       : ["-c", command];
 
     const proc = spawnSync(shell, args, {
@@ -38,15 +54,15 @@ export class SubagentRunner {
       env: {
         ...process.env,
         PAGER: "cat",
-        FORCE_COLOR: "0" // Keep output logs color-free for parsing
-      }
+        FORCE_COLOR: "0", // Keep output logs color-free for parsing
+      },
     });
 
     if (proc.error) {
       return {
         exitCode: proc.status ?? -1,
         stdout: proc.stdout || "",
-        stderr: `Subprocess execution failed: ${proc.error.message}`
+        stderr: `Subprocess execution failed: ${proc.error.message}`,
       };
     }
 
@@ -54,15 +70,14 @@ export class SubagentRunner {
       return {
         exitCode: -1,
         stdout: proc.stdout || "",
-        stderr: `Subprocess terminated by signal: ${proc.signal}`
+        stderr: `Subprocess terminated by signal: ${proc.signal}`,
       };
     }
 
     return {
       exitCode: proc.status ?? 0,
       stdout: proc.stdout || "",
-      stderr: proc.stderr || ""
+      stderr: proc.stderr || "",
     };
   }
 }
-

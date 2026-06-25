@@ -2,12 +2,19 @@ import { SequentialEngine } from "../reason/sequential_engine.js";
 import { createHash } from "crypto";
 
 export class Validator {
-  public static backpropagate(engine: SequentialEngine, failures: string[]): void {
+  public static backpropagate(
+    engine: SequentialEngine,
+    failures: string[],
+  ): void {
     engine.setErrors(failures);
   }
 
   public static verifyHash(content: string, expectedHash: string): boolean {
-    if (!expectedHash || typeof expectedHash !== "string" || !expectedHash.startsWith("ccr:")) {
+    if (
+      !expectedHash ||
+      typeof expectedHash !== "string" ||
+      !expectedHash.startsWith("ccr:")
+    ) {
       return false;
     }
     // Expected hash comes in format ccr:sha256
