@@ -15,7 +15,7 @@ import { SequentialEngine } from "./reason/sequential_engine.js";
 import { WorkspaceManager } from "./integrate/workspace.js";
 import { TDDRunner } from "./verify/tdd_runner.js";
 import { Validator } from "./verify/validator.js";
-import { LithicFormatter } from "./explain/lithic_formatter.js";
+import { PonytailFormatter } from "./explain/ponytail_formatter.js";
 import * as fs from "fs";
 
 // Setup server instance
@@ -118,12 +118,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "arive_explain",
-        description: "Transforms conversational messages into telegraphic token-saving caveman styles.",
+        description: "Transforms conversational messages into telegraphic token-saving ponytail styles, or returns ponytail instruction rules.",
         inputSchema: {
           type: "object",
           properties: {
-            message: { type: "string" },
-            brevity: { type: "string", enum: ["lite", "full", "ultra", "normal"], default: "full" }
+            message: { type: "string", description: "The natural language message, or prompt to get ponytail instructions for" },
+            brevity: { type: "string", enum: ["lite", "full", "ultra", "normal"], default: "full", description: "The ponytail level of brevity/laziness" }
           },
           required: ["message"]
         }
@@ -158,6 +158,17 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             }
           },
           required: ["action"]
+        }
+      }
+      ,
+      {
+        name: "arive_install",
+        description: "Automatically registers the ARIVE MCP server in all detected AI clients and installs pre-commit hooks, ponytail skills/rules, and plugins.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            workspacePath: { type: "string", description: "Optional path to the project/workspace root directory to install rules, skills, and plugins in" }
+          }
         }
       }
     ]
@@ -253,12 +264,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         WorkspaceManager.validateTaskId(taskId);
 
         if (action === "create") {
-          const resPath = WorkspaceManager.create(taskId, branchName);
+          const resPath = WorkspaceManager.create(taskId);
           return {
             content: [{ type: "text", text: JSON.stringify({ taskId, status: "created", path: resPath }) }]
           };
         } else if (action === "execute") {
-          const targetPath = `.arive-worktrees/${taskId}`;
+          const targetPath = `.arive-tasks/${taskId}`;
           if (!fs.existsSync(targetPath)) {
             throw new Error(`Workspace path for ${taskId} does not exist. Call create first.`);
           }
@@ -288,7 +299,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         WorkspaceManager.validateTaskId(taskId);
 
-        const targetPath = `.arive-worktrees/${taskId}`;
+        const targetPath = `.arive-tasks/${taskId}`;
         if (!fs.existsSync(targetPath)) {
           throw new Error(`Workspace path for ${taskId} does not exist. Call integrate create first.`);
         }
@@ -305,10 +316,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "arive_explain": {
         const message = String(args?.message || "");
         const brevity = (args?.brevity || "full") as "lite" | "full" | "ultra" | "normal";
-        const formatted = LithicFormatter.format(message, brevity);
-        const savingsText = LithicFormatter.getSavings(message, formatted);
+        const formatted = PonytailFormatter.format(message, brevity);
+        const savingsText = PonytailFormatter.getSavings(message, formatted);
         const charSavings = message.length - formatted.length;
         const charPercentage = message.length > 0 ? Math.round((charSavings / message.length) * 100) : 0;
+        const instructions = PonytailFormatter.getInstructions(brevity);
         
         return {
           content: [{ 
@@ -321,7 +333,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                   summary: savingsText,
                   characterSavings: charSavings,
                   characterPercentage: `${charPercentage}%`
-                }
+                },
+                instructions
               }
             }, null, 2) 
           }]
@@ -364,13 +377,23 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         throw new Error(`Unknown codemap action: ${action}`);
       }
 
+      case "arive_install": {
+        const workspacePath = args?.workspacePath ? String(args.workspacePath) : undefined;
+        const { installAll } = await import("./cli/installer.js");
+        installAll(workspacePath);
+        return {
+          content: [{ type: "text", text: JSON.stringify({ status: "success", message: "ARIVE automatically installed successfully" }) }]
+        };
+      }
+
       default:
         throw new Error(`Unknown tool name: ${name}`);
     }
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
     return {
       isError: true,
-      content: [{ type: "text", text: JSON.stringify({ error: error.message }) }]
+      content: [{ type: "text", text: JSON.stringify({ error: message }) }]
     };
   }
 });
@@ -380,7 +403,7 @@ try {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("ARIVE MCP Server successfully listening on stdio.");
-} catch (error: any) {
+} catch (error: unknown) {
   console.error("Fatal error: Failed to connect to stdio transport:", error);
   process.exit(1);
 }

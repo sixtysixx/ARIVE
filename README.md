@@ -7,7 +7,7 @@
 
 A complete, production-ready TypeScript Model Context Protocol (MCP) server that implements the **ARIVE** framework: **Analyze**, **Reason**, **Integrate**, **Verify**, **Explain**. 
 
-ARIVE merges local context compression, step-by-step backtracking reasoning graphs, isolated Git worktree runners, test verification loops, and telegraphic language output into a single, cohesive developer assistant engine.
+ARIVE merges local context compression, step-by-step backtracking reasoning graphs, isolated directory task runners, test verification loops, and telegraphic language output into a single, cohesive developer assistant engine.
 
 ---
 
@@ -16,7 +16,7 @@ ARIVE merges local context compression, step-by-step backtracking reasoning grap
 ```mermaid
 graph TD
     A[Analyze: Router & Compressor] --> R[Reason: Reflective Engine]
-    R --> I[Integrate: Git Worktrees]
+    R --> I[Integrate: Task Directories]
     I --> V[Verify: TDD Loop]
     V -- Failure Backprop --> R
     V --> E[Explain: Lithic Formatter]
@@ -41,8 +41,8 @@ graph TD
 *   **Reflective Engine**: Tracks thought sequences in a graph. Supports branching and backtracking: if a backtracking revision is requested, thoughts after the revision target are flagged as `"backtracked"` (retained in log but deactivated), and a new active sequence branches out. State is saved atomically to `.arive/thinking_state.json`.
 
 ### I - Integrate (Isolated Workspaces)
-*   **Git Worktree Isolation**: Spawns isolated, concurrent task directories under `.arive-worktrees/<taskId>` using Git worktrees. Prevents modifying the user's active files during automated refactoring/mutation runs.
-*   **Subagent Runner**: Spawns CLI commands inside the isolated directory, guarding against sandbox directory escapes and command injection.
+*   **Directory Isolation**: Spawns isolated, concurrent task directories under `.arive-tasks/<taskId>`. Prevents modifying the user's active files during automated refactoring/mutation runs.
+*   **Subagent Runner**: Spawns CLI commands inside the isolated directory, guarding against sandbox directory escapes and command injection, and capturing subprocess runtime errors.
 
 ### V - Verify (TDD & Verification Loops)
 *   **TDD Orchestrator**: Executes verification tests (e.g., `bun test`, `pytest`) inside the isolated CWD.
@@ -90,17 +90,16 @@ Records a single thought block in the reasoning sequence, managing backtracking.
 | `branchToThoughtNum` | integer | No | | The thought number to branch from (if backtracking). |
 
 ### `arive_integrate`
-Controls the workspace lifecycle (Git worktrees) and spawns subprocesses.
+Controls the workspace lifecycle (local directory tasks) and spawns subprocesses.
 
 | Parameter | Type | Required | Default | Description |
 | :--- | :--- | :--- | :--- | :--- |
 | `taskId` | string | Yes | | Unique identifier for the task workspace. |
 | `action` | enum | Yes | | The action to perform: `create`, `execute`, or `cleanup`. |
-| `branchName` | string | No | | Git branch name to create/use. |
 | `command` | string | No | | CLI command to execute when action is `execute`. |
 
 ### `arive_verify`
-Runs testing suites in the isolated workspace path and backpropagates failures.
+Runs testing suites in the task directory workspace path and backpropagates failures.
 
 | Parameter | Type | Required | Default | Description |
 | :--- | :--- | :--- | :--- | :--- |
@@ -108,13 +107,12 @@ Runs testing suites in the isolated workspace path and backpropagates failures.
 | `testCommand` | string | Yes | | The test command to run (e.g., `bun test`). |
 
 ### `arive_explain`
-Transforms conversational messages into telegraphic token-saving caveman styles.
+Transforms conversational messages into telegraphic token-saving ponytail styles, or returns ponytail instruction rules.
 
 | Parameter | Type | Required | Default | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| `message` | string | Yes | | The natural language text to compress. |
-| `brevity` | enum | No | `full` | The level of brevity: `lite`, `full`, `ultra`, or `normal`. |
-
+| `message` | string | Yes | | The natural language text to compress, or get instructions for. |
+| `brevity` | enum | No | `full` | The level of brevity/laziness: `lite`, `full`, `ultra`, or `normal`. |
 ### `arive_codemap`
 Scans folder structure tree, maps imports/exports, or runs git diff checks.
 
@@ -144,6 +142,13 @@ cd ARIVE
 bun install
 ```
 
+### Automatic Installation
+You can automatically register the ARIVE MCP server in all detected AI clients (Claude Desktop, Claude Code, Cline, Roo Code, Cursor, Windsurf, Antigravity, OpenCode, KiloCode) and install Git pre-commit hooks, ponytail skills/rules, and plugins:
+```bash
+bun run install
+```
+Or use the `arive_install` MCP tool from within any active client.
+
 ### Running Tests
 ```bash
 bun test
@@ -162,6 +167,21 @@ To register the ARIVE MCP server in your local AI editing clients:
 
 ### Gemini CLI (`antigravity-cli`)
 Add this configuration to your local config at `%USERPROFILE%\.gemini\antigravity-cli\mcp_config.json`:
+```json
+{
+  "mcpServers": {
+    "arive": {
+      "command": "bunx",
+      "args": [
+        "github:sixtysixx/ARIVE"
+      ]
+    }
+  }
+}
+```
+
+### OMP (omp)
+Add this configuration to your user-level config at `~/.omp/agent/mcp.json` or your project-level config at `.omp/mcp.json`:
 ```json
 {
   "mcpServers": {
@@ -268,6 +288,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ARIVE integrates, models, and adapts ideas and pipelines from the following core development paradigms:
 *   **headroom** (`chopratejas/headroom`): Local, reversible context compression.
 *   **sequentialthinking** (`modelcontextprotocol/servers/sequentialthinking`): Step-by-step reasoning with reflective backtracking.
-*   **superpowers** (`obra/superpowers`): Isolated Git worktree workspaces and TDD loop verification.
-*   **caveman** (`JuliusBrussee/caveman`): Lithic, token-saving telegraphic communication formatters.
+*   **ponytail** (`DietrichGebert/ponytail`): Lazy senior dev mode rulesets, skills, and plugins.
 *   **codemap** (`JordanCoin/codemap`): Compact structural file tree and dependency flow mapping.

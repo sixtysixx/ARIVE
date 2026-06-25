@@ -1,0 +1,15 @@
+{
+  "plugin": [
+    ".opencode/plugins/ponytail.mjs"
+  ],
+  "mcp": {
+    "arive": {
+      "type": "local",
+      "command": [
+        "bunx",
+        "github:sixtysixx/ARIVE"
+      ],
+      "enabled": true
+    }
+  }
+}

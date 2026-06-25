@@ -3,108 +3,94 @@ import { WorkspaceManager } from "../src/integrate/workspace.js";
 import { SubagentRunner } from "../src/integrate/subagent_runner.js";
 import * as fs from "fs";
 import * as path from "path";
-import { execFileSync } from "child_process";
 import * as os from "os";
 
 describe("Workspace & Subagent Integration Tests", () => {
   const taskId = "test_workspace_runner";
   let tempDir: string;
   let originalCwd: string;
-  let worktreePath: string;
+  let taskPath: string;
 
   beforeAll(() => {
-    // Clear git environment variables that might be set during hooks
-    // to ensure tests run in a truly independent environment.
-    for (const key of Object.keys(process.env)) {
-      if (key.startsWith("GIT_") && key !== "GIT_CONFIG_NOSYSTEM") {
-        delete process.env[key];
-      }
-    }
-
     originalCwd = process.cwd();
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "arive-test-"));
     process.chdir(tempDir);
-
-    // Initialize a fresh git repo in the temp dir
-    execFileSync("git", ["init"]);
-    execFileSync("git", ["config", "user.name", "Test"]);
-    execFileSync("git", ["config", "user.email", "test@test.com"]);
-    execFileSync("git", ["commit", "-m", "Initial", "--allow-empty"]);
     
-    worktreePath = path.join(tempDir, ".arive-worktrees", taskId);
+    // Create a dummy file in root to verify it gets copied
+    fs.writeFileSync("dummy.txt", "hello", "utf-8");
+    // Create a dummy node_modules to verify it gets symlinked
+    fs.mkdirSync("node_modules");
+    fs.writeFileSync("node_modules/test-dep.txt", "dependency", "utf-8");
+
+    taskPath = path.join(tempDir, ".arive-tasks", taskId);
   });
 
   afterAll(() => {
     process.chdir(originalCwd);
     try {
-      // Clean up temp dir
       fs.rmSync(tempDir, { recursive: true, force: true });
-    } catch (e) {}
+    } catch {
+      // Ignore cleanup error of temp dir
+    }
   });
 
-  test("Create worktree workspace", () => {
-    const pathResult = WorkspaceManager.create(taskId, "arive-test-branch");
-    expect(fs.existsSync(pathResult)).toBe(true);
-    expect(pathResult).toContain(taskId);
+  test("Create directory workspace", () => {
+    const createdPath = WorkspaceManager.create(taskId);
+    expect(createdPath).toBe(path.resolve(taskPath));
+    expect(fs.existsSync(createdPath)).toBe(true);
+    expect(fs.existsSync(path.join(createdPath, "dummy.txt"))).toBe(true);
+    expect(fs.existsSync(path.join(createdPath, "node_modules"))).toBe(true);
   });
 
-  test("Workspace creation handles existing worktree path by cleaning it up first", () => {
-    // Calling it again should clean up and recreate successfully
-    const pathResult = WorkspaceManager.create(taskId, "arive-test-branch");
-    expect(fs.existsSync(pathResult)).toBe(true);
+  test("Workspace creation handles existing path by cleaning it up first", () => {
+    // Add a file in the workspace
+    fs.writeFileSync(path.join(taskPath, "should_be_deleted.txt"), "delete me", "utf-8");
+    
+    // Recreate
+    WorkspaceManager.create(taskId);
+    expect(fs.existsSync(path.join(taskPath, "should_be_deleted.txt"))).toBe(false);
   });
 
-  test("Run custom command via subagent runner inside worktree", () => {
-    const absWorktreePath = path.resolve(".arive-worktrees", taskId);
-    const runRes = SubagentRunner.execute(absWorktreePath, "git status");
-    expect(runRes.exitCode).toBe(0);
-    expect(runRes.stdout).toContain("On branch");
+  test("Run custom command via subagent runner inside workspace", () => {
+    const result = SubagentRunner.execute(taskPath, "echo hello-world");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("hello-world");
   });
 
   test("Subagent runner returns non-zero exit code on failing command", () => {
-    const absWorktreePath = path.resolve(".arive-worktrees", taskId);
-    const runRes = SubagentRunner.execute(absWorktreePath, "non_existent_command_12345");
-    expect(runRes.exitCode).not.toBe(0);
+    const result = SubagentRunner.execute(taskPath, "exit 123");
+    expect(result.exitCode).toBe(123);
   });
 
-  test("Cleanup removes the workspace directory and branch", () => {
-    WorkspaceManager.cleanup(taskId, "arive-test-branch");
-    const absWorktreePath = path.resolve(".arive-worktrees", taskId);
-    expect(fs.existsSync(absWorktreePath)).toBe(false);
+  test("Subagent runner handles subprocess runerrs", () => {
+    // Use an invalid command name to trigger spawnSync error
+    const result = SubagentRunner.execute(taskPath, "thiscommanddoesnotexist_abc123");
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr.length).toBeGreaterThan(0);
   });
 
-  test("should list active worktrees", () => {
-    const listTaskId = "test-list-task";
-    WorkspaceManager.create(listTaskId, "test-list-branch");
-    // @ts-ignore
+  test("Cleanup removes the workspace directory", () => {
+    WorkspaceManager.cleanup(taskId);
+    expect(fs.existsSync(taskPath)).toBe(false);
+  });
+
+  test("should list active task directories", () => {
+    const listTaskId = "list_test_task";
+    WorkspaceManager.create(listTaskId);
+
     const list = WorkspaceManager.list();
-    const item = list.find((w: any) => w.taskId === listTaskId);
+    const item = list.find((w) => w.taskId === listTaskId);
     expect(item).toBeDefined();
-    expect(item?.branch).toBe("test-list-branch");
+    expect(item?.path).toContain(listTaskId);
     WorkspaceManager.cleanup(listTaskId);
   });
 
-
   test("WorkspaceManager rejects invalid taskId patterns to prevent command/path injection", () => {
-    expect(() => {
-      WorkspaceManager.create("invalid-task; rm -rf");
-    }).toThrow();
-
-    expect(() => {
-      WorkspaceManager.create("../escaped-path");
-    }).toThrow();
-  });
-
-  test("WorkspaceManager rejects invalid branchName patterns to prevent command injection", () => {
-    expect(() => {
-      WorkspaceManager.create(taskId, "test-branch; echo injected");
-    }).toThrow();
+    expect(() => WorkspaceManager.create("../escaped")).toThrow();
+    expect(() => WorkspaceManager.create("invalid taskId; rm -rf /")).toThrow();
   });
 
   test("SubagentRunner restricts command execution to allowed workspace boundary", () => {
-    expect(() => {
-      SubagentRunner.execute("C:/Windows/System32", "dir");
-    }).toThrow(/Security Exception/);
+    expect(() => SubagentRunner.execute("/some/other/path", "echo")).toThrow();
   });
 });
-

@@ -29,6 +29,10 @@ export class TDDRunner {
         timeout: 10000,
         encoding: "utf-8"
       });
+      if (child.error) {
+        success = false;
+        failures.push(`Subprocess run error: ${child.error.message}`);
+      }
 
       stdoutAccum = child.stdout || "";
       stderrAccum = child.stderr || "";
@@ -46,9 +50,10 @@ export class TDDRunner {
         success = false;
       }
 
-    } catch (e: any) {
+    } catch (e: unknown) {
       success = false;
-      failures.push(e.message || "Failed to execute test command execution");
+      const message = e instanceof Error ? e.message : String(e);
+      failures.push(message || "Failed to execute test command execution");
     }
 
     return {
