@@ -205,7 +205,7 @@ export default async ({ client } = {}) => {
   };
 };`;
 
-export function installAll(workspacePath?: string): void {
+export function installAll(workspacePath?: string, editor?: string): void {
   const wsRoot = workspacePath ? path.resolve(workspacePath) : process.cwd();
   const rootDir = path.resolve(process.cwd());
   const relativePath = path.relative(rootDir, wsRoot);
@@ -217,7 +217,32 @@ export function installAll(workspacePath?: string): void {
     );
   }
 
-  console.log(`Starting ARIVE installer for workspace: ${wsRoot}`);
+  const target = editor ? editor.toLowerCase().trim() : undefined;
+  const validEditors = [
+    "cursor",
+    "cline",
+    "roo",
+    "roocode",
+    "windsurf",
+    "kiro",
+    "agents",
+    "openclaw",
+    "opencode",
+    "kilocode",
+    "antigravity",
+    "claude",
+    "claudecode",
+    "omp",
+  ];
+  if (target && !validEditors.includes(target)) {
+    console.warn(
+      `! Warning: "${target}" is not a recognized editor. Installing for all editors instead.`,
+    );
+  }
+
+  console.log(
+    `Starting ARIVE installer for workspace: ${wsRoot}${target ? ` (Target: ${target})` : ""}`,
+  );
 
   // 1. Install Git pre-commit hooks if inside Git repository
   const gitDir = path.join(wsRoot, ".git");
@@ -232,44 +257,65 @@ export function installAll(workspacePath?: string): void {
     console.log("ℹ Not a git repository, skipping Git hook installation.");
   }
 
+  // 1.5. Create ARIVE hooks directory and samples
+  try {
+    const ariveHooksDir = path.join(wsRoot, ".arive", "hooks");
+    fs.mkdirSync(ariveHooksDir, { recursive: true });
+
+    const preIntegrateSample = `#!/bin/sh
+# ARIVE pre-integrate hook sample
+# This hook runs before a task workspace is created, command is executed, or cleaned up.
+#
+# Available environment variables:
+# - ARIVE_HOOK_NAME: name of the hook (e.g. pre-integrate)
+# - ARIVE_HOOK_PHASE: ARIVE phase (e.g. integrate)
+# - ARIVE_HOOK_CONTEXT: JSON-stringified argument context (e.g. {"taskId": "task-123", "action": "execute"})
+#
+# To enable this hook, rename this file to "pre-integrate" (without .sample) and make it executable.
+# Exit with non-zero code to block the execution of the integration action.
+
+echo "Running pre-integrate hook for task: \\$ARIVE_HOOK_CONTEXT"
+exit 0
+`;
+
+    const postVerifySample = `#!/bin/sh
+# ARIVE post-verify hook sample
+# This hook runs after the verify tests run.
+#
+# Available environment variables:
+# - ARIVE_HOOK_NAME: name of the hook (e.g. post-verify)
+# - ARIVE_HOOK_PHASE: ARIVE phase (e.g. verify)
+# - ARIVE_HOOK_CONTEXT: JSON-stringified argument context (e.g. {"taskId": "task-123", "testCommand": "bun test"})
+# - ARIVE_HOOK_RESULT: JSON-stringified result (e.g. {"success": true, "failures": []})
+#
+# To enable this hook, rename this file to "post-verify" (without .sample) and make it executable.
+
+echo "Verify result: \\$ARIVE_HOOK_RESULT"
+exit 0
+`;
+
+    fs.writeFileSync(
+      path.join(ariveHooksDir, "pre-integrate.sample"),
+      preIntegrateSample,
+      { encoding: "utf-8", mode: 0o755 },
+    );
+    fs.writeFileSync(
+      path.join(ariveHooksDir, "post-verify.sample"),
+      postVerifySample,
+      { encoding: "utf-8", mode: 0o755 },
+    );
+    console.log(
+      "✓ ARIVE protocol lifecycle hooks folder and samples created successfully.",
+    );
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.warn(
+      `! Failed to create ARIVE hooks directory or samples: ${message}`,
+    );
+  }
+
   // 2. Install Ponytail Rules, Skills & Plugins
   try {
-    // A. Cursor
-    const cursorRulesDir = path.join(wsRoot, ".cursor", "rules");
-    fs.mkdirSync(cursorRulesDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(cursorRulesDir, "ponytail.mdc"),
-      `---\ndescription: Ponytail, lazy senior dev mode\nglobs: "*"\nalwaysApply: true\n---\n${ponytailRules}`,
-      "utf-8",
-    );
-
-    // B. Cline, Roo Code
-    fs.writeFileSync(path.join(wsRoot, ".clinerules"), ponytailRules, "utf-8");
-
-    // C. Windsurf
-    const windsurfDir = path.join(wsRoot, ".windsurf", "rules");
-    fs.mkdirSync(windsurfDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(windsurfDir, "ponytail.md"),
-      ponytailRules,
-      "utf-8",
-    );
-
-    // D. Kiro
-    const kiroDir = path.join(wsRoot, ".kiro", "steering");
-    fs.mkdirSync(kiroDir, { recursive: true });
-    fs.writeFileSync(path.join(kiroDir, "ponytail.md"), ponytailRules, "utf-8");
-
-    // E. Agents
-    const agentsDir = path.join(wsRoot, ".agents", "rules");
-    fs.mkdirSync(agentsDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(agentsDir, "ponytail.md"),
-      ponytailRules,
-      "utf-8",
-    );
-
-    // F. OpenClaw Skills
     const clawSkills = [
       { name: "ponytail", content: ponytailRules },
       { name: "ponytail-review", content: ponytailReview },
@@ -279,58 +325,199 @@ export function installAll(workspacePath?: string): void {
       { name: "ponytail-help", content: ponytailHelp },
     ];
 
-    for (const skill of clawSkills) {
-      const skillDir = path.join(wsRoot, ".openclaw", "skills", skill.name);
-      fs.mkdirSync(skillDir, { recursive: true });
+    // A. Cursor
+    if (target === undefined || target === "cursor") {
+      const cursorRulesDir = path.join(wsRoot, ".cursor", "rules");
+      fs.mkdirSync(cursorRulesDir, { recursive: true });
       fs.writeFileSync(
-        path.join(skillDir, "SKILL.md"),
-        `---\nname: ${skill.name}\ndescription: Ponytail ${skill.name} skill\n---\n${skill.content}`,
+        path.join(cursorRulesDir, "ponytail.mdc"),
+        `---\ndescription: Ponytail, lazy senior dev mode\nglobs: "*"\nalwaysApply: true\n---\n${ponytailRules}`,
         "utf-8",
       );
+    }
+
+    // B. Cline, Roo Code
+    if (
+      target === undefined ||
+      target === "cline" ||
+      target === "roo" ||
+      target === "roocode"
+    ) {
+      fs.writeFileSync(
+        path.join(wsRoot, ".clinerules"),
+        ponytailRules,
+        "utf-8",
+      );
+    }
+
+    // C. Windsurf
+    if (target === undefined || target === "windsurf") {
+      const windsurfDir = path.join(wsRoot, ".windsurf", "rules");
+      fs.mkdirSync(windsurfDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(windsurfDir, "ponytail.md"),
+        ponytailRules,
+        "utf-8",
+      );
+    }
+
+    // D. Kiro
+    if (target === undefined || target === "kiro") {
+      const kiroDir = path.join(wsRoot, ".kiro", "steering");
+      fs.mkdirSync(kiroDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(kiroDir, "ponytail.md"),
+        ponytailRules,
+        "utf-8",
+      );
+    }
+
+    // E. Agents
+    if (target === undefined || target === "agents") {
+      const agentsDir = path.join(wsRoot, ".agents", "rules");
+      fs.mkdirSync(agentsDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(agentsDir, "ponytail.md"),
+        ponytailRules,
+        "utf-8",
+      );
+    }
+
+    // F. OpenClaw Skills
+    if (target === undefined || target === "openclaw") {
+      for (const skill of clawSkills) {
+        const skillDir = path.join(wsRoot, ".openclaw", "skills", skill.name);
+        fs.mkdirSync(skillDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(skillDir, "SKILL.md"),
+          `---\nname: ${skill.name}\ndescription: Ponytail ${skill.name} skill\n---\n${skill.content}`,
+          "utf-8",
+        );
+      }
     }
 
     // G. OpenCode Commands & Plugins
-    for (const skill of clawSkills) {
-      const cmdDir = path.join(wsRoot, ".opencode", "command");
-      fs.mkdirSync(cmdDir, { recursive: true });
+    if (target === undefined || target === "opencode") {
+      for (const skill of clawSkills) {
+        const cmdDir = path.join(wsRoot, ".opencode", "command");
+        fs.mkdirSync(cmdDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(cmdDir, `${skill.name}.md`),
+          `---\ndescription: Ponytail ${skill.name} command\n---\n${skill.content}`,
+          "utf-8",
+        );
+      }
+
+      const opencodePluginsDir = path.join(wsRoot, ".opencode", "plugins");
+      fs.mkdirSync(opencodePluginsDir, { recursive: true });
       fs.writeFileSync(
-        path.join(cmdDir, `${skill.name}.md`),
-        `---\ndescription: Ponytail ${skill.name} command\n---\n${skill.content}`,
+        path.join(opencodePluginsDir, "ponytail.mjs"),
+        ponytailPlugin,
+        "utf-8",
+      );
+
+      // Write opencode.json if not present or append plugin
+      const opencodeJsonPath = path.join(wsRoot, "opencode.json");
+      let opencodeConfig: { plugin?: string[] } = {};
+      if (fs.existsSync(opencodeJsonPath)) {
+        try {
+          opencodeConfig = JSON.parse(
+            fs.readFileSync(opencodeJsonPath, "utf-8"),
+          ) as { plugin?: string[] };
+        } catch {
+          // Ignore
+        }
+      }
+      if (!opencodeConfig.plugin) {
+        opencodeConfig.plugin = [];
+      }
+      if (!opencodeConfig.plugin.includes(".opencode/plugins/ponytail.mjs")) {
+        opencodeConfig.plugin.push(".opencode/plugins/ponytail.mjs");
+      }
+      fs.writeFileSync(
+        opencodeJsonPath,
+        JSON.stringify(opencodeConfig, null, 2),
+        "utf-8",
+      );
+
+      // Install global plugins & commands
+      const opencodeGlobalDir = path.join(os.homedir(), ".config", "opencode");
+      const globalPluginsDir = path.join(opencodeGlobalDir, "plugins");
+      fs.mkdirSync(globalPluginsDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(globalPluginsDir, "ponytail.mjs"),
+        ponytailPlugin,
+        "utf-8",
+      );
+
+      const globalCommandsDir = path.join(opencodeGlobalDir, "command");
+      fs.mkdirSync(globalCommandsDir, { recursive: true });
+      for (const skill of clawSkills) {
+        fs.writeFileSync(
+          path.join(globalCommandsDir, `${skill.name}.md`),
+          `---\ndescription: Ponytail ${skill.name} command\n---\n${skill.content}`,
+          "utf-8",
+        );
+      }
+    }
+
+    // H. Antigravity Plugin
+    if (target === undefined || target === "antigravity") {
+      const antigravityPluginDir = path.join(
+        os.homedir(),
+        ".gemini",
+        "antigravity-cli",
+        "plugins",
+        "arive",
+      );
+      fs.mkdirSync(antigravityPluginDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(antigravityPluginDir, "plugin.json"),
+        JSON.stringify(
+          {
+            name: "arive",
+            version: "1.0.0",
+            description: "ARIVE MCP Server and Ponytail rules plugin",
+            id: "arive",
+          },
+          null,
+          2,
+        ),
+        "utf-8",
+      );
+      fs.writeFileSync(
+        path.join(antigravityPluginDir, "mcp_config.json"),
+        JSON.stringify(
+          {
+            mcpServers: {
+              arive: {
+                command: "bunx",
+                args: ["--silent", "github:sixtysixx/ARIVE"],
+              },
+            },
+          },
+          null,
+          2,
+        ),
+        "utf-8",
+      );
+
+      const antigravityRulesDir = path.join(antigravityPluginDir, "rules");
+      fs.mkdirSync(antigravityRulesDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(antigravityRulesDir, "ponytail.md"),
+        ponytailRules,
+        "utf-8",
+      );
+
+      const antigravitySkillsDir = path.join(antigravityPluginDir, "skills");
+      fs.mkdirSync(antigravitySkillsDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(antigravitySkillsDir, "SKILL.md"),
+        `# Ponytail Skills\n\n${ponytailRules}`,
         "utf-8",
       );
     }
-
-    const opencodePluginsDir = path.join(wsRoot, ".opencode", "plugins");
-    fs.mkdirSync(opencodePluginsDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(opencodePluginsDir, "ponytail.mjs"),
-      ponytailPlugin,
-      "utf-8",
-    );
-
-    // Write opencode.json if not present or append plugin
-    const opencodeJsonPath = path.join(wsRoot, "opencode.json");
-    let opencodeConfig: { plugin?: string[] } = {};
-    if (fs.existsSync(opencodeJsonPath)) {
-      try {
-        opencodeConfig = JSON.parse(
-          fs.readFileSync(opencodeJsonPath, "utf-8"),
-        ) as { plugin?: string[] };
-      } catch {
-        // Ignore
-      }
-    }
-    if (!opencodeConfig.plugin) {
-      opencodeConfig.plugin = [];
-    }
-    if (!opencodeConfig.plugin.includes(".opencode/plugins/ponytail.mjs")) {
-      opencodeConfig.plugin.push(".opencode/plugins/ponytail.mjs");
-    }
-    fs.writeFileSync(
-      opencodeJsonPath,
-      JSON.stringify(opencodeConfig, null, 2),
-      "utf-8",
-    );
 
     console.log(
       "✓ Successfully installed all Ponytail rules, skills, and plugins.",
@@ -345,126 +532,184 @@ export function installAll(workspacePath?: string): void {
   const args = ["--silent", "github:sixtysixx/ARIVE"];
 
   // A. Antigravity CLI config
-  const antigravityConfigPath = path.join(
-    os.homedir(),
-    ".gemini",
-    "antigravity-cli",
-    "mcp_config.json",
-  );
-  updateMCPConfig(antigravityConfigPath, command, args);
+  if (target === undefined || target === "antigravity") {
+    const antigravityConfigPath = path.join(
+      os.homedir(),
+      ".gemini",
+      "antigravity-cli",
+      "mcp_config.json",
+    );
+    updateMCPConfig(antigravityConfigPath, command, args);
+  }
 
   // B. Claude Desktop
-  const appData = getAppDataPath();
-  const claudeDesktopConfigPath = path.join(
-    appData,
-    "Claude",
-    "claude_desktop_config.json",
-  );
-  updateMCPConfig(claudeDesktopConfigPath, command, args);
+  if (target === undefined || target === "claude") {
+    const appData = getAppDataPath();
+    const claudeDesktopConfigPath = path.join(
+      appData,
+      "Claude",
+      "claude_desktop_config.json",
+    );
+    updateMCPConfig(claudeDesktopConfigPath, command, args);
+  }
 
   // C. Claude Code
-  const claudeCodeConfigPath = path.join(
-    os.homedir(),
-    ".config",
-    "claude-code",
-    "config.json",
-  );
-  updateMCPConfig(claudeCodeConfigPath, command, args);
+  if (target === undefined || target === "claudecode") {
+    const claudeCodeConfigPath = path.join(
+      os.homedir(),
+      ".config",
+      "claude-code",
+      "config.json",
+    );
+    updateMCPConfig(claudeCodeConfigPath, command, args);
+  }
 
   // D. Cline Global config
-  const clineGlobalConfigPath = path.join(
-    appData,
-    "Code",
-    "User",
-    "globalStorage",
-    "saoudrizwan.claude-dev",
-    "settings",
-    "cline_mcp_settings.json",
-  );
-  updateMCPConfig(clineGlobalConfigPath, command, args);
+  if (target === undefined || target === "cline") {
+    const appData = getAppDataPath();
+    const clineGlobalConfigPath = path.join(
+      appData,
+      "Code",
+      "User",
+      "globalStorage",
+      "saoudrizwan.claude-dev",
+      "settings",
+      "cline_mcp_settings.json",
+    );
+    updateMCPConfig(clineGlobalConfigPath, command, args);
+  }
 
   // E. Roo Code Global config
-  const rooGlobalConfigPath = path.join(
-    appData,
-    "Code",
-    "User",
-    "globalStorage",
-    "roodev.roo-cline",
-    "settings",
-    "cline_mcp_settings.json",
-  );
-  updateMCPConfig(rooGlobalConfigPath, command, args);
+  if (target === undefined || target === "roo" || target === "roocode") {
+    const appData = getAppDataPath();
+    const rooGlobalConfigPath = path.join(
+      appData,
+      "Code",
+      "User",
+      "globalStorage",
+      "roodev.roo-cline",
+      "settings",
+      "cline_mcp_settings.json",
+    );
+    updateMCPConfig(rooGlobalConfigPath, command, args);
+  }
 
   // F. Cursor Global config
-  const cursorGlobalConfigPath = path.join(
-    appData,
-    "Cursor",
-    "User",
-    "globalStorage",
-    "mohammad-rahimi.cursor-mcp",
-    "settings",
-    "mcp_settings.json",
-  );
-  updateMCPConfig(cursorGlobalConfigPath, command, args);
+  if (target === undefined || target === "cursor") {
+    const appData = getAppDataPath();
+    const cursorGlobalConfigPath = path.join(
+      appData,
+      "Cursor",
+      "User",
+      "globalStorage",
+      "mohammad-rahimi.cursor-mcp",
+      "settings",
+      "mcp_settings.json",
+    );
+    updateMCPConfig(cursorGlobalConfigPath, command, args);
+  }
 
   // G. Windsurf Global config
-  const windsurfGlobalConfigPath = path.join(
-    os.homedir(),
-    ".codeium",
-    "windsurf",
-    "mcp_config.json",
-  );
-  updateMCPConfig(windsurfGlobalConfigPath, command, args);
+  if (target === undefined || target === "windsurf") {
+    const windsurfGlobalConfigPath = path.join(
+      os.homedir(),
+      ".codeium",
+      "windsurf",
+      "mcp_config.json",
+    );
+    updateMCPConfig(windsurfGlobalConfigPath, command, args);
+  }
 
   // H. OpenCode Global config
-  const opencodeGlobalConfigPath = path.join(
-    os.homedir(),
-    ".config",
-    "opencode",
-    "opencode.json",
-  );
-  updateOpenCodeConfig(opencodeGlobalConfigPath, [command, ...args]);
+  if (target === undefined || target === "opencode") {
+    const opencodeGlobalConfigPath = path.join(
+      os.homedir(),
+      ".config",
+      "opencode",
+      "opencode.json",
+    );
+    updateOpenCodeConfig(opencodeGlobalConfigPath, [command, ...args]);
+  }
 
   // I. OMP Global config
-  const ompGlobalConfigPath = path.join(
-    os.homedir(),
-    ".omp",
-    "agent",
-    "mcp.json",
-  );
-  updateMCPConfig(ompGlobalConfigPath, command, args);
-
+  if (target === undefined || target === "omp") {
+    const ompGlobalConfigPath = path.join(
+      os.homedir(),
+      ".omp",
+      "agent",
+      "mcp.json",
+    );
+    updateMCPConfig(ompGlobalConfigPath, command, args);
+  }
   // 4. Register local project-level MCP configurations in the workspace
   console.log("Registering project-level MCP configurations...");
 
   // OMP project config
-  const ompProjectConfig = path.join(wsRoot, ".omp", "mcp.json");
-  updateMCPConfig(ompProjectConfig, command, args);
+  if (target === undefined || target === "omp") {
+    const ompProjectConfig = path.join(wsRoot, ".omp", "mcp.json");
+    updateMCPConfig(ompProjectConfig, command, args);
+  }
 
   // Cursor project config
-  const cursorProjectConfig = path.join(wsRoot, ".cursor", "mcp.json");
-  updateMCPConfig(cursorProjectConfig, command, args);
+  if (target === undefined || target === "cursor") {
+    const cursorProjectConfig = path.join(wsRoot, ".cursor", "mcp.json");
+    updateMCPConfig(cursorProjectConfig, command, args);
+  }
 
   // Cline project config
-  const clineProjectConfig = path.join(wsRoot, ".cline", "mcp.json");
-  updateMCPConfig(clineProjectConfig, command, args);
+  if (target === undefined || target === "cline") {
+    const clineProjectConfig = path.join(wsRoot, ".cline", "mcp.json");
+    updateMCPConfig(clineProjectConfig, command, args);
+  }
 
   // Roo Code project config
-  const rooProjectConfig = path.join(wsRoot, ".roo", "mcp.json");
-  updateMCPConfig(rooProjectConfig, command, args);
+  if (target === undefined || target === "roo" || target === "roocode") {
+    const rooProjectConfig = path.join(wsRoot, ".roo", "mcp.json");
+    updateMCPConfig(rooProjectConfig, command, args);
+  }
 
   // KiloCode project config
-  const kilocodeProjectConfig = path.join(wsRoot, ".kilocode", "mcp.json");
-  updateMCPConfig(kilocodeProjectConfig, command, args);
+  if (target === undefined || target === "kilocode") {
+    const kilocodeProjectConfig = path.join(wsRoot, ".kilocode", "mcp.json");
+    updateMCPConfig(kilocodeProjectConfig, command, args);
+  }
 
   // OpenCode project config
-  const opencodeProjectConfig = path.join(wsRoot, "opencode.json");
-  updateOpenCodeConfig(opencodeProjectConfig, [command, ...args]);
-
+  if (target === undefined || target === "opencode") {
+    const opencodeProjectConfig = path.join(wsRoot, "opencode.json");
+    updateOpenCodeConfig(opencodeProjectConfig, [command, ...args]);
+  }
   console.log("✓ ARIVE MCP installation completed successfully!");
+}
+
+export function runInstallerCli(): void {
+  let editor: string | undefined = undefined;
+  let workspacePath: string | undefined = undefined;
+
+  for (let i = 0; i < process.argv.length; i++) {
+    const arg = process.argv[i];
+    if (arg === "--editor" || arg === "-e") {
+      editor = process.argv[i + 1];
+    } else if (arg === "--path" || arg === "-p") {
+      workspacePath = process.argv[i + 1];
+    } else if (arg === "--help" || arg === "-h") {
+      console.log(`ARIVE MCP Installer CLI
+Usage:
+  arive install [options]
+
+Options:
+  --editor, -e <name>   Target a specific AI editor (e.g. cursor, cline, roo, windsurf, opencode, kilocode, claude, claudecode, antigravity, omp)
+  --path, -p <path>     Workspace root path (default: current directory)
+  --help, -h            Show this help message
+`);
+      process.exit(0);
+    }
+  }
+
+  installAll(workspacePath, editor);
 }
 
 // Run if called directly
 if (import.meta.path === Bun.main) {
-  installAll();
+  runInstallerCli();
 }

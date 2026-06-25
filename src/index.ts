@@ -13,6 +13,7 @@ import { CCRRegistry } from "./analyze/ccr_registry.js";
 import { CodeMapScanner } from "./analyze/codemap.js";
 import { SequentialEngine } from "./reason/sequential_engine.js";
 import { WorkspaceManager } from "./integrate/workspace.js";
+import { HookManager } from "./integrate/hook_manager.js";
 import { TDDRunner } from "./verify/tdd_runner.js";
 import { Validator } from "./verify/validator.js";
 import { PonytailFormatter } from "./explain/ponytail_formatter.js";
@@ -202,14 +203,19 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: "arive_install",
         description:
-          "Automatically registers the ARIVE MCP server in all detected AI clients and installs pre-commit hooks, ponytail skills/rules, and plugins.",
+          "Automatically registers the ARIVE MCP server in all detected AI clients and installs Git pre-commit hooks, ARIVE protocol lifecycle hooks, ponytail skills/rules, and plugins.",
         inputSchema: {
           type: "object",
           properties: {
             workspacePath: {
               type: "string",
               description:
-                "Optional path to the project/workspace root directory to install rules, skills, and plugins in",
+                "Optional path to the project/workspace root directory to install rules, skills, plugins, and hooks in",
+            },
+            editor: {
+              type: "string",
+              description:
+                "Optional name of the specific AI editor to install configuration for (e.g. cursor, cline, roo, windsurf, opencode, kilocode, claude, claudecode, antigravity, omp)",
             },
           },
         },
@@ -231,6 +237,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const threshold =
           args?.ccrThreshold !== undefined ? Number(args.ccrThreshold) : 1000;
 
+        const preHook = HookManager.runHook("pre-analyze", "analyze", {
+          content,
+          contentType: userType,
+          forceCcr,
+          ccrThreshold: threshold,
+        });
+        if (!preHook.success) {
+          throw new Error(`[Hook Blocked] pre-analyze: ${preHook.error}`);
+        }
+
         const detectedType =
           userType === "auto" ? ContentRouter.classify(content) : userType;
         let compressed = content;
@@ -246,43 +262,41 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         // Always store in CCR if > threshold or forced
         const useCcr = forceCcr || content.length > threshold;
         let resultHash = "";
+        let responseObj;
 
         if (useCcr) {
           resultHash = ccr.store(content, detectedType);
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify(
-                  {
-                    compressed: resultHash,
-                    hash: resultHash,
-                    wasStoredInCcr: true,
-                    type: detectedType,
-                  },
-                  null,
-                  2,
-                ),
-              },
-            ],
+          responseObj = {
+            compressed: resultHash,
+            hash: resultHash,
+            wasStoredInCcr: true,
+            type: detectedType,
+          };
+        } else {
+          const rawHash = ccr.store(content, detectedType);
+          responseObj = {
+            compressed,
+            hash: rawHash,
+            wasStoredInCcr: false,
+            type: detectedType,
           };
         }
 
-        const rawHash = ccr.store(content, detectedType);
+        const postHook = HookManager.runHook(
+          "post-analyze",
+          "analyze",
+          { content, contentType: userType, forceCcr, ccrThreshold: threshold },
+          responseObj,
+        );
+        if (!postHook.success) {
+          throw new Error(`[Hook Failed] post-analyze: ${postHook.error}`);
+        }
+
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify(
-                {
-                  compressed,
-                  hash: rawHash,
-                  wasStoredInCcr: false,
-                  type: detectedType,
-                },
-                null,
-                2,
-              ),
+              text: JSON.stringify(responseObj, null, 2),
             },
           ],
         };
@@ -340,6 +354,26 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           );
         }
 
+        const hookContext = {
+          thought,
+          thoughtNumber: tNum,
+          totalThoughts: total,
+          nextThoughtNeeded: nextNeeded,
+          isRevision: isRev,
+          revisesThoughtNum: revNum,
+          branchToThoughtNum: branchNum,
+          sessionId,
+        };
+
+        const preHook = HookManager.runHook(
+          "pre-reason",
+          "reason",
+          hookContext,
+        );
+        if (!preHook.success) {
+          throw new Error(`[Hook Blocked] pre-reason: ${preHook.error}`);
+        }
+
         const res = engine.addThought(
           thought,
           tNum,
@@ -350,6 +384,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           branchNum,
           sessionId,
         );
+
+        const postHook = HookManager.runHook(
+          "post-reason",
+          "reason",
+          hookContext,
+          res,
+        );
+        if (!postHook.success) {
+          throw new Error(`[Hook Failed] post-reason: ${postHook.error}`);
+        }
+
         return {
           content: [{ type: "text", text: JSON.stringify(res, null, 2) }],
         };
@@ -365,19 +410,23 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         WorkspaceManager.validateTaskId(taskId);
 
+        const hookContext = { taskId, action, branchName, command };
+        const preHook = HookManager.runHook(
+          "pre-integrate",
+          "integrate",
+          hookContext,
+        );
+        if (!preHook.success) {
+          throw new Error(`[Hook Blocked] pre-integrate: ${preHook.error}`);
+        }
+
+        let resultObj;
         if (action === "create") {
           const resPath = WorkspaceManager.create(taskId);
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify({
-                  taskId,
-                  status: "created",
-                  path: resPath,
-                }),
-              },
-            ],
+          resultObj = {
+            taskId,
+            status: "created",
+            path: resPath,
           };
         } else if (action === "execute") {
           const targetPath = `.arive-tasks/${taskId}`;
@@ -387,30 +436,36 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             );
           }
           const execRes = TDDRunner.run(targetPath, command || "bun test");
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify({
-                  taskId,
-                  status: "executed",
-                  ...execRes,
-                }),
-              },
-            ],
+          resultObj = {
+            taskId,
+            status: "executed",
+            ...execRes,
           };
         } else if (action === "cleanup") {
           WorkspaceManager.cleanup(taskId);
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify({ taskId, status: "cleaned" }),
-              },
-            ],
-          };
+          resultObj = { taskId, status: "cleaned" };
+        } else {
+          throw new Error(`Unknown integrate action: ${action}`);
         }
-        throw new Error(`Unknown integrate action: ${action}`);
+
+        const postHook = HookManager.runHook(
+          "post-integrate",
+          "integrate",
+          hookContext,
+          resultObj,
+        );
+        if (!postHook.success) {
+          throw new Error(`[Hook Failed] post-integrate: ${postHook.error}`);
+        }
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(resultObj, null, 2),
+            },
+          ],
+        };
       }
 
       case "arive_workspace_list": {
@@ -426,6 +481,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         WorkspaceManager.validateTaskId(taskId);
 
+        const hookContext = { taskId, testCommand: testCmd };
+        const preHook = HookManager.runHook(
+          "pre-verify",
+          "verify",
+          hookContext,
+        );
+        if (!preHook.success) {
+          throw new Error(`[Hook Blocked] pre-verify: ${preHook.error}`);
+        }
+
         const targetPath = `.arive-tasks/${taskId}`;
         if (!fs.existsSync(targetPath)) {
           throw new Error(
@@ -437,6 +502,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (!res.success) {
           Validator.backpropagate(engine, res.failures);
         }
+
+        const postHook = HookManager.runHook(
+          "post-verify",
+          "verify",
+          hookContext,
+          res,
+        );
+        if (!postHook.success) {
+          throw new Error(`[Hook Failed] post-verify: ${postHook.error}`);
+        }
+
         return {
           content: [{ type: "text", text: JSON.stringify(res, null, 2) }],
         };
@@ -449,6 +525,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           | "full"
           | "ultra"
           | "normal";
+
+        const hookContext = { message, brevity };
+        const preHook = HookManager.runHook(
+          "pre-explain",
+          "explain",
+          hookContext,
+        );
+        if (!preHook.success) {
+          throw new Error(`[Hook Blocked] pre-explain: ${preHook.error}`);
+        }
+
         const formatted = PonytailFormatter.format(message, brevity);
         const savingsText = PonytailFormatter.getSavings(message, formatted);
         const charSavings = message.length - formatted.length;
@@ -458,26 +545,34 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             : 0;
         const instructions = PonytailFormatter.getInstructions(brevity);
 
+        const responseObj = {
+          explanation: {
+            formatted,
+            brevity,
+            savings: {
+              summary: savingsText,
+              characterSavings: charSavings,
+              characterPercentage: `${charPercentage}%`,
+            },
+            instructions,
+          },
+        };
+
+        const postHook = HookManager.runHook(
+          "post-explain",
+          "explain",
+          hookContext,
+          responseObj,
+        );
+        if (!postHook.success) {
+          throw new Error(`[Hook Failed] post-explain: ${postHook.error}`);
+        }
+
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify(
-                {
-                  explanation: {
-                    formatted,
-                    brevity,
-                    savings: {
-                      summary: savingsText,
-                      characterSavings: charSavings,
-                      characterPercentage: `${charPercentage}%`,
-                    },
-                    instructions,
-                  },
-                },
-                null,
-                2,
-              ),
+              text: JSON.stringify(responseObj, null, 2),
             },
           ],
         };
@@ -502,40 +597,62 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           maxDepth = depth;
         }
 
+        const hookContext = { action, dir, excludes, targetBranch, maxDepth };
+        const preHook = HookManager.runHook(
+          "pre-analyze",
+          "analyze",
+          hookContext,
+        );
+        if (!preHook.success) {
+          throw new Error(`[Hook Blocked] pre-analyze: ${preHook.error}`);
+        }
+
         const scanner = new CodeMapScanner();
+        let resultText = "";
 
         if (action === "tree") {
-          const res = scanner.scanTree(dir, excludes, maxDepth);
-          return {
-            content: [{ type: "text", text: res }],
-          };
+          resultText = scanner.scanTree(dir, excludes, maxDepth);
         } else if (action === "dependencies") {
-          const res = scanner.scanDependencies(dir, excludes);
-          return {
-            content: [{ type: "text", text: JSON.stringify(res, null, 2) }],
-          };
+          resultText = JSON.stringify(
+            scanner.scanDependencies(dir, excludes),
+            null,
+            2,
+          );
         } else if (action === "diff") {
-          const res = scanner.getGitDiff(targetBranch);
-          return {
-            content: [{ type: "text", text: res }],
-          };
+          resultText = scanner.getGitDiff(targetBranch);
+        } else {
+          throw new Error(`Unknown codemap action: ${action}`);
         }
-        throw new Error(`Unknown codemap action: ${action}`);
+
+        const postHook = HookManager.runHook(
+          "post-analyze",
+          "analyze",
+          hookContext,
+          { result: resultText },
+        );
+        if (!postHook.success) {
+          throw new Error(`[Hook Failed] post-analyze: ${postHook.error}`);
+        }
+
+        return {
+          content: [{ type: "text", text: resultText }],
+        };
       }
 
       case "arive_install": {
         const workspacePath = args?.workspacePath
           ? String(args.workspacePath)
           : undefined;
+        const editor = args?.editor ? String(args.editor) : undefined;
         const { installAll } = await import("./cli/installer.js");
-        installAll(workspacePath);
+        installAll(workspacePath, editor);
         return {
           content: [
             {
               type: "text",
               text: JSON.stringify({
                 status: "success",
-                message: "ARIVE automatically installed successfully",
+                message: `ARIVE automatically installed successfully${editor ? ` for ${editor}` : ""}`,
               }),
             },
           ],
@@ -553,6 +670,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     };
   }
 });
+
+// Check if running in install CLI mode
+if (process.argv.includes("install")) {
+  const { runInstallerCli } = await import("./cli/installer.js");
+  runInstallerCli();
+  process.exit(0);
+}
 
 // Start Std Listener
 try {

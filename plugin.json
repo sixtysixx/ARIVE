@@ -1,0 +1,5 @@
+{
+  "$schema": "https://antigravity.google/schemas/v1/plugin.json",
+  "name": "arive",
+  "description": "ARIVE MCP server — Analyze, Reason, Integrate, Verify, Explain. Installs the full ARIVE tool suite plus Ponytail rules and skills."
+}

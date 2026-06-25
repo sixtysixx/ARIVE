@@ -137,6 +137,38 @@ Scans folder structure tree, maps imports/exports, or runs git diff checks.
 | `maxDepth`     | integer | No       | `10`     | Max depth to scan for directory tree.                     |
 | `targetBranch` | string  | No       | `master` | Target branch for git diff comparison.                    |
 
+### `arive_install`
+
+Automatically registers the ARIVE MCP server in all detected AI clients and installs Git pre-commit hooks, ARIVE protocol lifecycle hooks, ponytail rules/skills, and plugins.
+
+| Parameter       | Type   | Required | Default | Description                                                                                         |
+| :-------------- | :----- | :------- | :------ | :-------------------------------------------------------------------------------------------------- |
+| `workspacePath` | string | No       |         | Optional path to the project/workspace root directory to install rules, skills, plugins, and hooks. |
+| `editor`        | string | No       |         | Optional name of the specific AI editor to target (e.g. `cursor`, `cline`, `roo`, `windsurf`).      |
+
+---
+
+## ARIVE Protocol Lifecycle Hooks
+
+The ARIVE framework supports executing custom pre- and post-hook scripts at different stages of tool executions. If the `.arive/hooks` directory exists, the server will check for files matching specific hook names:
+
+- `pre-analyze` / `post-analyze` (run by `arive_compress` & `arive_codemap`)
+- `pre-reason` / `post-reason` (run by `arive_think`)
+- `pre-integrate` / `post-integrate` (run by `arive_integrate`)
+- `pre-verify` / `post-verify` (run by `arive_verify`)
+- `pre-explain` / `post-explain` (run by `arive_explain`)
+
+### Environment Variables
+
+When a hook is executed, it receives the following environment variables:
+
+- `ARIVE_HOOK_NAME`: The name of the hook (e.g. `pre-integrate`).
+- `ARIVE_HOOK_PHASE`: The phase of the ARIVE protocol (e.g. `integrate`).
+- `ARIVE_HOOK_CONTEXT`: JSON-stringified argument context passed to the tool.
+- `ARIVE_HOOK_RESULT`: (Only for `post-` hooks) JSON-stringified result/response payload of the tool execution.
+
+If a `pre-` hook exits with a non-zero status code, the action is blocked, and the tool returns a failure error.
+
 ---
 
 ## Installation & Setup
@@ -159,13 +191,22 @@ bun install
 
 ### Automatic Installation
 
-You can automatically register the ARIVE MCP server in all detected AI clients (Claude Desktop, Claude Code, Cline, Roo Code, Cursor, Windsurf, Antigravity, OpenCode, KiloCode) and install Git pre-commit hooks, ponytail skills/rules, and plugins:
+You can automatically register the ARIVE MCP server in all detected AI clients and install Git pre-commit hooks, ARIVE protocol lifecycle hooks, ponytail rules/skills, and plugins.
+
+Run the installer CLI using Bun:
 
 ```bash
+# Install for all detected editors
 bun run install
+
+# Install specifically for a preferred AI editor
+arive install --editor cursor
+arive install -e opencode
 ```
 
-Or use the `arive_install` MCP tool from within any active client.
+Supported editors: `cursor`, `cline`, `roo` (or `roocode`), `windsurf`, `opencode`, `kilocode`, `claude` (Claude Desktop), `claudecode` (Claude Code), `antigravity` (Google Antigravity), `omp` (oh-my-pi).
+
+Or use the `arive_install` MCP tool from within any active client (passing the optional `editor` or `workspacePath`).
 
 ### Running Tests
 
@@ -187,7 +228,15 @@ To register the ARIVE MCP server in your local AI editing clients:
 
 ### Gemini CLI (`antigravity-cli`)
 
-Add this configuration to your local config at `%USERPROFILE%\.gemini\antigravity-cli\mcp_config.json`:
+ARIVE ships a root-level `plugin.json`, `mcp_config.json`, `rules/`, and `skills/` so the entire repo is a valid Antigravity plugin. Install it in one command:
+
+```bash
+agy plugin install https://github.com/sixtysixx/ARIVE
+```
+
+The CLI stages the plugin at `~/.gemini/antigravity-cli/plugins/arive/` and automatically loads the MCP server, Ponytail rules, and skills on next launch.
+
+Alternatively, register the MCP server manually in `%USERPROFILE%\.gemini\antigravity-cli\mcp_config.json`:
 
 ```json
 {
@@ -200,7 +249,7 @@ Add this configuration to your local config at `%USERPROFILE%\.gemini\antigravit
 }
 ```
 
-### OMP (omp)
+### omp (oh-my-pi)
 
 Add this configuration to your user-level config at `~/.omp/agent/mcp.json` or your project-level config at `.omp/mcp.json`:
 
@@ -232,7 +281,15 @@ Add this to your configuration (e.g., `%APPDATA%\EasyCode\claude_desktop_config.
 
 ### OpenCode
 
-Add this to your organizational remote config, global configuration `~/.config/opencode/opencode.json` (or `opencode.jsonc`), or project config `opencode.json` inside your project root:
+ARIVE ships a root-level `opencode.mjs` plugin module. Add the repo as a plugin in your global config (`~/.config/opencode/opencode.json`) or project config (`.opencode/opencode.json`) and the MCP server registers automatically:
+
+```json
+{
+  "plugin": ["github:sixtysixx/ARIVE"]
+}
+```
+
+Alternatively, register the MCP server manually:
 
 ```json
 {
@@ -248,7 +305,15 @@ Add this to your organizational remote config, global configuration `~/.config/o
 
 ### KiloCode
 
-You can use the **MCP Servers** panel UI by clicking the gear icon and clicking **Edit Global MCP**, or you can define it locally inside your workspace under `.kilocode/mcp.json`:
+KiloCode shares the same plugin architecture as OpenCode. Add the repo as a plugin in your KiloCode config and the MCP server registers automatically:
+
+```json
+{
+  "plugin": ["github:sixtysixx/ARIVE"]
+}
+```
+
+Alternatively, use the **MCP Servers** panel (gear icon → **Edit Global MCP**), or define it locally under `.kilocode/mcp.json`:
 
 ```json
 {
