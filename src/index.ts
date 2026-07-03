@@ -12,13 +12,14 @@ import { CacheAligner } from "./analyze/cache_aligner.js";
 import { CCRRegistry } from "./analyze/ccr_registry.js";
 import { CodeMapScanner } from "./analyze/codemap.js";
 import { SequentialEngine } from "./reason/sequential_engine.js";
+import { MemoryBank, MemoryVerb, parseRememberIntent } from "./reason/memory_bank.js";
 import { WorkspaceManager } from "./integrate/workspace.js";
 import { HookManager } from "./integrate/hook_manager.js";
 import { TDDRunner } from "./verify/tdd_runner.js";
 import { Validator } from "./verify/validator.js";
 import { PonytailFormatter } from "./explain/ponytail_formatter.js";
 import * as fs from "fs";
-
+import * as path from "path";
 // Setup server instance
 const server = new Server(
   {
@@ -35,6 +36,7 @@ const server = new Server(
 // Registries and Engine State
 const ccr = new CCRRegistry();
 const engine = new SequentialEngine();
+const memoryBank = new MemoryBank();
 
 // Register List Tools handler
 server.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -195,6 +197,93 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             targetBranch: {
               type: "string",
               description: "Target branch for git diff comparison",
+            },
+          },
+          required: ["action"],
+        },
+      },
+      {
+        name: "arive_memory_bank",
+        description:
+          "High-quality persistent memory bank inspired by MemPalace. " +
+          "ACTIVATE IMMEDIATELY when the user says 'remember to …', 'remember that …', 'don't forget …', " +
+          "'keep in mind that …', 'make a note that …', or 'note: …'. " +
+          "Use action='remember' to auto-parse the user's natural-language phrase and store it with auto-detected category, tags, and importance score. " +
+          "Stores entries in a spatial hierarchy: wings > rooms > halls > drawers. " +
+          "Use action='recall'/'search' to retrieve memories. Use action='stats' for a summary.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            action: {
+              type: "string",
+              enum: [
+                "remember",
+                "drawer_write",
+                "drawer_read",
+                "drawer_list",
+                "wing_create",
+                "room_create",
+                "hall_create",
+                "search",
+                "forget",
+                "recall",
+                "stats",
+              ],
+              description:
+                "remember: PRIMARY verb — pass the user's full phrase (e.g. 'remember to buy milk') as content; auto-parses intent, tags, and importance. " +
+                "drawer_write: directly store a memory with explicit wing/room/hall. " +
+                "drawer_read: retrieve by drawerId. " +
+                "drawer_list: list entries in a wing/room/hall. " +
+                "search/recall: full-text LIKE search across all fields. " +
+                "forget: delete by drawerId. " +
+                "stats: return totals (drawers, wings, rooms, halls). " +
+                "wing_create/room_create/hall_create: create hierarchy nodes (no-op, created lazily on write).",
+            },
+            wing: {
+              type: "string",
+              description: "Top-level category (wing). E.g. a project name, person name, or domain.",
+            },
+            room: {
+              type: "string",
+              description: "Sub-topic within the wing.",
+            },
+            hall: {
+              type: "string",
+              description:
+                "Corridor organising memories by type: facts, preferences, decisions, reminders, discoveries, rules, general.",
+            },
+            drawer: {
+              type: "string",
+              description: "Optional label for the drawer (auto-derived from content if omitted).",
+            },
+            content: {
+              type: "string",
+              description:
+                "For action='remember': the full user phrase (e.g. 'remember to fix the login bug'). " +
+                "For drawer_write: the verbatim text to store.",
+            },
+            tags: {
+              type: "array",
+              items: { type: "string" },
+              description: "Optional tags for categorization.",
+            },
+            metadata: {
+              type: "object",
+              additionalProperties: true,
+              description: "Optional structured metadata.",
+            },
+            drawerId: {
+              type: "string",
+              description: "Required for drawer_read and forget.",
+            },
+            query: {
+              type: "string",
+              description: "Search query for search/recall verbs.",
+            },
+            limit: {
+              type: "integer",
+              description: "Max results for list/search. Default 50.",
+              default: 50,
             },
           },
           required: ["action"],
@@ -580,11 +669,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "arive_codemap": {
         const action = String(args?.action || "tree");
-        const dir = String(args?.dir || ".");
+        const rawDir = String(args?.dir || ".");
         const excludes = Array.isArray(args?.excludes)
           ? args.excludes.map(String)
           : [];
         const targetBranch = String(args?.targetBranch || "master");
+
+        // Anchor dir to workspace root — prevents directory traversal (e.g. dir: "../../../")
+        const workspaceRoot = path.resolve(process.cwd());
+        const resolvedDir = path.resolve(rawDir);
+        if (
+          resolvedDir !== workspaceRoot &&
+          !resolvedDir.startsWith(workspaceRoot + path.sep)
+        ) {
+          throw new Error(
+            `Security: dir "${rawDir}" resolves outside the workspace root.`,
+          );
+        }
+        const dir = resolvedDir;
 
         let maxDepth = 10;
         if (args?.maxDepth !== undefined) {
@@ -636,6 +738,152 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         return {
           content: [{ type: "text", text: resultText }],
+        };
+      }
+
+      case "arive_memory_bank": {
+        const action = (args?.action || "recall") as MemoryVerb;
+        const wing = String(args?.wing || "user-memories");
+        const room = String(args?.room || "conversational");
+        const hall = String(args?.hall || "general");
+        const drawer = args?.drawer !== undefined ? String(args.drawer) : "";
+        const content = String(args?.content || "");
+        const tags = Array.isArray(args?.tags) ? (args.tags as string[]) : [];
+        const metadata =
+          typeof args?.metadata === "object" && args.metadata !== null
+            ? (args.metadata as Record<string, unknown>)
+            : undefined;
+        const drawerId = String(args?.drawerId || "");
+        const query = String(args?.query || "");
+        const limit = args?.limit !== undefined ? Math.max(1, Number(args.limit)) : 50;
+
+        const hookContext = { action, wing, room, hall, drawer, drawerId, query, limit, hasContent: Boolean(content) };
+        const preHook = HookManager.runHook("pre-memory", "memory", hookContext);
+        if (!preHook.success) {
+          throw new Error(`[Hook Blocked] pre-memory: ${preHook.error}`);
+        }
+
+        let resultObj: unknown;
+
+        switch (action) {
+          case "remember": {
+            // PRIMARY path: parse the user's natural-language phrase from `content`.
+            // e.g. content = "remember to buy oat milk" → extracted content = "buy oat milk"
+            if (!content.trim()) {
+              throw new Error("content is required for the 'remember' verb (pass the full user phrase).");
+            }
+            const intent = parseRememberIntent(content);
+            if (intent) {
+              // Intent matched — use inferred hierarchy + importance metadata.
+              const entry = memoryBank.write({
+                wing: intent.wing,
+                room: intent.room,
+                hall: intent.hall,
+                drawer: intent.drawer,
+                content: intent.content,
+                tags: intent.tags,
+                metadata: { importance: intent.importance, source: "remember-intent" },
+              });
+              resultObj = {
+                status: "remembered",
+                drawerId: entry.drawerId,
+                wing: entry.wing,
+                room: entry.room,
+                hall: entry.hall,
+                tags: entry.tags,
+                importance: intent.importance,
+                extractedContent: intent.content,
+                createdAt: entry.createdAt,
+              };
+            } else {
+              // No trigger phrase matched — store the content verbatim under provided hierarchy.
+              const entry = memoryBank.write({
+                wing,
+                room,
+                hall,
+                drawer,
+                content,
+                tags: tags.length ? tags : ["user-memory"],
+                metadata,
+              });
+              resultObj = {
+                status: "written",
+                note: "No 'remember to/that' trigger detected; stored verbatim.",
+                drawerId: entry.drawerId,
+                wing: entry.wing,
+                room: entry.room,
+                hall: entry.hall,
+                tags: entry.tags,
+                createdAt: entry.createdAt,
+              };
+            }
+            break;
+          }
+          case "drawer_write": {
+            if (!content.trim()) {
+              throw new Error("content is required for drawer_write");
+            }
+            const entry = memoryBank.write({ wing, room, hall, drawer, content, tags, metadata });
+            resultObj = {
+              status: "written",
+              drawerId: entry.drawerId,
+              wing: entry.wing,
+              room: entry.room,
+              hall: entry.hall,
+              createdAt: entry.createdAt,
+              tags: entry.tags,
+            };
+            break;
+          }
+          case "drawer_read": {
+            if (!drawerId.trim()) throw new Error("drawerId is required for drawer_read");
+            resultObj = memoryBank.read(drawerId);
+            break;
+          }
+          case "drawer_list": {
+            resultObj = {
+              wing,
+              room,
+              hall,
+              entries: memoryBank.list(wing, room, hall, limit),
+            };
+            break;
+          }
+          case "search":
+          case "recall": {
+            if (!query.trim()) throw new Error("query is required for search/recall");
+            resultObj = { query, results: memoryBank.recall(query, limit) };
+            break;
+          }
+          case "forget": {
+            if (!drawerId.trim()) throw new Error("drawerId is required for forget");
+            resultObj = memoryBank.forget(drawerId);
+            break;
+          }
+          case "stats": {
+            resultObj = memoryBank.stats();
+            break;
+          }
+          case "wing_create":
+          case "room_create":
+          case "hall_create": {
+            resultObj = {
+              status: "ok",
+              note: "Hierarchy nodes are created lazily on first write. Use drawer_write with the desired wing/room/hall to materialise them.",
+            };
+            break;
+          }
+          default:
+            throw new Error(`Unknown memory action: ${action}`);
+        }
+
+        const postHook = HookManager.runHook("post-memory", "memory", hookContext, resultObj);
+        if (!postHook.success) {
+          throw new Error(`[Hook Failed] post-memory: ${postHook.error}`);
+        }
+
+        return {
+          content: [{ type: "text", text: JSON.stringify(resultObj, null, 2) }],
         };
       }
 

@@ -91,6 +91,7 @@ export class HookManager {
       const proc = spawnSync(command, args, {
         encoding: "utf-8",
         env,
+        timeout: 10_000,
         shell: ext !== ".js" && ext !== ".ts" && ext !== ".ps1",
       });
 

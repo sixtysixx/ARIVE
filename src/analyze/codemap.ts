@@ -140,9 +140,10 @@ export class CodeMapScanner {
 
   public getGitDiff(targetBranch = "master"): string {
     // Sanitize target branch name to prevent command injection / unexpected arguments
-    const safeBranchPattern = /^[a-zA-Z0-9_\-\/\.\+]+$/;
+    // Require first char to be alphanumeric — blocks leading `-` (e.g. --no-index) argument injection.
+    const safeBranchPattern = /^[a-zA-Z0-9][a-zA-Z0-9_\-\/\.\+]*$/;
     if (!safeBranchPattern.test(targetBranch)) {
-      return "Git diff failed: Invalid branch name pattern.";
+      return "Git diff failed: Invalid branch name (must start with alphanumeric).";
     }
 
     try {

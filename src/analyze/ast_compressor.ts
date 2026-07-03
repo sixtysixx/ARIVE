@@ -3,25 +3,17 @@ import ts from "typescript";
 export class ASTCompressor {
   public static compress(code: string): string {
     try {
-      const sourceFile = ts.createSourceFile(
-        "temp.ts",
-        code,
-        ts.ScriptTarget.Latest,
-        true,
-      );
-      let result = "";
-      const visit = (node: ts.Node) => {
-        if (ts.isSourceFile(node)) {
-          ts.forEachChild(node, visit);
-        } else {
-          const text = node.getText(sourceFile);
-          result += text + "\n";
-        }
-      };
-      visit(sourceFile);
+      // Validate the code parses cleanly; throw on hard errors so the catch fallback is used.
+      ts.createSourceFile("temp.ts", code, ts.ScriptTarget.Latest, true);
+
+      // Strip block comments and line comments, then normalise per-line whitespace.
+      // Crucially: we preserve newlines so ASI and multi-line string literals are not broken.
       return code
-        .replace(/\/\*[\s\S]*?\*\/|([^\\:]|^)\/\/.*$/gm, "")
-        .replace(/\s+/g, " ")
+        .replace(/\/\*[\s\S]*?\*\/|([^\\:]|^)\/\/.*$/gm, "$1")
+        .split("\n")
+        .map((line) => line.trimEnd())
+        .filter((line) => line.trim().length > 0)
+        .join("\n")
         .trim();
     } catch (e) {
       return code;

@@ -33,7 +33,9 @@ export class TDDRunner {
     let success = true;
     let exitCode = 0;
 
-    const failRegex = /(FAIL|failing|Error:|Exception|failed)/i;
+    // Expanded: catches assertion failures (Expected/Received), framework markers, and common error keywords.
+    const failLineRegex =
+      /(FAIL\b|failing|Error:|Exception|failed\b|AssertionError|Expected|Received|✕|×|●|FAILED)/i;
 
     try {
       const child = spawnSync(cmd, args, {
@@ -52,13 +54,22 @@ export class TDDRunner {
       stderrAccum = child.stderr || "";
       exitCode = child.status !== null ? child.status : 1;
 
-      const lines = (stdoutAccum + "\n" + stderrAccum).split("\n");
-      lines.forEach((line) => {
-        if (failRegex.test(line)) {
+      // Capture multi-line failure blocks: when a failure marker is found,
+      // include up to 5 subsequent context lines to preserve stack traces and diffs.
+      const allLines = (stdoutAccum + "\n" + stderrAccum).split("\n");
+      let captureRemaining = 0;
+      for (const line of allLines) {
+        if (failLineRegex.test(line)) {
           success = false;
-          failures.push(line.trim());
+          failures.push(line.trimEnd());
+          captureRemaining = 5;
+        } else if (captureRemaining > 0) {
+          if (line.trim()) {
+            failures.push("  " + line.trimEnd());
+          }
+          captureRemaining--;
         }
-      });
+      }
 
       if (exitCode !== 0) {
         success = false;
@@ -71,7 +82,7 @@ export class TDDRunner {
 
     return {
       success,
-      failures: failures.slice(0, 10),
+      failures: failures.slice(0, 30),
       exitCode,
       stdout: stdoutAccum,
       stderr: stderrAccum,

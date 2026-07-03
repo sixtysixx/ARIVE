@@ -50,7 +50,7 @@ export class WorkspaceManager {
       const srcPath = path.join(sourceDir, entry);
       const destPath = path.join(absoluteTargetPath, entry);
       try {
-        fs.cpSync(srcPath, destPath, { recursive: true });
+        fs.cpSync(srcPath, destPath, { recursive: true, verbatimSymlinks: true });
       } catch (e: unknown) {
         const message = e instanceof Error ? e.message : String(e);
         console.warn(

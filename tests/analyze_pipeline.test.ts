@@ -39,8 +39,11 @@ describe("Analyze Pipeline Tests", () => {
     });
     const crushed = SmartCrusher.crush(rawJson);
     const parsed = JSON.parse(crushed);
-    expect(parsed.users.length).toBe(3); // 2 elements + 1 descriptor string
-    expect(parsed.users[2]).toContain("truncated 2 items");
+    // New behavior: truncated arrays become a sentinel object with $truncated/$length/$items
+    // so downstream consumers never get a string injected into a typed array.
+    expect(parsed.users).toMatchObject({ $truncated: true, $length: 4 });
+    expect(parsed.users.$items.length).toBe(2);
+    expect(parsed.users.$items[0]).toMatchObject({ id: 1, name: "Alice" });
     expect(parsed.errors.message).toBe("Internal Failure");
   });
 

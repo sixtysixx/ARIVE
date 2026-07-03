@@ -31,6 +31,24 @@ export interface ConsensusReport {
   personas: PersonaAudit[];
 }
 
+/** SQLite row shapes — typed to what the schema actually stores. */
+interface EngineStateRow {
+  active_plan: string | null;
+  errors: string | null;
+}
+
+interface ThoughtRow {
+  thought_number: number;
+  total_thoughts: number;
+  thought: string;
+  next_thought_needed: number | boolean;
+  is_revision: number | boolean;
+  revises_thought_num: number | null;
+  branch_to_thought_num: number | null;
+  timestamp: string;
+  status: string;
+}
+
 export class SequentialEngine {
   private db: Database;
   private statePath: string;
@@ -81,31 +99,34 @@ export class SequentialEngine {
     branchToThoughtNum?: number,
     sessionId: string = "default",
   ): EngineState {
-    if (isRevision && revisesThoughtNum !== undefined) {
-      this.db.run(
-        "UPDATE thoughts SET status = 'backtracked' WHERE session_id = ? AND thought_number > ?",
-        [sessionId, revisesThoughtNum],
-      );
-    }
+    const tx = this.db.transaction(() => {
+      if (isRevision && revisesThoughtNum !== undefined) {
+        this.db.run(
+          "UPDATE thoughts SET status = 'backtracked' WHERE session_id = ? AND thought_number > ?",
+          [sessionId, revisesThoughtNum],
+        );
+      }
 
-    this.db.run(
-      `INSERT INTO thoughts (
-        session_id, thought_number, total_thoughts, thought, next_thought_needed, 
-        is_revision, revises_thought_num, branch_to_thought_num, timestamp, status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        sessionId,
-        thoughtNumber,
-        totalThoughts,
-        thought,
-        nextThoughtNeeded ? 1 : 0,
-        isRevision ? 1 : 0,
-        revisesThoughtNum ?? null,
-        branchToThoughtNum ?? null,
-        new Date().toISOString(),
-        "active",
-      ],
-    );
+      this.db.run(
+        `INSERT INTO thoughts (
+          session_id, thought_number, total_thoughts, thought, next_thought_needed,
+          is_revision, revises_thought_num, branch_to_thought_num, timestamp, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          sessionId,
+          thoughtNumber,
+          totalThoughts,
+          thought,
+          nextThoughtNeeded ? 1 : 0,
+          isRevision ? 1 : 0,
+          revisesThoughtNum ?? null,
+          branchToThoughtNum ?? null,
+          new Date().toISOString(),
+          "active",
+        ],
+      );
+    });
+    tx();
 
     return this.getState(sessionId);
   }
@@ -139,11 +160,11 @@ export class SequentialEngine {
       .query(
         "SELECT active_plan, errors FROM engine_state WHERE session_id = ?",
       )
-      .get(sessionId) as any;
+      .get(sessionId) as EngineStateRow | null;
     if (row) {
       return {
-        activePlan: row.active_plan || "",
-        errors: JSON.parse(row.errors || "[]"),
+        activePlan: row.active_plan ?? "",
+        errors: JSON.parse(row.errors ?? "[]") as string[],
       };
     }
     return { activePlan: "", errors: [] };
@@ -164,7 +185,7 @@ export class SequentialEngine {
     const internal = this.getInternalState(sessionId);
     const thoughtsRows = this.db
       .query("SELECT * FROM thoughts WHERE session_id = ? ORDER BY id ASC")
-      .all(sessionId) as any[];
+      .all(sessionId) as ThoughtRow[];
 
     const history: Thought[] = thoughtsRows.map((row) => ({
       thoughtNumber: row.thought_number,
@@ -172,10 +193,10 @@ export class SequentialEngine {
       thought: row.thought,
       nextThoughtNeeded: Boolean(row.next_thought_needed),
       isRevision: Boolean(row.is_revision),
-      revisesThoughtNum: row.revises_thought_num,
-      branchToThoughtNum: row.branch_to_thought_num,
+      revisesThoughtNum: row.revises_thought_num ?? undefined,
+      branchToThoughtNum: row.branch_to_thought_num ?? undefined,
       timestamp: row.timestamp,
-      status: row.status,
+      status: row.status as "active" | "backtracked",
     }));
 
     return {

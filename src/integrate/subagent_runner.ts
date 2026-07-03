@@ -35,6 +35,16 @@ export class SubagentRunner {
       );
     }
 
+    // Block shell chaining operators to prevent trivial command injection.
+    // Commands intended for piping or redirection must be wrapped in a script file.
+    const SHELL_CHAIN_RE = /&&|\|\|(?![\w/])| ;|(?<![a-zA-Z0-9]) ;/;
+    const SHELL_INJECTION_RE = /`|\$\(|\$\{|(?<![a-zA-Z0-9_]);/;
+    if (SHELL_CHAIN_RE.test(command) || SHELL_INJECTION_RE.test(command)) {
+      throw new Error(
+        "Security: command \"" + command.slice(0, 80) + "\" contains shell chaining or injection operators (&&, ||, ;, backtick, $(...), ${}). Use a script file instead.",
+      );
+    }
+
     const isWindows = process.platform === "win32";
     const shell = isWindows ? "powershell.exe" : "sh";
     const args = isWindows
