@@ -726,18 +726,33 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           throw new Error(`Unknown codemap action: ${action}`);
         }
 
+        let responseText = resultText;
+        let responseRef = "";
+        if (resultText.length > 0) {
+          responseRef = ccr.store(resultText, "codemap");
+          HookManager.runHook("post-compact", "analyze", { action, dir }, {
+            ref: responseRef,
+            type: "codemap",
+            originalLength: resultText.length,
+          });
+        }
+
         const postHook = HookManager.runHook(
           "post-analyze",
           "analyze",
           hookContext,
-          { result: resultText },
+          { result: responseText, ref: responseRef },
         );
         if (!postHook.success) {
           throw new Error(`[Hook Failed] post-analyze: ${postHook.error}`);
         }
 
+        const responsePayload = responseRef
+          ? { ref: responseRef, text: responseText }
+          : { text: responseText };
+
         return {
-          content: [{ type: "text", text: resultText }],
+          content: [{ type: "text", text: JSON.stringify(responsePayload) }],
         };
       }
 

@@ -157,17 +157,16 @@ The ARIVE framework supports executing custom pre- and post-hook scripts at diff
 - `pre-integrate` / `post-integrate` (run by `arive_integrate`)
 - `pre-verify` / `post-verify` (run by `arive_verify`)
 - `pre-explain` / `post-explain` (run by `arive_explain`)
+- `pre-compact` / `post-compact` (run when compact references replace large tool outputs)
+
+### Automatic Prompt Guidance Hooks
+
+ARIVE ships default post-hook scripts in `.arive/hooks/` to preserve context instead of repeating large structures:
+
+- `post-analyze.js` — writes compact guidance to `.arive/compact_guidance.json` and reminds follow-up prompts to use `arive ponytail`, `arive reasoning`, and `arive mempalace`.
+- `post-compact.js` — reminds the conversation to reference stored `ccr:` hashes instead of re-emitting raw expanded content.
 
 ### Environment Variables
-
-When a hook is executed, it receives the following environment variables:
-
-- `ARIVE_HOOK_NAME`: The name of the hook (e.g. `pre-integrate`).
-- `ARIVE_HOOK_PHASE`: The phase of the ARIVE protocol (e.g. `integrate`).
-- `ARIVE_HOOK_CONTEXT`: JSON-stringified argument context passed to the tool.
-- `ARIVE_HOOK_RESULT`: (Only for `post-` hooks) JSON-stringified result/response payload of the tool execution.
-
-If a `pre-` hook exits with a non-zero status code, the action is blocked, and the tool returns a failure error.
 
 ---
 
@@ -371,7 +370,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ARIVE integrates ideas and pipelines from the following core development paradigms - Thank you for the inspiration:
 
-- **headroom** (`chopratejas/headroom`): Local, reversible context compression.
+- **headroom** (`headroomlabs-ai/headroom`): Local, reversible context compression.
 - **sequentialthinking** (`modelcontextprotocol/servers/sequentialthinking`): Step-by-step reasoning with reflective backtracking.
 - **ponytail** (`DietrichGebert/ponytail`): Lazy senior dev mode rulesets, skills, and plugins.
 - **codemap** (`JordanCoin/codemap`): Compact structural file tree and dependency flow mapping.
+- **mempalace** (`MemPalace/mempalace`): Memory palace-inspired knowledge retention and recall patterns.
