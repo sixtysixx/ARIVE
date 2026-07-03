@@ -971,11 +971,14 @@ if (process.argv.includes("install")) {
 }
 
 // Start Std Listener
+console.error("[arive] start: initializing MCP stdio transport");
 try {
+  const before = Date.now();
   const transport = new StdioServerTransport();
+  console.error(`[arive] transport created after ${Date.now() - before}ms, connecting...`);
   await server.connect(transport);
-  console.error("ARIVE MCP Server successfully listening on stdio.");
+  console.error(`[arive] ready after ${Date.now() - before}ms`);
 } catch (error: unknown) {
-  console.error("Fatal error: Failed to connect to stdio transport:", error);
+  console.error("[arive] fatal: failed to connect to stdio transport:", error);
   process.exit(1);
 }
