@@ -18,6 +18,7 @@ import { HookManager } from "./integrate/hook_manager.js";
 import { TDDRunner } from "./verify/tdd_runner.js";
 import { Validator } from "./verify/validator.js";
 import { PonytailFormatter } from "./explain/ponytail_formatter.js";
+import { createCompactHelpers } from "./mcp/compact.js";
 import * as fs from "fs";
 import * as path from "path";
 // Setup server instance
@@ -36,6 +37,7 @@ const server = new Server(
 // Registries and Engine State
 const ccr = new CCRRegistry();
 const engine = new SequentialEngine();
+const { compactText, compactObject } = createCompactHelpers(ccr);
 const memoryBank = new MemoryBank();
 
 // Register List Tools handler
@@ -484,8 +486,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           throw new Error(`[Hook Failed] post-reason: ${postHook.error}`);
         }
 
+        const responseText = compactObject(res, "reason", {}).value as unknown as Record<string, unknown>;
+
         return {
-          content: [{ type: "text", text: JSON.stringify(res, null, 2) }],
+          content: [{ type: "text", text: JSON.stringify(responseText, null, 2) }],
         };
       }
 
@@ -897,8 +901,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           throw new Error(`[Hook Failed] post-memory: ${postHook.error}`);
         }
 
+        const responseText = compactObject(resultObj, "memory", hookContext).value as unknown as Record<string, unknown>;
+
         return {
-          content: [{ type: "text", text: JSON.stringify(resultObj, null, 2) }],
+          content: [{ type: "text", text: JSON.stringify(responseText, null, 2) }],
         };
       }
 
