@@ -1,11 +1,6 @@
 /** All legal JSON value shapes — replaces `any` for parsed JSON traversal. */
 type JsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | JsonValue[]
-  | { [key: string]: JsonValue };
+  string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 
 /** Sentinel shape injected when an array is longer than 2 items. */
 interface TruncatedArray {
@@ -14,7 +9,14 @@ interface TruncatedArray {
   $items: CrushedValue[];
 }
 
-type CrushedValue = string | number | boolean | null | CrushedValue[] | TruncatedArray | { [key: string]: CrushedValue };
+type CrushedValue =
+  | string
+  | number
+  | boolean
+  | null
+  | CrushedValue[]
+  | TruncatedArray
+  | { [key: string]: CrushedValue };
 
 export class SmartCrusher {
   public static crush(content: string): string {
@@ -36,7 +38,9 @@ export class SmartCrusher {
       return {
         $truncated: true,
         $length: val.length,
-        $items: val.slice(0, 2).map((item) => SmartCrusher.traverseAndCrush(item)),
+        $items: val
+          .slice(0, 2)
+          .map((item) => SmartCrusher.traverseAndCrush(item)),
       } satisfies TruncatedArray;
     }
     if (val !== null && typeof val === "object") {

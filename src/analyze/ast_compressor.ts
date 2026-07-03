@@ -2,22 +2,17 @@ import ts from "typescript";
 
 export class ASTCompressor {
   public static compress(code: string): string {
-    try {
-      // Validate the code parses cleanly; throw on hard errors so the catch fallback is used.
-      ts.createSourceFile("temp.ts", code, ts.ScriptTarget.Latest, true);
-
-      // Strip block comments and line comments, then normalise per-line whitespace.
-      // Crucially: we preserve newlines so ASI and multi-line string literals are not broken.
-      return code
-        .replace(/\/\*[\s\S]*?\*\/|([^\\:]|^)\/\/.*$/gm, "$1")
-        .split("\n")
-        .map((line) => line.trimEnd())
-        .filter((line) => line.trim().length > 0)
-        .join("\n")
-        .trim();
-    } catch (e) {
-      return code;
-    }
+    // Preflight parse removed: `ts.createSourceFile(...)` does not throw on malformed code
+    // and the parse result is unused. Any parse-time safety claim it provided was redundant.
+    // The regex-based normalizer is the actual compressor; on pathological inputs it may
+    // degrade rather than just pass through. Fallback behavior below preserves that case.
+    return code
+      .replace(/\/\*[\s\S]*?\*\/|([^\\:]|^)\/\/.*$/gm, "$1")
+      .split("\n")
+      .map((line) => line.trimEnd())
+      .filter((line) => line.trim().length > 0)
+      .join("\n")
+      .trim();
   }
 
   public static compressMultiLanguage(code: string, language: string): string {

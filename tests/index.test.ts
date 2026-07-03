@@ -48,11 +48,13 @@ describe("MCP Entrypoint Shell Run Tests", () => {
     // Wait for the server to signal readiness on stderr — event-driven, no sleep.
     const { promise: ready, resolve: readyResolve } =
       Promise.withResolvers<void>();
-    proc.stderr!.on("data", (chunk: Buffer) => {
-      if (chunk.toString().includes("successfully listening")) {
+    const onStderr = (chunk: Buffer) => {
+      if (chunk.toString().includes("[arive] ready after")) {
+        proc.stderr!.off("data", onStderr);
         readyResolve();
       }
-    });
+    };
+    proc.stderr!.on("data", onStderr);
     await ready;
 
     // 1. tools/list — verify arive_memory_bank is advertised.

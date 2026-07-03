@@ -239,7 +239,7 @@ To register the ARIVE MCP server in your local AI editing clients:
 ARIVE ships a root-level `plugin.json`, `mcp_config.json`, `rules/`, and `skills/` so the entire repo is a valid Antigravity plugin. Install it in one command:
 
 ```bash
-agy plugin install https://github.com/sixtysixx/ARIVE
+agy plugin install github:sixtysixx/ARIVE
 ```
 
 The CLI stages the plugin at `~/.gemini/antigravity-cli/plugins/arive/` and automatically loads the MCP server, Ponytail rules, and skills on next launch.
@@ -250,8 +250,7 @@ Alternatively, register the MCP server manually in `%USERPROFILE%\.gemini\antigr
 {
   "mcpServers": {
     "arive": {
-      "command": "bun",
-      "args": ["run", "src/index.ts"]
+      "command": "github:sixtysixx/ARIVE"
     }
   }
 }
@@ -265,8 +264,7 @@ Add this configuration to your user-level config at `~/.omp/agent/mcp.json` or y
 {
   "mcpServers": {
     "arive": {
-      "command": "bun",
-      "args": ["run", "src/index.ts"]
+      "command": "github:sixtysixx/ARIVE"
     }
   }
 }
@@ -280,8 +278,7 @@ Add this to your configuration (e.g., `%APPDATA%\EasyCode\claude_desktop_config.
 {
   "mcpServers": {
     "arive": {
-      "command": "bun",
-      "args": ["run", "src/index.ts"]
+      "command": "github:sixtysixx/ARIVE"
     }
   }
 }

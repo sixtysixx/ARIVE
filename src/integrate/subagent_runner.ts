@@ -41,7 +41,9 @@ export class SubagentRunner {
     const SHELL_INJECTION_RE = /`|\$\(|\$\{|(?<![a-zA-Z0-9_]);/;
     if (SHELL_CHAIN_RE.test(command) || SHELL_INJECTION_RE.test(command)) {
       throw new Error(
-        "Security: command \"" + command.slice(0, 80) + "\" contains shell chaining or injection operators (&&, ||, ;, backtick, $(...), ${}). Use a script file instead.",
+        'Security: command "' +
+          command.slice(0, 80) +
+          '" contains shell chaining or injection operators (&&, ||, ;, backtick, $(...), ${}). Use a script file instead.',
       );
     }
 

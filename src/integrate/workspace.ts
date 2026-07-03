@@ -20,7 +20,10 @@ export class WorkspaceManager {
     }
   }
 
-  public static create(taskId: string): string {
+  public static create(
+    taskId: string,
+    options?: { ignore?: Iterable<string> },
+  ): string {
     this.validateTaskId(taskId);
     const targetPath = path.join(".arive-tasks", taskId);
     const absoluteTargetPath = path.resolve(targetPath);
@@ -31,31 +34,31 @@ export class WorkspaceManager {
     // Create the directory
     fs.mkdirSync(absoluteTargetPath, { recursive: true });
 
-    // Copy project files (excluding .git, node_modules, .arive-tasks, .arive, bun.lock)
+    // Copy project files (excluding .git, node_modules, .arive-tasks, .arive-worktrees, .arive, bun.lock by default)
     const sourceDir = path.resolve(process.cwd());
-    const excludeList: Record<string, boolean> = {
-      ".git": true,
-      node_modules: true,
-      ".arive-tasks": true,
-      ".arive-worktrees": true,
-      ".arive": true,
-      "bun.lock": true,
-    };
+    const ignored = new Set([
+      ".git",
+      "node_modules",
+      ".arive-tasks",
+      ".arive-worktrees",
+      ".arive",
+      "bun.lock",
+      ...(options?.ignore ?? []),
+    ]);
 
-    const entries = fs.readdirSync(sourceDir);
+    // Read all entries and copy individually to avoid self-copy issues
+    const entries = fs.readdirSync(sourceDir, { withFileTypes: true });
     for (const entry of entries) {
-      if (excludeList[entry]) {
+      if (ignored.has(entry.name)) {
         continue;
       }
-      const srcPath = path.join(sourceDir, entry);
-      const destPath = path.join(absoluteTargetPath, entry);
+      const src = path.join(sourceDir, entry.name);
+      const dest = path.join(absoluteTargetPath, entry.name);
       try {
-        fs.cpSync(srcPath, destPath, { recursive: true, verbatimSymlinks: true });
+        fs.cpSync(src, dest, { recursive: true, verbatimSymlinks: true });
       } catch (e: unknown) {
         const message = e instanceof Error ? e.message : String(e);
-        console.warn(
-          `[WorkspaceManager] Failed to copy ${srcPath}: ${message}`,
-        );
+        console.warn(`[WorkspaceManager] Failed to copy ${entry.name}: ${message}`);
       }
     }
 

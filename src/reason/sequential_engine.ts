@@ -54,13 +54,13 @@ export class SequentialEngine {
   private statePath: string;
 
   constructor(statePath = ".arive/thinking_state.db") {
-    // Handle migration or different extension if needed, but the plan says use .db
-    this.statePath = statePath;
-    const dir = path.dirname(statePath);
+    const resolved = path.resolve(process.cwd(), statePath);
+    this.statePath = resolved;
+    const dir = path.dirname(resolved);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
-    this.db = new Database(statePath);
+    this.db = new Database(resolved);
     this.initDb();
   }
 

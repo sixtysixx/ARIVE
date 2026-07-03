@@ -10,7 +10,11 @@ export interface CompactResult<T = unknown> {
   originalLength: number;
 }
 
-function wirePostCompactHook<T>(result: CompactResult<T>, phase: string, meta: Record<string, unknown>): void {
+function wirePostCompactHook<T>(
+  result: CompactResult<T>,
+  phase: string,
+  meta: Record<string, unknown>,
+): void {
   try {
     HookManager.runHook("post-compact", phase, meta, result);
   } catch {
@@ -19,11 +23,21 @@ function wirePostCompactHook<T>(result: CompactResult<T>, phase: string, meta: R
 }
 
 export interface CompactText {
-  (text: string, phase: string, meta: Record<string, unknown>, threshold?: number): string;
+  (
+    text: string,
+    phase: string,
+    meta: Record<string, unknown>,
+    threshold?: number,
+  ): string;
 }
 
 export interface CompactObject {
-  <T>(obj: T, phase: string, meta: Record<string, unknown>, threshold?: number): CompactResult<T>;
+  <T>(
+    obj: T,
+    phase: string,
+    meta: Record<string, unknown>,
+    threshold?: number,
+  ): CompactResult<T>;
 }
 
 export interface CompactHelpers {
@@ -39,8 +53,13 @@ export function createCompactHelpers(ccr: CCRRegistry): CompactHelpers {
     threshold = DEFAULT_COMPACT_THRESHOLD,
   ): string {
     if (text.length > threshold) {
-      const hash = ccr.store(text, meta.type as string || phase);
-      const result = { value: `ccr:${hash}`, compacted: true, ref: `ccr:${hash}`, originalLength: text.length };
+      const hash = ccr.store(text, (meta.type as string) || phase);
+      const result = {
+        value: `ccr:${hash}`,
+        compacted: true,
+        ref: `ccr:${hash}`,
+        originalLength: text.length,
+      };
       wirePostCompactHook(result, phase, meta);
       return result.value;
     }
@@ -53,15 +72,26 @@ export function createCompactHelpers(ccr: CCRRegistry): CompactHelpers {
     meta: Record<string, unknown>,
     threshold = DEFAULT_COMPACT_THRESHOLD,
   ): CompactResult<T> {
-    const text = JSON.stringify(obj, null, 2);
-    if (text.length > threshold) {
-      const hash = ccr.store(text, "json");
-      const payload = { ccr: `ccr:${hash}`, originalLength: text.length };
-      const result = { value: payload as T, compacted: true, ref: `ccr:${hash}`, originalLength: text.length };
-      wirePostCompactHook(result, phase, meta);
-      return result;
+    const compactText = JSON.stringify(obj);
+    if (compactText.length <= threshold) {
+      return {
+        value: obj,
+        compacted: false,
+        originalLength: compactText.length,
+      };
     }
-    return { value: obj, compacted: false, originalLength: text.length };
+
+    const prettyText = JSON.stringify(obj, null, 2);
+    const hash = ccr.store(prettyText, "json");
+    const payload = { ccr: `ccr:${hash}`, originalLength: prettyText.length };
+    const result = {
+      value: payload as T,
+      compacted: true,
+      ref: `ccr:${hash}`,
+      originalLength: prettyText.length,
+    };
+    wirePostCompactHook(result, phase, meta);
+    return result;
   }
 
   return { compactText, compactObject };
