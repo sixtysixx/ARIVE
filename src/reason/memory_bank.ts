@@ -108,13 +108,14 @@ export class MemoryBank {
   };
 
   constructor(dbPath: string = ".arive/memory_bank.db", maxItems = 50_000) {
-    const dir = path.dirname(dbPath);
+    const resolved = path.resolve(process.cwd(), dbPath);
+    const dir = path.dirname(resolved);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
 
     this.maxItems = maxItems;
-    this.db = new Database(dbPath);
+    this.db = new Database(resolved);
 
     this.db.run(`
       CREATE TABLE IF NOT EXISTS drawers (
@@ -192,9 +193,12 @@ export class MemoryBank {
     }
 
     const drawerLabel = slugify(
-      args.drawer && args.drawer.trim() ? args.drawer : "drawer-" + Date.now().toString(36),
+      args.drawer && args.drawer.trim()
+        ? args.drawer
+        : "drawer-" + Date.now().toString(36),
     );
-    const drawerId = hashContent(content, args.wing, args.room) + "-" + drawerLabel;
+    const drawerId =
+      hashContent(content, args.wing, args.room) + "-" + drawerLabel;
     const created = nowIso();
 
     this.stmts.insert.run(
@@ -238,19 +242,24 @@ export class MemoryBank {
   }
 
   list(wing: string, room: string, hall: string, limit = 50): MemoryEntry[] {
-    return this.stmts
-      .listByHall.all(wing, room, hall, limit)
+    return this.stmts.listByHall
+      .all(wing, room, hall, limit)
       .map((row) => this.rowToEntry(row, false));
   }
 
   recall(query: string, limit = 50): MemoryEntry[] {
     const pattern = `%${query}%`;
-    return this.stmts
-      .search.all(pattern, pattern, pattern, pattern, pattern, pattern, limit)
+    return this.stmts.search
+      .all(pattern, pattern, pattern, pattern, pattern, pattern, limit)
       .map((row) => this.rowToEntry(row, false));
   }
 
-  stats(): { totalDrawers: number; wings: number; rooms: number; halls: number } {
+  stats(): {
+    totalDrawers: number;
+    wings: number;
+    rooms: number;
+    halls: number;
+  } {
     const { c } = this.stmts.countAll.get() as { c: number };
     const wingRows = this.db
       .prepare(`SELECT DISTINCT wing FROM drawers`)
@@ -370,26 +379,56 @@ export function parseRememberIntent(input: string): RememberIntent | null {
   // ---------- tag classification ----------
   const tags: string[] = ["user-memory"];
 
-  if (/\b(preference|like|dislike|favor(?:ite)?|hate|love|prefer)\b/i.test(content))
+  if (
+    /\b(preference|like|dislike|favor(?:ite)?|hate|love|prefer)\b/i.test(
+      content,
+    )
+  )
     tags.push("preference");
-  if (/\b(remind(?:er)?|todo|task|deadline|schedule|meeting|appointment|due)\b/i.test(content))
+  if (
+    /\b(remind(?:er)?|todo|task|deadline|schedule|meeting|appointment|due)\b/i.test(
+      content,
+    )
+  )
     tags.push("reminder");
-  if (/\b(decided?|choice|chose|went\s+with|settled\s+on|picked|option)\b/i.test(content))
+  if (
+    /\b(decided?|choice|chose|went\s+with|settled\s+on|picked|option)\b/i.test(
+      content,
+    )
+  )
     tags.push("decision");
-  if (/\b(fact|always|never|is\s+a|are\s+a|definition|means|equals)\b/i.test(content))
+  if (
+    /\b(fact|always|never|is\s+a|are\s+a|definition|means|equals)\b/i.test(
+      content,
+    )
+  )
     tags.push("fact");
-  if (/\b(found|discovered|learned|noticed|reali[sz]ed|insight)\b/i.test(content))
+  if (
+    /\b(found|discovered|learned|noticed|reali[sz]ed|insight)\b/i.test(content)
+  )
     tags.push("discovery");
-  if (/\b(rule|must|policy|constraint|requirement|should|standard)\b/i.test(content))
+  if (
+    /\b(rule|must|policy|constraint|requirement|should|standard)\b/i.test(
+      content,
+    )
+  )
     tags.push("rule");
 
   // ---------- importance scoring ----------
   let importance = 5; // default mid-range
-  if (/\b(urgent|critical|asap|immediately|emergency|blocker|p0)\b/i.test(content))
+  if (
+    /\b(urgent|critical|asap|immediately|emergency|blocker|p0)\b/i.test(content)
+  )
     importance = 10;
-  else if (/\b(important|high.?priority|must|required|essential|key)\b/i.test(content))
+  else if (
+    /\b(important|high.?priority|must|required|essential|key)\b/i.test(content)
+  )
     importance = 8;
-  else if (/\b(nice.?to.?have|eventually|maybe|probably|if.?possible|low.?priority)\b/i.test(content))
+  else if (
+    /\b(nice.?to.?have|eventually|maybe|probably|if.?possible|low.?priority)\b/i.test(
+      content,
+    )
+  )
     importance = 3;
 
   // ---------- hall routing ----------

@@ -6,7 +6,8 @@ import * as path from "path";
 
 describe("MemoryBank", () => {
   test("writes and reads a drawer", () => {
-    const dbPath = fs.mkdtempSync(path.join(os.tmpdir(), "mem-bank-")) + "/test.db";
+    const dbPath =
+      fs.mkdtempSync(path.join(os.tmpdir(), "mem-bank-")) + "/test.db";
     const bank = new MemoryBank(dbPath);
     const entry = bank.write({
       wing: "work",
@@ -33,7 +34,8 @@ describe("MemoryBank", () => {
   });
 
   test("lists drawers by hierarchy", () => {
-    const dbPath = fs.mkdtempSync(path.join(os.tmpdir(), "mem-bank-")) + "/test.db";
+    const dbPath =
+      fs.mkdtempSync(path.join(os.tmpdir(), "mem-bank-")) + "/test.db";
     const bank = new MemoryBank(dbPath);
     bank.write({ wing: "w", room: "r", hall: "h", content: "alpha" });
     bank.write({ wing: "w", room: "r", hall: "h", content: "beta" });
@@ -47,11 +49,22 @@ describe("MemoryBank", () => {
   });
 
   test("recalls by query", () => {
-    const dbPath = fs.mkdtempSync(path.join(os.tmpdir(), "mem-bank-")) + "/test.db";
+    const dbPath =
+      fs.mkdtempSync(path.join(os.tmpdir(), "mem-bank-")) + "/test.db";
     const bank = new MemoryBank(dbPath);
-    bank.write({ wing: "w1", room: "r1", hall: "h1", content: "the quick brown fox" });
+    bank.write({
+      wing: "w1",
+      room: "r1",
+      hall: "h1",
+      content: "the quick brown fox",
+    });
     bank.write({ wing: "w2", room: "r2", hall: "h2", content: "the lazy dog" });
-    bank.write({ wing: "w3", room: "r3", hall: "h3", content: "another fox jumps" });
+    bank.write({
+      wing: "w3",
+      room: "r3",
+      hall: "h3",
+      content: "another fox jumps",
+    });
 
     expect(bank.recall("fox").length).toBe(2);
     expect(bank.recall("zzzz-no-match").length).toBe(0);
@@ -59,16 +72,23 @@ describe("MemoryBank", () => {
   });
 
   test("forgets a drawer", () => {
-    const dbPath = fs.mkdtempSync(path.join(os.tmpdir(), "mem-bank-")) + "/test.db";
+    const dbPath =
+      fs.mkdtempSync(path.join(os.tmpdir(), "mem-bank-")) + "/test.db";
     const bank = new MemoryBank(dbPath);
-    const entry = bank.write({ wing: "w", room: "r", hall: "h", content: "to forget" });
+    const entry = bank.write({
+      wing: "w",
+      room: "r",
+      hall: "h",
+      content: "to forget",
+    });
     expect(bank.forget(entry.drawerId).removed).toBe(true);
     expect(bank.forget(entry.drawerId).removed).toBe(false);
     bank.close();
   });
 
   test("stats reflects hierarchy", () => {
-    const dbPath = fs.mkdtempSync(path.join(os.tmpdir(), "mem-bank-")) + "/test.db";
+    const dbPath =
+      fs.mkdtempSync(path.join(os.tmpdir(), "mem-bank-")) + "/test.db";
     const bank = new MemoryBank(dbPath);
     bank.write({ wing: "a", room: "r1", hall: "h1", content: "1" });
     bank.write({ wing: "a", room: "r1", hall: "h2", content: "2" });
@@ -88,11 +108,27 @@ describe("parseRememberIntent", () => {
   test.each([
     ["remember to buy milk", "buy milk", ["user-memory"]],
     ["remember that Python wins", "Python wins", ["user-memory"]],
-    ["please remember to submit the PR by Friday", "submit the PR by Friday", ["user-memory"]],
-    ["save this: the design review is at 3pm", "the design review is at 3pm", ["user-memory"]],
+    [
+      "please remember to submit the PR by Friday",
+      "submit the PR by Friday",
+      ["user-memory"],
+    ],
+    [
+      "save this: the design review is at 3pm",
+      "the design review is at 3pm",
+      ["user-memory"],
+    ],
     ["I love dark mode", null, []],
-    ["remember to remind Dave about the deadline", "remind Dave about the deadline", ["user-memory", "reminder"]],
-    ["remember that blue is the best color", "blue is the best color", ["user-memory"]],
+    [
+      "remember to remind Dave about the deadline",
+      "remind Dave about the deadline",
+      ["user-memory", "reminder"],
+    ],
+    [
+      "remember that blue is the best color",
+      "blue is the best color",
+      ["user-memory"],
+    ],
   ])("parses '%s'", (input, expectedContent, expectedTags) => {
     const result = parseRememberIntent(input);
     if (expectedContent === null) {
@@ -105,7 +141,8 @@ describe("parseRememberIntent", () => {
 });
 
 test("MemoryBank handles maxItems prune", () => {
-  const dbPath = fs.mkdtempSync(path.join(os.tmpdir(), "mem-bank-")) + "/test.db";
+  const dbPath =
+    fs.mkdtempSync(path.join(os.tmpdir(), "mem-bank-")) + "/test.db";
   const bank = new MemoryBank(dbPath, 10);
   for (let i = 0; i < 20; i++) {
     bank.write({ wing: "w", room: "r", hall: "h", content: `item-${i}` });

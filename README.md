@@ -246,6 +246,7 @@ The CLI stages the plugin at `~/.gemini/antigravity-cli/plugins/arive/` and auto
 
 Alternatively, register the MCP server manually in `%USERPROFILE%\.gemini\antigravity-cli\mcp_config.json`:
 
+```json
 {
   "mcpServers": {
     "arive": {
@@ -253,11 +254,13 @@ Alternatively, register the MCP server manually in `%USERPROFILE%\.gemini\antigr
     }
   }
 }
+```
 
 ### omp (oh-my-pi)
 
 Add this configuration to your user-level config at `~/.omp/agent/mcp.json` or your project-level config at `.omp/mcp.json`:
 
+```json
 {
   "mcpServers": {
     "arive": {
@@ -265,11 +268,13 @@ Add this configuration to your user-level config at `~/.omp/agent/mcp.json` or y
     }
   }
 }
+```
 
 ### Claude Desktop
 
 Add this to your configuration (e.g., `%APPDATA%\EasyCode\claude_desktop_config.json` or standard `claude_desktop_config.json` configuration path):
 
+```json
 {
   "mcpServers": {
     "arive": {
@@ -277,6 +282,7 @@ Add this to your configuration (e.g., `%APPDATA%\EasyCode\claude_desktop_config.
     }
   }
 }
+```
 
 ### OpenCode
 

@@ -8,7 +8,7 @@ export class CCRRegistry {
   private insertStmt: Statement;
   private selectStmt: Statement;
   private maxItems: number;
-
+  private itemCount: number = 0;
   constructor(dbPath: string = ".arive/ccr_store.db", maxItems: number = 1000) {
     this.maxItems = maxItems;
     const dir = path.dirname(dbPath);
@@ -68,8 +68,12 @@ export class CCRRegistry {
     const now = new Date().toISOString();
     this.insertStmt.run(hash, content, contentType, content.length, now, now);
 
-    // Auto-prune if over limit
-    this.prune(this.maxItems);
+    // Deferred pruning: only check when size exceeds threshold * 1.2
+    this.itemCount = (this.itemCount || 0) + 1;
+    if (this.itemCount > this.maxItems * 1.2) {
+      this.prune(this.maxItems);
+      this.itemCount = this.maxItems; // reset counter after prune
+    }
 
     return hash;
   }

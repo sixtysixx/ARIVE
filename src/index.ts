@@ -12,13 +12,21 @@ import { CacheAligner } from "./analyze/cache_aligner.js";
 import { CCRRegistry } from "./analyze/ccr_registry.js";
 import { CodeMapScanner } from "./analyze/codemap.js";
 import { SequentialEngine } from "./reason/sequential_engine.js";
-import { MemoryBank, MemoryVerb, parseRememberIntent } from "./reason/memory_bank.js";
+import {
+  MemoryBank,
+  MemoryVerb,
+  parseRememberIntent,
+} from "./reason/memory_bank.js";
 import { WorkspaceManager } from "./integrate/workspace.js";
 import { HookManager } from "./integrate/hook_manager.js";
 import { TDDRunner } from "./verify/tdd_runner.js";
 import { Validator } from "./verify/validator.js";
 import { PonytailFormatter } from "./explain/ponytail_formatter.js";
-import { createCompactHelpers, CompactObject, CompactText } from "./mcp/compact.js";
+import {
+  createCompactHelpers,
+  CompactObject,
+  CompactText,
+} from "./mcp/compact.js";
 import * as fs from "fs";
 import * as path from "path";
 // Setup server instance
@@ -35,34 +43,47 @@ const server = new Server(
 );
 
 // Registries and Engine State — lazy so stdio can connect immediately
-let ccr: CCRRegistry | undefined;
-let engine: SequentialEngine | undefined;
-let memoryBank: MemoryBank | undefined;
-  let compactText: CompactText | undefined;
-  let compactObject: CompactObject | undefined;
+interface EngineState {
+  ccr: CCRRegistry | undefined;
+  engine: SequentialEngine | undefined;
+  memoryBank: MemoryBank | undefined;
+  compactText: CompactText | undefined;
+  compactObject: CompactObject | undefined;
+}
+
+const engineState: EngineState = {
+  ccr: undefined,
+  engine: undefined,
+  memoryBank: undefined,
+  compactText: undefined,
+  compactObject: undefined,
+};
 
 function getCCR(): CCRRegistry {
-  if (!ccr) ccr = new CCRRegistry();
-  return ccr;
+  if (!engineState.ccr) engineState.ccr = new CCRRegistry();
+  return engineState.ccr;
 }
 
 function getEngine(): SequentialEngine {
-  if (!engine) engine = new SequentialEngine();
-  return engine;
+  if (!engineState.engine) engineState.engine = new SequentialEngine();
+  return engineState.engine;
 }
 
 function getMemoryBank(): MemoryBank {
-  if (!memoryBank) memoryBank = new MemoryBank();
-  return memoryBank;
+  if (!engineState.memoryBank) engineState.memoryBank = new MemoryBank();
+  return engineState.memoryBank;
 }
 
 function getCompactHelpers() {
-  if (!compactText || !compactObject) {
+  if (!engineState.compactText || !engineState.compactObject) {
     const helpers = createCompactHelpers(getCCR());
-    compactText = helpers.compactText;
-    compactObject = helpers.compactObject;
+    engineState.compactText = helpers.compactText;
+    engineState.compactObject = helpers.compactObject;
   }
-  return { compactText: compactText!, compactObject: compactObject! };
+  return {
+    compactText: engineState.compactText!,
+    compactObject: engineState.compactObject!,
+  };
 }
 
 // Register List Tools handler
@@ -268,7 +289,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             wing: {
               type: "string",
-              description: "Top-level category (wing). E.g. a project name, person name, or domain.",
+              description:
+                "Top-level category (wing). E.g. a project name, person name, or domain.",
             },
             room: {
               type: "string",
@@ -281,7 +303,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             drawer: {
               type: "string",
-              description: "Optional label for the drawer (auto-derived from content if omitted).",
+              description:
+                "Optional label for the drawer (auto-derived from content if omitted).",
             },
             content: {
               type: "string",
@@ -490,14 +513,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           throw new Error(`[Hook Blocked] pre-reason: ${preHook.error}`);
         }
 
-        const res = getEngine().addThought(thought,
-        tNum,
-        total,
-        nextNeeded,
-        isRev,
-        revNum,
-        branchNum,
-        sessionId,);
+        const res = getEngine().addThought(
+          thought,
+          tNum,
+          total,
+          nextNeeded,
+          isRev,
+          revNum,
+          branchNum,
+          sessionId,
+        );
 
         const postHook = HookManager.runHook(
           "post-reason",
@@ -509,10 +534,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           throw new Error(`[Hook Failed] post-reason: ${postHook.error}`);
         }
 
-        const responseText = getCompactHelpers().compactObject(res, "reason", {}).value as unknown as Record<string, unknown>;
+        const responseText = getCompactHelpers().compactObject(
+          res,
+          "reason",
+          {},
+        ).value as unknown as Record<string, unknown>;
 
         return {
-          content: [{ type: "text", text: JSON.stringify(responseText, null, 2) }],
+          content: [
+            { type: "text", text: JSON.stringify(responseText, null, 2) },
+          ],
         };
       }
 
@@ -637,10 +668,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "arive_explain": {
         const message = String(args?.message || "");
         const brevity = (args?.brevity || "full") as
-          | "lite"
-          | "full"
-          | "ultra"
-          | "normal";
+          "lite" | "full" | "ultra" | "normal";
 
         const hookContext = { message, brevity };
         const preHook = HookManager.runHook(
@@ -757,11 +785,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         let responseRef = "";
         if (resultText.length > 0) {
           responseRef = getCCR().store(resultText, "codemap");
-          HookManager.runHook("post-compact", "analyze", { action, dir }, {
-            ref: responseRef,
-            type: "codemap",
-            originalLength: resultText.length,
-          });
+          HookManager.runHook(
+            "post-compact",
+            "analyze",
+            { action, dir },
+            {
+              ref: responseRef,
+              type: "codemap",
+              originalLength: resultText.length,
+            },
+          );
         }
 
         const postHook = HookManager.runHook(
@@ -797,10 +830,25 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             : undefined;
         const drawerId = String(args?.drawerId || "");
         const query = String(args?.query || "");
-        const limit = args?.limit !== undefined ? Math.max(1, Number(args.limit)) : 50;
+        const limit =
+          args?.limit !== undefined ? Math.max(1, Number(args.limit)) : 50;
 
-        const hookContext = { action, wing, room, hall, drawer, drawerId, query, limit, hasContent: Boolean(content) };
-        const preHook = HookManager.runHook("pre-memory", "memory", hookContext);
+        const hookContext = {
+          action,
+          wing,
+          room,
+          hall,
+          drawer,
+          drawerId,
+          query,
+          limit,
+          hasContent: Boolean(content),
+        };
+        const preHook = HookManager.runHook(
+          "pre-memory",
+          "memory",
+          hookContext,
+        );
         if (!preHook.success) {
           throw new Error(`[Hook Blocked] pre-memory: ${preHook.error}`);
         }
@@ -812,7 +860,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             // PRIMARY path: parse the user's natural-language phrase from `content`.
             // e.g. content = "remember to buy oat milk" → extracted content = "buy oat milk"
             if (!content.trim()) {
-              throw new Error("content is required for the 'remember' verb (pass the full user phrase).");
+              throw new Error(
+                "content is required for the 'remember' verb (pass the full user phrase).",
+              );
             }
             const intent = parseRememberIntent(content);
             if (intent) {
@@ -824,7 +874,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 drawer: intent.drawer,
                 content: intent.content,
                 tags: intent.tags,
-                metadata: { importance: intent.importance, source: "remember-intent" },
+                metadata: {
+                  importance: intent.importance,
+                  source: "remember-intent",
+                },
               });
               resultObj = {
                 status: "remembered",
@@ -865,7 +918,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             if (!content.trim()) {
               throw new Error("content is required for drawer_write");
             }
-            const entry = getMemoryBank().write({ wing, room, hall, drawer, content, tags, metadata });
+            const entry = getMemoryBank().write({
+              wing,
+              room,
+              hall,
+              drawer,
+              content,
+              tags,
+              metadata,
+            });
             resultObj = {
               status: "written",
               drawerId: entry.drawerId,
@@ -878,7 +939,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             break;
           }
           case "drawer_read": {
-            if (!drawerId.trim()) throw new Error("drawerId is required for drawer_read");
+            if (!drawerId.trim())
+              throw new Error("drawerId is required for drawer_read");
             resultObj = getMemoryBank().read(drawerId);
             break;
           }
@@ -893,12 +955,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           }
           case "search":
           case "recall": {
-            if (!query.trim()) throw new Error("query is required for search/recall");
-            resultObj = { query, results: getMemoryBank().recall(query, limit) };
+            if (!query.trim())
+              throw new Error("query is required for search/recall");
+            resultObj = {
+              query,
+              results: getMemoryBank().recall(query, limit),
+            };
             break;
           }
           case "forget": {
-            if (!drawerId.trim()) throw new Error("drawerId is required for forget");
+            if (!drawerId.trim())
+              throw new Error("drawerId is required for forget");
             resultObj = getMemoryBank().forget(drawerId);
             break;
           }
@@ -919,15 +986,26 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             throw new Error(`Unknown memory action: ${action}`);
         }
 
-        const postHook = HookManager.runHook("post-memory", "memory", hookContext, resultObj);
+        const postHook = HookManager.runHook(
+          "post-memory",
+          "memory",
+          hookContext,
+          resultObj,
+        );
         if (!postHook.success) {
           throw new Error(`[Hook Failed] post-memory: ${postHook.error}`);
         }
 
-        const responseText = getCompactHelpers().compactObject(resultObj, "memory", hookContext).value as unknown as Record<string, unknown>;
+        const responseText = getCompactHelpers().compactObject(
+          resultObj,
+          "memory",
+          hookContext,
+        ).value as unknown as Record<string, unknown>;
 
         return {
-          content: [{ type: "text", text: JSON.stringify(responseText, null, 2) }],
+          content: [
+            { type: "text", text: JSON.stringify(responseText, null, 2) },
+          ],
         };
       }
 
@@ -936,15 +1014,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           ? String(args.workspacePath)
           : undefined;
         const editor = args?.editor ? String(args.editor) : undefined;
-        const { installAll } = await import("./cli/installer.js");
-        installAll(workspacePath, editor);
+        const { installAllAsync } = await import("./cli/installer.js");
+        // Start async installation, return immediately
+        installAllAsync(workspacePath, editor).catch((err) => {
+          console.error("[arive_install] async install failed:", err);
+        });
         return {
           content: [
             {
               type: "text",
               text: JSON.stringify({
-                status: "success",
-                message: `ARIVE automatically installed successfully${editor ? ` for ${editor}` : ""}`,
+                status: "started",
+                message: `ARIVE installation started in background${editor ? ` for ${editor}` : ""}. Check logs for progress.`,
               }),
             },
           ],
@@ -975,7 +1056,9 @@ console.error("[arive] start: initializing MCP stdio transport");
 try {
   const before = Date.now();
   const transport = new StdioServerTransport();
-  console.error(`[arive] transport created after ${Date.now() - before}ms, connecting...`);
+  console.error(
+    `[arive] transport created after ${Date.now() - before}ms, connecting...`,
+  );
   await server.connect(transport);
   console.error(`[arive] ready after ${Date.now() - before}ms`);
 } catch (error: unknown) {

@@ -44,7 +44,9 @@ describe("CodeMap Scanner Tests", () => {
   test("getGitDiff rejects command injection and invalid branch names", () => {
     const scanner = new CodeMapScanner();
     const result = scanner.getGitDiff("master; rm -rf /");
-    expect(result).toBe("Git diff failed: Invalid branch name (must start with alphanumeric).");
+    expect(result).toBe(
+      "Git diff failed: Invalid branch name (must start with alphanumeric).",
+    );
   });
 
   test("scanDependencies recursively parses JS/TS files", () => {

@@ -3,6 +3,11 @@ import * as path from "path";
 import { spawnSync } from "child_process";
 
 export class HookManager {
+  private static hookCache = new Map<
+    string,
+    { command: string; args: string[]; mtime: number; path: string } | null
+  >();
+
   public static runHook(
     hookName: string,
     phase: string,
@@ -14,67 +19,97 @@ export class HookManager {
       return { success: true };
     }
 
-    // Find if a hook file matching hookName exists
-    const entries = fs.readdirSync(hooksDir);
-    const hookFile = entries.find((entry) => {
-      const ext = path.extname(entry);
-      const base = path.basename(entry, ext);
-      return base === hookName && !entry.endsWith(".sample");
-    });
+    // Resolve hook file (cached)
+    let cached = HookManager.hookCache.get(hookName);
+    const hooksDirExists = fs.existsSync(hooksDir);
+    let hookFile: string | undefined;
 
-    if (!hookFile) {
-      return { success: true };
+    if (cached) {
+      // Validate cache: file exists and mtime unchanged
+      try {
+        const stat = fs.statSync(cached.path);
+        if (stat.isFile() && stat.mtimeMs === cached.mtime) {
+          hookFile = path.basename(cached.path);
+        } else {
+          HookManager.hookCache.delete(hookName);
+          cached = null;
+        }
+      } catch {
+        HookManager.hookCache.delete(hookName);
+        cached = null;
+      }
     }
 
-    const absoluteHookPath = path.resolve(hooksDir, hookFile);
-
-    // Make sure it is a file
-    if (!fs.statSync(absoluteHookPath).isFile()) {
-      return { success: true };
-    }
-
-    const ext = path.extname(hookFile).toLowerCase();
-    let command = "";
-    let args: string[] = [];
-
-    const isWindows = process.platform === "win32";
-
-    if (ext === ".js" || ext === ".ts") {
-      command = "bun";
-      args = ["run", absoluteHookPath];
-    } else if (ext === ".sh") {
-      if (isWindows) {
-        command = "sh";
-        args = [absoluteHookPath];
-      } else {
-        command = absoluteHookPath;
+    if (!cached) {
+      if (!hooksDirExists) {
+        return { success: true };
       }
-    } else if (ext === ".ps1") {
-      command = "powershell.exe";
-      args = [
-        "-NoProfile",
-        "-NonInteractive",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        absoluteHookPath,
-      ];
-    } else if (ext === ".bat" || ext === ".cmd") {
-      if (isWindows) {
-        command = absoluteHookPath;
-      } else {
-        return {
-          success: false,
-          error: `Cannot execute Windows batch file ${hookFile} on non-Windows platform.`,
-        };
+      const entries = fs.readdirSync(hooksDir);
+      hookFile = entries.find((entry) => {
+        const ext = path.extname(entry);
+        const base = path.basename(entry, ext);
+        return base === hookName && !entry.endsWith(".sample");
+      });
+
+      if (!hookFile) {
+        HookManager.hookCache.set(hookName, null);
+        return { success: true };
       }
-    } else {
-      if (isWindows) {
-        command = "cmd.exe";
-        args = ["/c", absoluteHookPath];
-      } else {
-        command = absoluteHookPath;
+
+      const absoluteHookPath = path.resolve(hooksDir, hookFile);
+      const stat = fs.statSync(absoluteHookPath);
+      if (!stat.isFile()) {
+        HookManager.hookCache.set(hookName, null);
+        return { success: true };
       }
+
+      const ext = path.extname(hookFile).toLowerCase();
+      let command = "";
+      let args: string[] = [];
+
+      const isWindows = process.platform === "win32";
+
+      if (ext === ".js" || ext === ".ts") {
+        command = "bun";
+        args = ["run", absoluteHookPath];
+      } else if (ext === ".sh") {
+        if (isWindows) {
+          command = "sh";
+          args = [absoluteHookPath];
+        } else {
+          command = absoluteHookPath;
+        }
+      } else if (ext === ".ps1") {
+        command = "powershell.exe";
+        args = [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          absoluteHookPath,
+        ];
+      } else if (ext === ".bat" || ext === ".cmd") {
+        if (isWindows) {
+          command = absoluteHookPath;
+        } else {
+          HookManager.hookCache.set(hookName, null);
+          return {
+            success: false,
+            error: `Cannot execute Windows batch file ${hookFile} on non-Windows platform.`,
+          };
+        }
+      } else {
+        if (isWindows) {
+          command = "cmd.exe";
+          args = ["/c", absoluteHookPath];
+        } else {
+          command = absoluteHookPath;
+        }
+      }
+
+      cached = { command, args, mtime: stat.mtimeMs, path: absoluteHookPath };
+      HookManager.hookCache.set(hookName, cached);
     }
 
     // Run the process
@@ -88,11 +123,14 @@ export class HookManager {
     };
 
     try {
-      const proc = spawnSync(command, args, {
+      const proc = spawnSync(cached.command, cached.args, {
         encoding: "utf-8",
         env,
         timeout: 10_000,
-        shell: ext !== ".js" && ext !== ".ts" && ext !== ".ps1",
+        shell:
+          path.extname(cached.path).toLowerCase() !== ".js" &&
+          path.extname(cached.path).toLowerCase() !== ".ts" &&
+          path.extname(cached.path).toLowerCase() !== ".ps1",
       });
 
       if (proc.error) {

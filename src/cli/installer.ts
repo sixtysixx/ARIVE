@@ -205,7 +205,10 @@ export default async ({ client } = {}) => {
   };
 };`;
 
-export function installAll(workspacePath?: string, editor?: string): void {
+export async function installAllAsync(
+  workspacePath?: string,
+  editor?: string,
+): Promise<void> {
   const wsRoot = workspacePath ? path.resolve(workspacePath) : process.cwd();
   const rootDir = path.resolve(process.cwd());
   const relativePath = path.relative(rootDir, wsRoot);
@@ -244,7 +247,6 @@ export function installAll(workspacePath?: string, editor?: string): void {
     `Starting ARIVE installer for workspace: ${wsRoot}${target ? ` (Target: ${target})` : ""}`,
   );
 
-  // 1. Install Git pre-commit hooks if inside Git repository
   const gitDir = path.join(wsRoot, ".git");
   if (fs.existsSync(gitDir)) {
     try {
@@ -257,51 +259,18 @@ export function installAll(workspacePath?: string, editor?: string): void {
     console.log("ℹ Not a git repository, skipping Git hook installation.");
   }
 
-  // 1.5. Create ARIVE hooks directory and samples
   try {
     const ariveHooksDir = path.join(wsRoot, ".arive", "hooks");
     fs.mkdirSync(ariveHooksDir, { recursive: true });
 
-    const preIntegrateSample = `#!/bin/sh
-# ARIVE pre-integrate hook sample
-# This hook runs before a task workspace is created, command is executed, or cleaned up.
-#
-# Available environment variables:
-# - ARIVE_HOOK_NAME: name of the hook (e.g. pre-integrate)
-# - ARIVE_HOOK_PHASE: ARIVE phase (e.g. integrate)
-# - ARIVE_HOOK_CONTEXT: JSON-stringified argument context (e.g. {"taskId": "task-123", "action": "execute"})
-#
-# To enable this hook, rename this file to "pre-integrate" (without .sample) and make it executable.
-# Exit with non-zero code to block the execution of the integration action.
-
-echo "Running pre-integrate hook for task: \\$ARIVE_HOOK_CONTEXT"
-exit 0
-`;
-
-    const postVerifySample = `#!/bin/sh
-# ARIVE post-verify hook sample
-# This hook runs after the verify tests run.
-#
-# Available environment variables:
-# - ARIVE_HOOK_NAME: name of the hook (e.g. post-verify)
-# - ARIVE_HOOK_PHASE: ARIVE phase (e.g. verify)
-# - ARIVE_HOOK_CONTEXT: JSON-stringified argument context (e.g. {"taskId": "task-123", "testCommand": "bun test"})
-# - ARIVE_HOOK_RESULT: JSON-stringified result (e.g. {"success": true, "failures": []})
-#
-# To enable this hook, rename this file to "post-verify" (without .sample) and make it executable.
-
-echo "Verify result: \\$ARIVE_HOOK_RESULT"
-exit 0
-`;
-
     fs.writeFileSync(
       path.join(ariveHooksDir, "pre-integrate.sample"),
-      preIntegrateSample,
+      `#!/bin/sh\n# ARIVE pre-integrate hook sample\n# This hook runs before a task workspace is created, command is executed, or cleaned up.\n#\n# Available environment variables:\n# - ARIVE_HOOK_NAME: name of the hook (e.g. pre-integrate)\n# - ARIVE_HOOK_PHASE: ARIVE phase (e.g. integrate)\n# - ARIVE_HOOK_CONTEXT: JSON-stringified argument context (e.g. {"taskId": "task-123", "action": "execute"})\n#\n# To enable this hook, rename this file to "pre-integrate" (without .sample) and make it executable.\n# Exit with non-zero code to block the execution of the integration action.\n\necho "Running pre-integrate hook for task: \\$ARIVE_HOOK_CONTEXT"\nexit 0\n`,
       { encoding: "utf-8", mode: 0o755 },
     );
     fs.writeFileSync(
       path.join(ariveHooksDir, "post-verify.sample"),
-      postVerifySample,
+      `#!/bin/sh\n# ARIVE post-verify hook sample\n# This hook runs after the verify tests run.\n#\n# Available environment variables:\n# - ARIVE_HOOK_NAME: name of the hook (e.g. post-verify)\n# - ARIVE_HOOK_PHASE: ARIVE phase (e.g. verify)\n# - ARIVE_HOOK_CONTEXT: JSON-stringified argument context (e.g. {"taskId": "task-123", "testCommand": "bun test"})\n# - ARIVE_HOOK_RESULT: JSON-stringified result (e.g. {"success": true, "failures": []})\n#\n# To enable this hook, rename this file to "post-verify" (without .sample) and make it executable.\n\necho "Verify result: \\$ARIVE_HOOK_RESULT"\nexit 0\n`,
       { encoding: "utf-8", mode: 0o755 },
     );
     console.log(
@@ -314,7 +283,6 @@ exit 0
     );
   }
 
-  // 2. Install Ponytail Rules, Skills & Plugins
   try {
     const clawSkills = [
       { name: "ponytail", content: ponytailRules },
@@ -325,7 +293,6 @@ exit 0
       { name: "ponytail-help", content: ponytailHelp },
     ];
 
-    // A. Cursor
     if (target === undefined || target === "cursor") {
       const cursorRulesDir = path.join(wsRoot, ".cursor", "rules");
       fs.mkdirSync(cursorRulesDir, { recursive: true });
@@ -336,7 +303,6 @@ exit 0
       );
     }
 
-    // B. Cline, Roo Code
     if (
       target === undefined ||
       target === "cline" ||
@@ -350,7 +316,6 @@ exit 0
       );
     }
 
-    // C. Windsurf
     if (target === undefined || target === "windsurf") {
       const windsurfDir = path.join(wsRoot, ".windsurf", "rules");
       fs.mkdirSync(windsurfDir, { recursive: true });
@@ -361,7 +326,6 @@ exit 0
       );
     }
 
-    // D. Kiro
     if (target === undefined || target === "kiro") {
       const kiroDir = path.join(wsRoot, ".kiro", "steering");
       fs.mkdirSync(kiroDir, { recursive: true });
@@ -372,7 +336,6 @@ exit 0
       );
     }
 
-    // E. Agents
     if (target === undefined || target === "agents") {
       const agentsDir = path.join(wsRoot, ".agents", "rules");
       fs.mkdirSync(agentsDir, { recursive: true });
@@ -383,7 +346,6 @@ exit 0
       );
     }
 
-    // F. OpenClaw Skills
     if (target === undefined || target === "openclaw") {
       for (const skill of clawSkills) {
         const skillDir = path.join(wsRoot, ".openclaw", "skills", skill.name);
@@ -396,7 +358,6 @@ exit 0
       }
     }
 
-    // G. OpenCode Commands & Plugins
     if (target === undefined || target === "opencode") {
       for (const skill of clawSkills) {
         const cmdDir = path.join(wsRoot, ".opencode", "command");
@@ -416,7 +377,6 @@ exit 0
         "utf-8",
       );
 
-      // Write opencode.json if not present or append plugin
       const opencodeJsonPath = path.join(wsRoot, "opencode.json");
       let opencodeConfig: { plugin?: string[] } = {};
       if (fs.existsSync(opencodeJsonPath)) {
@@ -440,7 +400,6 @@ exit 0
         "utf-8",
       );
 
-      // Install global plugins & commands
       const opencodeGlobalDir = path.join(os.homedir(), ".config", "opencode");
       const globalPluginsDir = path.join(opencodeGlobalDir, "plugins");
       fs.mkdirSync(globalPluginsDir, { recursive: true });
@@ -461,7 +420,6 @@ exit 0
       }
     }
 
-    // H. Antigravity Plugin
     if (target === undefined || target === "antigravity") {
       const antigravityPluginDir = path.join(
         os.homedir(),
@@ -527,11 +485,9 @@ exit 0
     console.warn(`✗ Failed to write rule/skill/plugin files: ${message}`);
   }
 
-  // 3. Register MCP configurations globally
   const command = "bunx";
   const args = ["--silent", "github:sixtysixx/ARIVE"];
 
-  // A. Antigravity CLI config
   if (target === undefined || target === "antigravity") {
     const antigravityConfigPath = path.join(
       os.homedir(),
@@ -542,7 +498,6 @@ exit 0
     updateMCPConfig(antigravityConfigPath, command, args);
   }
 
-  // B. Claude Desktop
   if (target === undefined || target === "claude") {
     const appData = getAppDataPath();
     const claudeDesktopConfigPath = path.join(
@@ -553,7 +508,6 @@ exit 0
     updateMCPConfig(claudeDesktopConfigPath, command, args);
   }
 
-  // C. Claude Code
   if (target === undefined || target === "claudecode") {
     const claudeCodeConfigPath = path.join(
       os.homedir(),
@@ -564,7 +518,6 @@ exit 0
     updateMCPConfig(claudeCodeConfigPath, command, args);
   }
 
-  // D. Cline Global config
   if (target === undefined || target === "cline") {
     const appData = getAppDataPath();
     const clineGlobalConfigPath = path.join(
@@ -579,7 +532,6 @@ exit 0
     updateMCPConfig(clineGlobalConfigPath, command, args);
   }
 
-  // E. Roo Code Global config
   if (target === undefined || target === "roo" || target === "roocode") {
     const appData = getAppDataPath();
     const rooGlobalConfigPath = path.join(
@@ -594,7 +546,6 @@ exit 0
     updateMCPConfig(rooGlobalConfigPath, command, args);
   }
 
-  // F. Cursor Global config
   if (target === undefined || target === "cursor") {
     const appData = getAppDataPath();
     const cursorGlobalConfigPath = path.join(
@@ -609,7 +560,6 @@ exit 0
     updateMCPConfig(cursorGlobalConfigPath, command, args);
   }
 
-  // G. Windsurf Global config
   if (target === undefined || target === "windsurf") {
     const windsurfGlobalConfigPath = path.join(
       os.homedir(),
@@ -620,7 +570,6 @@ exit 0
     updateMCPConfig(windsurfGlobalConfigPath, command, args);
   }
 
-  // H. OpenCode Global config
   if (target === undefined || target === "opencode") {
     const opencodeGlobalConfigPath = path.join(
       os.homedir(),
@@ -631,7 +580,6 @@ exit 0
     updateOpenCodeConfig(opencodeGlobalConfigPath, [command, ...args]);
   }
 
-  // I. OMP Global config
   if (target === undefined || target === "omp") {
     const ompGlobalConfigPath = path.join(
       os.homedir(),
@@ -641,45 +589,43 @@ exit 0
     );
     updateMCPConfig(ompGlobalConfigPath, command, args);
   }
-  // 4. Register local project-level MCP configurations in the workspace
   console.log("Registering project-level MCP configurations...");
 
-  // OMP project config
   if (target === undefined || target === "omp") {
     const ompProjectConfig = path.join(wsRoot, ".omp", "mcp.json");
     updateMCPConfig(ompProjectConfig, command, args);
   }
 
-  // Cursor project config
   if (target === undefined || target === "cursor") {
     const cursorProjectConfig = path.join(wsRoot, ".cursor", "mcp.json");
     updateMCPConfig(cursorProjectConfig, command, args);
   }
 
-  // Cline project config
   if (target === undefined || target === "cline") {
     const clineProjectConfig = path.join(wsRoot, ".cline", "mcp.json");
     updateMCPConfig(clineProjectConfig, command, args);
   }
 
-  // Roo Code project config
   if (target === undefined || target === "roo" || target === "roocode") {
     const rooProjectConfig = path.join(wsRoot, ".roo", "mcp.json");
     updateMCPConfig(rooProjectConfig, command, args);
   }
 
-  // KiloCode project config
   if (target === undefined || target === "kilocode") {
     const kilocodeProjectConfig = path.join(wsRoot, ".kilocode", "mcp.json");
     updateMCPConfig(kilocodeProjectConfig, command, args);
   }
 
-  // OpenCode project config
   if (target === undefined || target === "opencode") {
     const opencodeProjectConfig = path.join(wsRoot, "opencode.json");
     updateOpenCodeConfig(opencodeProjectConfig, [command, ...args]);
   }
   console.log("✓ ARIVE MCP installation completed successfully!");
+}
+
+export function installAll(workspacePath?: string, editor?: string): void {
+  // Synchronous execution for backward compatibility with tests/CLI
+  installAllAsync(workspacePath, editor);
 }
 
 export function runInstallerCli(): void {

@@ -17,6 +17,7 @@ Understand first, optimize second: read the task and the code it touches, trace 
 Bug fixes = root-cause, not symptoms. Grep every caller of the function you touch, fix the shared function once, and ship one guard instead of N.
 
 Rules:
+
 - No unrequested abstractions
 - No new dependencies
 - No boilerplate nobody asked for
