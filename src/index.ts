@@ -18,7 +18,7 @@ import { HookManager } from "./integrate/hook_manager.js";
 import { TDDRunner } from "./verify/tdd_runner.js";
 import { Validator } from "./verify/validator.js";
 import { PonytailFormatter } from "./explain/ponytail_formatter.js";
-import { createCompactHelpers } from "./mcp/compact.js";
+import { createCompactHelpers, CompactObject, CompactText } from "./mcp/compact.js";
 import * as fs from "fs";
 import * as path from "path";
 // Setup server instance
@@ -34,11 +34,36 @@ const server = new Server(
   },
 );
 
-// Registries and Engine State
-const ccr = new CCRRegistry();
-const engine = new SequentialEngine();
-const { compactText, compactObject } = createCompactHelpers(ccr);
-const memoryBank = new MemoryBank();
+// Registries and Engine State — lazy so stdio can connect immediately
+let ccr: CCRRegistry | undefined;
+let engine: SequentialEngine | undefined;
+let memoryBank: MemoryBank | undefined;
+  let compactText: CompactText | undefined;
+  let compactObject: CompactObject | undefined;
+
+function getCCR(): CCRRegistry {
+  if (!ccr) ccr = new CCRRegistry();
+  return ccr;
+}
+
+function getEngine(): SequentialEngine {
+  if (!engine) engine = new SequentialEngine();
+  return engine;
+}
+
+function getMemoryBank(): MemoryBank {
+  if (!memoryBank) memoryBank = new MemoryBank();
+  return memoryBank;
+}
+
+function getCompactHelpers() {
+  if (!compactText || !compactObject) {
+    const helpers = createCompactHelpers(getCCR());
+    compactText = helpers.compactText;
+    compactObject = helpers.compactObject;
+  }
+  return { compactText: compactText!, compactObject: compactObject! };
+}
 
 // Register List Tools handler
 server.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -356,7 +381,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         let responseObj;
 
         if (useCcr) {
-          resultHash = ccr.store(content, detectedType);
+          resultHash = getCCR().store(content, detectedType);
           responseObj = {
             compressed: resultHash,
             hash: resultHash,
@@ -364,7 +389,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             type: detectedType,
           };
         } else {
-          const rawHash = ccr.store(content, detectedType);
+          const rawHash = getCCR().store(content, detectedType);
           responseObj = {
             compressed,
             hash: rawHash,
@@ -395,7 +420,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "arive_decompress": {
         const hash = String(args?.hash || "");
-        const original = ccr.retrieve(hash);
+        const original = getCCR().retrieve(hash);
         if (!original) {
           throw new Error(`CCR Key ${hash} not found in database registry.`);
         }
@@ -465,16 +490,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           throw new Error(`[Hook Blocked] pre-reason: ${preHook.error}`);
         }
 
-        const res = engine.addThought(
-          thought,
-          tNum,
-          total,
-          nextNeeded,
-          isRev,
-          revNum,
-          branchNum,
-          sessionId,
-        );
+        const res = getEngine().addThought(thought,
+        tNum,
+        total,
+        nextNeeded,
+        isRev,
+        revNum,
+        branchNum,
+        sessionId,);
 
         const postHook = HookManager.runHook(
           "post-reason",
@@ -486,7 +509,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           throw new Error(`[Hook Failed] post-reason: ${postHook.error}`);
         }
 
-        const responseText = compactObject(res, "reason", {}).value as unknown as Record<string, unknown>;
+        const responseText = getCompactHelpers().compactObject(res, "reason", {}).value as unknown as Record<string, unknown>;
 
         return {
           content: [{ type: "text", text: JSON.stringify(responseText, null, 2) }],
@@ -593,7 +616,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         const res = TDDRunner.run(targetPath, testCmd);
         if (!res.success) {
-          Validator.backpropagate(engine, res.failures);
+          Validator.backpropagate(getEngine(), res.failures);
         }
 
         const postHook = HookManager.runHook(
@@ -733,7 +756,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         let responseText = resultText;
         let responseRef = "";
         if (resultText.length > 0) {
-          responseRef = ccr.store(resultText, "codemap");
+          responseRef = getCCR().store(resultText, "codemap");
           HookManager.runHook("post-compact", "analyze", { action, dir }, {
             ref: responseRef,
             type: "codemap",
@@ -794,7 +817,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             const intent = parseRememberIntent(content);
             if (intent) {
               // Intent matched — use inferred hierarchy + importance metadata.
-              const entry = memoryBank.write({
+              const entry = getMemoryBank().write({
                 wing: intent.wing,
                 room: intent.room,
                 hall: intent.hall,
@@ -816,7 +839,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               };
             } else {
               // No trigger phrase matched — store the content verbatim under provided hierarchy.
-              const entry = memoryBank.write({
+              const entry = getMemoryBank().write({
                 wing,
                 room,
                 hall,
@@ -842,7 +865,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             if (!content.trim()) {
               throw new Error("content is required for drawer_write");
             }
-            const entry = memoryBank.write({ wing, room, hall, drawer, content, tags, metadata });
+            const entry = getMemoryBank().write({ wing, room, hall, drawer, content, tags, metadata });
             resultObj = {
               status: "written",
               drawerId: entry.drawerId,
@@ -856,7 +879,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           }
           case "drawer_read": {
             if (!drawerId.trim()) throw new Error("drawerId is required for drawer_read");
-            resultObj = memoryBank.read(drawerId);
+            resultObj = getMemoryBank().read(drawerId);
             break;
           }
           case "drawer_list": {
@@ -864,23 +887,23 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               wing,
               room,
               hall,
-              entries: memoryBank.list(wing, room, hall, limit),
+              entries: getMemoryBank().list(wing, room, hall, limit),
             };
             break;
           }
           case "search":
           case "recall": {
             if (!query.trim()) throw new Error("query is required for search/recall");
-            resultObj = { query, results: memoryBank.recall(query, limit) };
+            resultObj = { query, results: getMemoryBank().recall(query, limit) };
             break;
           }
           case "forget": {
             if (!drawerId.trim()) throw new Error("drawerId is required for forget");
-            resultObj = memoryBank.forget(drawerId);
+            resultObj = getMemoryBank().forget(drawerId);
             break;
           }
           case "stats": {
-            resultObj = memoryBank.stats();
+            resultObj = getMemoryBank().stats();
             break;
           }
           case "wing_create":
@@ -901,7 +924,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           throw new Error(`[Hook Failed] post-memory: ${postHook.error}`);
         }
 
-        const responseText = compactObject(resultObj, "memory", hookContext).value as unknown as Record<string, unknown>;
+        const responseText = getCompactHelpers().compactObject(resultObj, "memory", hookContext).value as unknown as Record<string, unknown>;
 
         return {
           content: [{ type: "text", text: JSON.stringify(responseText, null, 2) }],

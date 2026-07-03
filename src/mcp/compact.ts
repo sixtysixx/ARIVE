@@ -18,7 +18,20 @@ function wirePostCompactHook<T>(result: CompactResult<T>, phase: string, meta: R
   }
 }
 
-export function createCompactHelpers(ccr: CCRRegistry) {
+export interface CompactText {
+  (text: string, phase: string, meta: Record<string, unknown>, threshold?: number): string;
+}
+
+export interface CompactObject {
+  <T>(obj: T, phase: string, meta: Record<string, unknown>, threshold?: number): CompactResult<T>;
+}
+
+export interface CompactHelpers {
+  compactText: CompactText;
+  compactObject: CompactObject;
+}
+
+export function createCompactHelpers(ccr: CCRRegistry): CompactHelpers {
   function compactText(
     text: string,
     phase: string,
