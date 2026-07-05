@@ -65,6 +65,8 @@ export class SequentialEngine {
   }
 
   private initDb() {
+    this.db.run("PRAGMA journal_mode=WAL;");
+    this.db.run("PRAGMA busy_timeout=5000;");
     this.db.run(`
       CREATE TABLE IF NOT EXISTS thoughts (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -132,24 +134,36 @@ export class SequentialEngine {
   }
 
   public addError(err: string, sessionId: string = "default") {
-    const state = this.getInternalState(sessionId);
-    const errors = [...state.errors, err];
-    this.saveInternalState(sessionId, state.activePlan, errors);
+    const tx = this.db.transaction(() => {
+      const state = this.getInternalState(sessionId);
+      const errors = [...state.errors, err];
+      this.saveInternalState(sessionId, state.activePlan, errors);
+    });
+    tx();
   }
 
   public clearErrors(sessionId: string = "default") {
-    const state = this.getInternalState(sessionId);
-    this.saveInternalState(sessionId, state.activePlan, []);
+    const tx = this.db.transaction(() => {
+      const state = this.getInternalState(sessionId);
+      this.saveInternalState(sessionId, state.activePlan, []);
+    });
+    tx();
   }
 
   public setErrors(errors: string[], sessionId: string = "default") {
-    const state = this.getInternalState(sessionId);
-    this.saveInternalState(sessionId, state.activePlan, errors);
+    const tx = this.db.transaction(() => {
+      const state = this.getInternalState(sessionId);
+      this.saveInternalState(sessionId, state.activePlan, errors);
+    });
+    tx();
   }
 
   public updatePlan(plan: string, sessionId: string = "default") {
-    const state = this.getInternalState(sessionId);
-    this.saveInternalState(sessionId, plan, state.errors);
+    const tx = this.db.transaction(() => {
+      const state = this.getInternalState(sessionId);
+      this.saveInternalState(sessionId, plan, state.errors);
+    });
+    tx();
   }
 
   private getInternalState(sessionId: string): {

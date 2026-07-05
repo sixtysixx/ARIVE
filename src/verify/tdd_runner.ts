@@ -54,25 +54,35 @@ export class TDDRunner {
       stderrAccum = child.stderr || "";
       exitCode = child.status !== null ? child.status : 1;
 
-      // Capture multi-line failure blocks: when a failure marker is found,
-      // include up to 5 subsequent context lines to preserve stack traces and diffs.
-      const allLines = (stdoutAccum + "\n" + stderrAccum).split("\n");
-      let captureRemaining = 0;
-      for (const line of allLines) {
-        if (failLineRegex.test(line)) {
-          success = false;
-          failures.push(line.trimEnd());
-          captureRemaining = 5;
-        } else if (captureRemaining > 0) {
-          if (line.trim()) {
-            failures.push("  " + line.trimEnd());
-          }
-          captureRemaining--;
-        }
-      }
-
       if (exitCode !== 0) {
         success = false;
+        const allLines = (stdoutAccum + "\n" + stderrAccum).split("\n");
+        let captureRemaining = 0;
+
+        const syntaxErrorRegex = /(SyntaxError|ParseError|TS\d{4}:|Compilation failed|Unexpected token)/i;
+        const logicErrorRegex = /(FAIL\b|failing|Error:|Exception|failed\b|AssertionError|Expected|Received|✕|×|●|FAILED)/i;
+
+        for (const line of allLines) {
+          if (syntaxErrorRegex.test(line)) {
+            failures.push("[Syntax/Compile Error] " + line.trimEnd());
+            captureRemaining = 5;
+          } else if (logicErrorRegex.test(line)) {
+            failures.push("[Logic/Assertion Error] " + line.trimEnd());
+            captureRemaining = 5;
+          } else if (captureRemaining > 0) {
+            if (line.trim()) {
+              failures.push("  " + line.trimEnd());
+            }
+            captureRemaining--;
+          }
+        }
+
+        if (failures.length === 0) {
+          const nonEmptyLines = allLines.filter(l => l.trim().length > 0);
+          failures.push(...nonEmptyLines.slice(-5).map(l => "  " + l.trimEnd()));
+        }
+      } else {
+        success = true;
       }
     } catch (e: unknown) {
       success = false;

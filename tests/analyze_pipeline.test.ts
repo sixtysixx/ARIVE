@@ -29,22 +29,35 @@ describe("Analyze Pipeline Tests", () => {
 
   test("Smart Crusher JSON array flattening", () => {
     const rawJson = JSON.stringify({
+      meta: "test",
       users: [
         { id: 1, name: "Alice" },
         { id: 2, name: "Bob" },
         { id: 3, name: "Charlie" },
         { id: 4, name: "Dave" },
+        { id: 5, name: "Eve" },
+        { id: 6, name: "Frank" },
+        { id: 7, name: "Grace" },
+        { id: 8, name: "Heidi" },
+        { id: 9, name: "Ivan" },
+        { id: 10, name: "Judy" },
+        { id: 11, name: "Mallory" },
+        { id: 12, name: "Oscar" },
       ],
-      errors: { message: "Internal Failure", code: 500 },
+      errors: [
+        { msg: "one" },
+        { msg: "two" },
+        { msg: "three" }
+      ]
     });
     const crushed = SmartCrusher.crush(rawJson);
     const parsed = JSON.parse(crushed);
-    // New behavior: truncated arrays become a sentinel object with $truncated/$length/$items
-    // so downstream consumers never get a string injected into a typed array.
-    expect(parsed.users).toMatchObject({ $truncated: true, $length: 4 });
-    expect(parsed.users.$items.length).toBe(2);
-    expect(parsed.users.$items[0]).toMatchObject({ id: 1, name: "Alice" });
-    expect(parsed.errors.message).toBe("Internal Failure");
+
+    expect(parsed.errors).toHaveLength(3);
+
+    expect(parsed.users).toMatchObject({ $truncated: true, $length: 12 });
+    expect(parsed.users.$items).toHaveLength(8); // 5 from start, 1 "...truncated...", 2 from end
+    expect(parsed.users.$items[5]).toBe("...truncated...");
   });
 
   test("AST Compressor comment and JSDoc stripping", () => {

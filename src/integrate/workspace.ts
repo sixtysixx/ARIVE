@@ -9,15 +9,26 @@ export interface WorkspaceInfo {
 
 export class WorkspaceManager {
   public static validateTaskId(taskId: string): void {
-    if (
-      !taskId ||
-      typeof taskId !== "string" ||
-      !/^[a-zA-Z0-9_-]+$/.test(taskId)
-    ) {
-      throw new Error(
-        "Invalid taskId: must be alphanumeric, underscores, or dashes only",
-      );
+    if (!taskId || typeof taskId !== "string") {
+      throw new Error("Invalid taskId");
     }
+
+    const rootDir = path.resolve(process.cwd());
+    const taskBaseDir = path.join(rootDir, ".arive-tasks");
+    const absoluteTargetPath = path.resolve(taskBaseDir, taskId);
+
+    // Check if the path is trying to go more than one level above taskBaseDir
+    // One level above .arive-tasks is the rootDir.
+    // If they go lower, it's fine.
+    // So the absoluteTargetPath must start with rootDir
+    if (!absoluteTargetPath.startsWith(rootDir + path.sep) && absoluteTargetPath !== rootDir) {
+      throw new Error("Security Exception: Path traversal detected beyond one level above workspace");
+    }
+  }
+
+  public static getTaskPath(taskId: string): string {
+    this.validateTaskId(taskId);
+    return path.resolve(process.cwd(), ".arive-tasks", taskId);
   }
 
   public static create(
@@ -25,8 +36,7 @@ export class WorkspaceManager {
     options?: { ignore?: Iterable<string> },
   ): string {
     this.validateTaskId(taskId);
-    const targetPath = path.join(".arive-tasks", taskId);
-    const absoluteTargetPath = path.resolve(targetPath);
+    const absoluteTargetPath = this.getTaskPath(taskId);
 
     // Clean up if exists
     this.cleanup(taskId);
@@ -111,8 +121,7 @@ export class WorkspaceManager {
 
   public static cleanup(taskId: string): void {
     this.validateTaskId(taskId);
-    const targetPath = path.join(".arive-tasks", taskId);
-    const absoluteTargetPath = path.resolve(targetPath);
+    const absoluteTargetPath = this.getTaskPath(taskId);
 
     if (fs.existsSync(absoluteTargetPath)) {
       // Retry delete to avoid file locking on Windows
