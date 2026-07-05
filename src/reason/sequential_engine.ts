@@ -65,6 +65,8 @@ export class SequentialEngine {
   }
 
   private initDb() {
+    this.db.run("PRAGMA journal_mode=WAL;");
+    this.db.run("PRAGMA busy_timeout=5000;");
     this.db.run(`
       CREATE TABLE IF NOT EXISTS thoughts (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -131,25 +133,44 @@ export class SequentialEngine {
     return this.getState(sessionId);
   }
 
+  private modifyState(
+    sessionId: string,
+    updater: (state: { activePlan: string; errors: string[] }) => { activePlan: string; errors: string[] }
+  ) {
+    const tx = this.db.transaction(() => {
+      const state = this.getInternalState(sessionId);
+      const newState = updater(state);
+      this.saveInternalState(sessionId, newState.activePlan, newState.errors);
+    });
+    tx();
+  }
+
   public addError(err: string, sessionId: string = "default") {
-    const state = this.getInternalState(sessionId);
-    const errors = [...state.errors, err];
-    this.saveInternalState(sessionId, state.activePlan, errors);
+    this.modifyState(sessionId, (state) => ({
+      activePlan: state.activePlan,
+      errors: [...state.errors, err],
+    }));
   }
 
   public clearErrors(sessionId: string = "default") {
-    const state = this.getInternalState(sessionId);
-    this.saveInternalState(sessionId, state.activePlan, []);
+    this.modifyState(sessionId, (state) => ({
+      activePlan: state.activePlan,
+      errors: [],
+    }));
   }
 
   public setErrors(errors: string[], sessionId: string = "default") {
-    const state = this.getInternalState(sessionId);
-    this.saveInternalState(sessionId, state.activePlan, errors);
+    this.modifyState(sessionId, (state) => ({
+      activePlan: state.activePlan,
+      errors,
+    }));
   }
 
   public updatePlan(plan: string, sessionId: string = "default") {
-    const state = this.getInternalState(sessionId);
-    this.saveInternalState(sessionId, plan, state.errors);
+    this.modifyState(sessionId, (state) => ({
+      activePlan: plan,
+      errors: state.errors,
+    }));
   }
 
   private getInternalState(sessionId: string): {

@@ -30,17 +30,17 @@ export class SmartCrusher {
 
   private static traverseAndCrush(val: JsonValue): CrushedValue {
     if (Array.isArray(val)) {
-      if (val.length <= 2) {
+      if (val.length <= 10) {
         return val.map((item) => SmartCrusher.traverseAndCrush(item));
       }
-      // Wrap truncated arrays in a typed sentinel object so downstream consumers
-      // are never surprised by a string injected into a homogeneous array (e.g. number[]).
       return {
         $truncated: true,
         $length: val.length,
-        $items: val
-          .slice(0, 2)
-          .map((item) => SmartCrusher.traverseAndCrush(item)),
+        $items: [
+          ...val.slice(0, 5).map((item) => SmartCrusher.traverseAndCrush(item)),
+          "...truncated...",
+          ...val.slice(-2).map((item) => SmartCrusher.traverseAndCrush(item))
+        ] as any
       } satisfies TruncatedArray;
     }
     if (val !== null && typeof val === "object") {

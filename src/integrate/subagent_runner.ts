@@ -37,8 +37,8 @@ export class SubagentRunner {
 
     // Block shell chaining operators to prevent trivial command injection.
     // Commands intended for piping or redirection must be wrapped in a script file.
-    const SHELL_CHAIN_RE = /&&|\|\|(?![\w/])| ;|(?<![a-zA-Z0-9]) ;/;
-    const SHELL_INJECTION_RE = /`|\$\(|\$\{|(?<![a-zA-Z0-9_]);/;
+    const SHELL_CHAIN_RE = /&&|\|\||;|\n/;
+    const SHELL_INJECTION_RE = /`|\$\(|\$\{|<<|>>|<|>|&/;
     if (SHELL_CHAIN_RE.test(command) || SHELL_INJECTION_RE.test(command)) {
       throw new Error(
         'Security: command "' +

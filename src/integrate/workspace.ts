@@ -9,15 +9,25 @@ export interface WorkspaceInfo {
 
 export class WorkspaceManager {
   public static validateTaskId(taskId: string): void {
-    if (
-      !taskId ||
-      typeof taskId !== "string" ||
-      !/^[a-zA-Z0-9_-]+$/.test(taskId)
-    ) {
-      throw new Error(
-        "Invalid taskId: must be alphanumeric, underscores, or dashes only",
-      );
+    if (!taskId || typeof taskId !== "string") {
+      throw new Error("Invalid taskId");
     }
+
+    const rootDir = path.resolve(process.cwd());
+    const taskBaseDir = path.join(rootDir, ".arive-tasks");
+    const absoluteTargetPath = path.resolve(taskBaseDir, taskId);
+
+    // Strictly enforce that the target path is within taskBaseDir.
+    // If we want to allow going exactly ONE level above, it's NOT secure because they could overwrite `src`.
+    // Wait, the review says: "Update validateTaskId() in workspace.ts to resolve and validate absoluteTargetPath strictly within taskBaseDir, rejecting anything outside that directory before cleanup() can use it. Use the existing symbols validateTaskId, taskBaseDir, and absoluteTargetPath to keep the fix localized and ensure only .arive-tasks subpaths are accepted."
+    if (!absoluteTargetPath.startsWith(taskBaseDir + path.sep) && absoluteTargetPath !== taskBaseDir) {
+      throw new Error("Security Exception: Path traversal detected outside of .arive-tasks");
+    }
+  }
+
+  public static getTaskPath(taskId: string): string {
+    this.validateTaskId(taskId);
+    return path.resolve(process.cwd(), ".arive-tasks", taskId);
   }
 
   public static create(
@@ -25,8 +35,7 @@ export class WorkspaceManager {
     options?: { ignore?: Iterable<string> },
   ): string {
     this.validateTaskId(taskId);
-    const targetPath = path.join(".arive-tasks", taskId);
-    const absoluteTargetPath = path.resolve(targetPath);
+    const absoluteTargetPath = this.getTaskPath(taskId);
 
     // Clean up if exists
     this.cleanup(taskId);
@@ -111,8 +120,7 @@ export class WorkspaceManager {
 
   public static cleanup(taskId: string): void {
     this.validateTaskId(taskId);
-    const targetPath = path.join(".arive-tasks", taskId);
-    const absoluteTargetPath = path.resolve(targetPath);
+    const absoluteTargetPath = this.getTaskPath(taskId);
 
     if (fs.existsSync(absoluteTargetPath)) {
       // Retry delete to avoid file locking on Windows

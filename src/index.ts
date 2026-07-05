@@ -576,7 +576,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             path: resPath,
           };
         } else if (action === "execute") {
-          const targetPath = `.arive-tasks/${taskId}`;
+          const targetPath = WorkspaceManager.getTaskPath(taskId);
           if (!fs.existsSync(targetPath)) {
             throw new Error(
               `Workspace path for ${taskId} does not exist. Call create first.`,
@@ -638,7 +638,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           throw new Error(`[Hook Blocked] pre-verify: ${preHook.error}`);
         }
 
-        const targetPath = `.arive-tasks/${taskId}`;
+        const targetPath = WorkspaceManager.getTaskPath(taskId);
         if (!fs.existsSync(targetPath)) {
           throw new Error(
             `Workspace path for ${taskId} does not exist. Call integrate create first.`,
