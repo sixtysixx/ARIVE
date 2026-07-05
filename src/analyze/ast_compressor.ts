@@ -26,9 +26,15 @@ export class ASTCompressor {
         .filter((line) => line.trim().length > 0)
         .join("\n")
         .trim();
-    } catch (e) {
-      let result = code.replace(/\/\*[\s\S]*?\*\//g, "");
-      result = result.replace(/(^|\s)\/\/.*$/gm, "$1");
+    } catch (e: unknown) {
+      console.warn("[ASTCompressor] Fallback triggered:", e);
+      // String-aware regex to strip comments without touching strings
+      // Matches strings (single, double, backtick) or comments.
+      // Replaces comments with empty string, keeps strings intact.
+      let result = code.replace(/(".*?"|'.*?'|`[^]*?`)|\/\*[\s\S]*?\*\/|\/\/.*$/gm, (match, grp1) => {
+        if (grp1) return grp1;
+        return "";
+      });
       return result
         .split("\n")
         .map((line) => line.trimEnd())

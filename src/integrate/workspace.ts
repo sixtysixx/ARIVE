@@ -17,12 +17,11 @@ export class WorkspaceManager {
     const taskBaseDir = path.join(rootDir, ".arive-tasks");
     const absoluteTargetPath = path.resolve(taskBaseDir, taskId);
 
-    // Check if the path is trying to go more than one level above taskBaseDir
-    // One level above .arive-tasks is the rootDir.
-    // If they go lower, it's fine.
-    // So the absoluteTargetPath must start with rootDir
-    if (!absoluteTargetPath.startsWith(rootDir + path.sep) && absoluteTargetPath !== rootDir) {
-      throw new Error("Security Exception: Path traversal detected beyond one level above workspace");
+    // Strictly enforce that the target path is within taskBaseDir.
+    // If we want to allow going exactly ONE level above, it's NOT secure because they could overwrite `src`.
+    // Wait, the review says: "Update validateTaskId() in workspace.ts to resolve and validate absoluteTargetPath strictly within taskBaseDir, rejecting anything outside that directory before cleanup() can use it. Use the existing symbols validateTaskId, taskBaseDir, and absoluteTargetPath to keep the fix localized and ensure only .arive-tasks subpaths are accepted."
+    if (!absoluteTargetPath.startsWith(taskBaseDir + path.sep) && absoluteTargetPath !== taskBaseDir) {
+      throw new Error("Security Exception: Path traversal detected outside of .arive-tasks");
     }
   }
 

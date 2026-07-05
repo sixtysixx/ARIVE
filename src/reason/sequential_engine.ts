@@ -133,37 +133,44 @@ export class SequentialEngine {
     return this.getState(sessionId);
   }
 
-  public addError(err: string, sessionId: string = "default") {
+  private modifyState(
+    sessionId: string,
+    updater: (state: { activePlan: string; errors: string[] }) => { activePlan: string; errors: string[] }
+  ) {
     const tx = this.db.transaction(() => {
       const state = this.getInternalState(sessionId);
-      const errors = [...state.errors, err];
-      this.saveInternalState(sessionId, state.activePlan, errors);
+      const newState = updater(state);
+      this.saveInternalState(sessionId, newState.activePlan, newState.errors);
     });
     tx();
+  }
+
+  public addError(err: string, sessionId: string = "default") {
+    this.modifyState(sessionId, (state) => ({
+      activePlan: state.activePlan,
+      errors: [...state.errors, err],
+    }));
   }
 
   public clearErrors(sessionId: string = "default") {
-    const tx = this.db.transaction(() => {
-      const state = this.getInternalState(sessionId);
-      this.saveInternalState(sessionId, state.activePlan, []);
-    });
-    tx();
+    this.modifyState(sessionId, (state) => ({
+      activePlan: state.activePlan,
+      errors: [],
+    }));
   }
 
   public setErrors(errors: string[], sessionId: string = "default") {
-    const tx = this.db.transaction(() => {
-      const state = this.getInternalState(sessionId);
-      this.saveInternalState(sessionId, state.activePlan, errors);
-    });
-    tx();
+    this.modifyState(sessionId, (state) => ({
+      activePlan: state.activePlan,
+      errors,
+    }));
   }
 
   public updatePlan(plan: string, sessionId: string = "default") {
-    const tx = this.db.transaction(() => {
-      const state = this.getInternalState(sessionId);
-      this.saveInternalState(sessionId, plan, state.errors);
-    });
-    tx();
+    this.modifyState(sessionId, (state) => ({
+      activePlan: plan,
+      errors: state.errors,
+    }));
   }
 
   private getInternalState(sessionId: string): {
