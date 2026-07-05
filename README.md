@@ -324,8 +324,8 @@ Alternatively, use the **MCP Servers** panel (gear icon → **Edit Global MCP**)
 {
   "mcpServers": {
     "arive": {
-      "command": "bun",
-      "args": ["run", "src/index.ts"]
+      "command": "bunx",
+      "args": ["--silent", "github:sixtysixx/ARIVE"]
     }
   }
 }
@@ -342,8 +342,8 @@ You can configure this globally (via the **MCP Servers** tab in the Cline/Roo Co
 {
   "mcpServers": {
     "arive": {
-      "command": "bun",
-      "args": ["run", "src/index.ts"]
+      "command": "bunx",
+      "args": ["--silent", "github:sixtysixx/ARIVE"]
     }
   }
 }
@@ -351,14 +351,14 @@ You can configure this globally (via the **MCP Servers** tab in the Cline/Roo Co
 
 ### Cursor
 
-Add this through the Cursor settings UI under **Settings > Features > MCP**, clicking **Add new MCP server** (with type `stdio` and command `bun run src/index.ts`), or add it manually to your project's `.cursor/mcp.json`:
+Add this through the Cursor settings UI under **Settings > Features > MCP**, clicking **Add new MCP server** (with type `stdio` and command `bunx --silent github:sixtysixx/ARIVE`), or add it manually to your project's `.cursor/mcp.json`:
 
 ```json
 {
   "mcpServers": {
     "arive": {
-      "command": "bun",
-      "args": ["run", "src/index.ts"]
+      "command": "bunx",
+      "args": ["--silent", "github:sixtysixx/ARIVE"]
     }
   }
 }
