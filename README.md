@@ -227,7 +227,7 @@ Two launch modes are supported:
 
 ```text
 bun run src/index.ts          # local checkout, near-instant start
-bunx --silent github:sixtysixx/ARIVE  # fetches from GitHub, ~8s startup
+bunx --silent github:sixtysixx/ARIVE  # fetches from GitHub
 ```
 
 If the client times out during first startup, use the local command.
