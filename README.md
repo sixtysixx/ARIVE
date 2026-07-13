@@ -420,8 +420,8 @@ Alternatively, use the **MCP Servers** panel (gear icon → **Edit Global MCP**)
 {
   "mcpServers": {
     "arive": {
-      "command": "bunx",
-      "args": ["--silent", "github:sixtysixx/ARIVE"]
+      "command": "bun",
+      "args": ["x", "--silent", "github:sixtysixx/ARIVE"]
     }
   }
 }
@@ -438,8 +438,8 @@ You can configure this globally (via the **MCP Servers** tab in the Cline/Roo Co
 {
   "mcpServers": {
     "arive": {
-      "command": "bunx",
-      "args": ["--silent", "github:sixtysixx/ARIVE"]
+      "command": "bun",
+      "args": ["x", "--silent", "github:sixtysixx/ARIVE"]
     }
   }
 }
@@ -453,8 +453,8 @@ Add this through the Cursor settings UI under **Settings > Features > MCP**, cli
 {
   "mcpServers": {
     "arive": {
-      "command": "bunx",
-      "args": ["--silent", "github:sixtysixx/ARIVE"]
+      "command": "bun",
+      "args": ["x", "--silent", "github:sixtysixx/ARIVE"]
     }
   }
 }

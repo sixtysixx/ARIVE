@@ -6,7 +6,8 @@
     "arive": {
       "type": "local",
       "command": [
-        "bunx",
+        "bun",
+        "x",
         "--silent",
         "github:sixtysixx/ARIVE"
       ],

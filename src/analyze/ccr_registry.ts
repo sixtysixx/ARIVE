@@ -10,6 +10,7 @@ export class CCRRegistry {
   private selectStmt: Statement;
   private maxItems: number;
   private itemCount: number = 0;
+  private lastISO: string = "";
   constructor(dbPath: string = ".arive/ccr_store.db", maxItems: number = 1000) {
     this.maxItems = maxItems;
     const dir = path.dirname(dbPath);
@@ -55,6 +56,14 @@ export class CCRRegistry {
       this.updateAccessStmt = this.db.prepare(
         "UPDATE ccr_cache SET last_accessed = ? WHERE hash = ?;",
       );
+      const row = this.db.query("SELECT MAX(last_accessed) as max_access FROM ccr_cache").get() as { max_access: string | null } | undefined;
+      if (row && row.max_access) {
+        this.lastISO = row.max_access;
+      }
+      const countRow = this.db.query("SELECT COUNT(*) as count FROM ccr_cache").get() as { count: number } | undefined;
+      if (countRow) {
+        this.itemCount = countRow.count;
+      }
     } catch (err) {
       this.db.close();
       throw err;
@@ -63,10 +72,21 @@ export class CCRRegistry {
 
   private updateAccessStmt: Statement;
 
+  private getMonotonicISO(): string {
+    let now = new Date().toISOString();
+    if (now <= this.lastISO) {
+      const lastDate = new Date(this.lastISO.endsWith("Z") ? this.lastISO : this.lastISO + "Z");
+      const nextDate = new Date(lastDate.getTime() + 1);
+      now = nextDate.toISOString();
+    }
+    this.lastISO = now;
+    return now;
+  }
+
   public store(content: string, contentType: string = "unknown"): string {
     const hash =
       "ccr:" + crypto.createHash("sha256").update(content).digest("hex");
-    const now = new Date().toISOString();
+    const now = this.getMonotonicISO();
     this.insertStmt.run(hash, content, contentType, content.length, now, now);
 
     // Deferred pruning: only check when size exceeds threshold * 1.2
@@ -82,7 +102,7 @@ export class CCRRegistry {
   public retrieve(hash: string): string | null {
     const row = this.selectStmt.get(hash) as { content: string } | undefined;
     if (row) {
-      this.updateAccessStmt.run(new Date().toISOString(), hash);
+      this.updateAccessStmt.run(this.getMonotonicISO(), hash);
       return row.content;
     }
     return null;

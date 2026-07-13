@@ -11,7 +11,7 @@ export default function arivePlugin(ctx) {
   ctx.mcp({
     name: "arive",
     type: "local",
-    command: ["bunx", "--silent", "github:sixtysixx/ARIVE"],
+    command: ["bun", "x", "--silent", "github:sixtysixx/ARIVE"],
     enabled: true,
   });
 }

@@ -121,8 +121,8 @@ KiloCode supports MCP servers via its global or project-level config.
    {
      "mcpServers": {
        "arive": {
-         "command": "bunx",
-         "args": ["--silent", "github:sixtysixx/ARIVE"]
+         "command": "bun",
+         "args": ["x", "--silent", "github:sixtysixx/ARIVE"]
        }
      }
    }
@@ -168,8 +168,8 @@ omp reads MCP config from `~/.omp/agent/mcp.json` (global) or `.omp/mcp.json` (p
 {
   "mcpServers": {
     "arive": {
-      "command": "bunx",
-      "args": ["--silent", "github:sixtysixx/ARIVE"]
+      "command": "bun",
+      "args": ["x", "--silent", "github:sixtysixx/ARIVE"]
     }
   }
 }

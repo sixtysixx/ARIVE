@@ -742,8 +742,8 @@ function executeInstallation(
     console.warn(`✗ Failed to write rule/skill/plugin files: ${message}`);
   } }
 
-  const command = "bunx";
-  const args = ["--silent", "github:sixtysixx/ARIVE"];
+  const command = "bun";
+  const args = ["x", "--silent", "github:sixtysixx/ARIVE"];
 
   if (installGlobal) {
     if (target === undefined || target === "antigravity") {
