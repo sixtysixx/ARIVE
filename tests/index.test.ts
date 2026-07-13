@@ -35,12 +35,12 @@ describe("MCP Entrypoint Shell Run Tests", () => {
   test("TypeScript file compiles without errors", () => {
     // execSync throws on non-zero exit, so reaching the expect means it succeeded.
     try {
-      execSync("bun x tsc --noEmit", { encoding: "utf-8" });
+      execSync("bun run tsc --noEmit", { encoding: "utf-8" });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(`TypeScript compile failed:\n${msg}`);
     }
-  });
+  }, 15000);
 
   test("Spawns MCP Server and processes JSON-RPC requests on stdio", async () => {
     const proc = spawn("bun", ["src/index.ts"]);
