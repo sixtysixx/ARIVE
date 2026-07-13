@@ -29,7 +29,7 @@ import {
 } from "./mcp/compact.js";
 import * as fs from "fs";
 import * as path from "path";
-import { runInteractiveInstall, runInstallerCli } from "./cli/installer.js";
+import { runInteractiveInstall, runInstallerCli, isInteractive } from "./cli/installer.js";
 import { outputAdvancedPrompt } from "./cli/prompt_generator.js";
 // Setup server instance
 const server = new Server(
@@ -1104,7 +1104,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
 // Check if running in install CLI mode
 if (process.argv.includes("install")) {
-  runInstallerCli();
+  await runInstallerCli();
   process.exit(0);
 }
 
@@ -1114,8 +1114,7 @@ if (process.argv.includes("prompt") || process.argv.includes("generate-prompt"))
   process.exit(0);
 }
 
-// Check if running directly in an interactive terminal with no arguments
-if (process.stdout.isTTY && process.stdin.isTTY && process.argv.length <= 2) {
+if (isInteractive() && process.argv.length <= 2) {
   await runInteractiveInstall();
   process.exit(0);
 }

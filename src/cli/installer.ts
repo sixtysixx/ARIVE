@@ -1179,10 +1179,11 @@ function isRawTTY(): boolean {
   );
 }
 
-function isInteractive(): boolean {
+export function isInteractive(): boolean {
+  if (process.env.CI || process.env.BUN_TEST || process.env.NODE_ENV === "test") {
+    return false;
+  }
   return (
-    (process.stdout.isTTY || process.stdin.isTTY) &&
-    !process.env.CI &&
     !process.argv.includes("--non-interactive") &&
     !process.argv.includes("-y") &&
     !process.argv.includes("--yes")
@@ -1214,11 +1215,13 @@ async function selectPrompt(message: string, options: string[], defaultIndex = 0
       process.stdin.removeListener("data", onData);
     };
     const render = () => {
-      let output = `${message}\n`;
+      let output = `\x1b[32m?\x1b[0m \x1b[1m${message}\x1b[0m\n`;
       for (let i = 0; i < options.length; i++) {
-        const marker = i === selected ? "\x1b[7m" : "";
-        const reset = i === selected ? "\x1b[0m" : "";
-        output += `  ${marker} ${options[i]} ${reset}\n`;
+        if (i === selected) {
+          output += `  \x1b[36m\x1b[1m▸ ${options[i]}\x1b[0m\n`;
+        } else {
+          output += `    \x1b[90m${options[i]}\x1b[0m\n`;
+        }
       }
       output += `\x1b[${options.length + 1}A`;
       process.stdout.write(output);
@@ -1230,7 +1233,10 @@ async function selectPrompt(message: string, options: string[], defaultIndex = 0
       }
       if (chunk.includes("\r") || chunk.includes("\n")) {
         process.stdout.write(`\x1b[${options.length + 1}B`);
-        console.log(`Selected: ${options[selected]}`);
+        for (let i = 0; i < options.length + 1; i++) {
+          process.stdout.write("\x1b[1A\x1b[2K");
+        }
+        process.stdout.write(`\r\x1b[32m✔\x1b[0m \x1b[1m${message}\x1b[0m \x1b[36m${options[selected]}\x1b[0m\n`);
         cleanup();
         resolve(options[selected]);
         return;
@@ -1276,11 +1282,13 @@ async function confirmPrompt(query: string, defaultYes = true): Promise<boolean>
       process.stdin.removeListener("data", onData);
     };
     const render = () => {
-      let output = `${query}\n`;
+      let output = `\x1b[32m?\x1b[0m \x1b[1m${query}\x1b[0m\n`;
       for (let i = 0; i < options.length; i++) {
-        const marker = i === selected ? "\x1b[7m" : "";
-        const reset = i === selected ? "\x1b[0m" : "";
-        output += `  ${marker} ${options[i]} ${reset}\n`;
+        if (i === selected) {
+          output += `  \x1b[36m\x1b[1m▸ ${options[i]}\x1b[0m\n`;
+        } else {
+          output += `    \x1b[90m${options[i]}\x1b[0m\n`;
+        }
       }
       output += `\x1b[${options.length + 1}A`;
       process.stdout.write(output);
@@ -1292,7 +1300,10 @@ async function confirmPrompt(query: string, defaultYes = true): Promise<boolean>
       }
       if (chunk.includes("\r") || chunk.includes("\n")) {
         process.stdout.write(`\x1b[${options.length + 1}B`);
-        console.log(`Selected: ${options[selected]}`);
+        for (let i = 0; i < options.length + 1; i++) {
+          process.stdout.write("\x1b[1A\x1b[2K");
+        }
+        process.stdout.write(`\r\x1b[32m✔\x1b[0m \x1b[1m${query}\x1b[0m \x1b[36m${options[selected]}\x1b[0m\n`);
         cleanup();
         resolve(selected === 0);
         return;
@@ -1380,6 +1391,15 @@ export async function runInteractiveInstall(
       true,
     );
 
+    const confirm = await confirmPrompt(
+      `Proceed with installation to ${editorChoice === "all" ? "all editors" : editorChoice} (${scopeChoice})?`,
+      true,
+    );
+    if (!confirm) {
+      console.log("Aborted.");
+      return;
+    }
+
     executeInstallation(workspacePath ? workspacePath : process.cwd(), {
       target: editorChoice === "all" ? undefined : editorChoice,
       updateGitignore: gitignoreChoice,
@@ -1429,6 +1449,15 @@ async function runInteractiveUninstall(
       "Remove ARIVE entries from .gitignore?",
       true,
     );
+
+    const confirm = await confirmPrompt(
+      `Proceed with uninstallation from ${editorChoice === "all" ? "all editors" : editorChoice} (${scopeChoice})?`,
+      true,
+    );
+    if (!confirm) {
+      console.log("Aborted.");
+      return;
+    }
 
     executeUninstallation(workspacePath ? workspacePath : process.cwd(), {
       target: editorChoice === "all" ? undefined : editorChoice,
@@ -1500,7 +1529,7 @@ export async function uninstallAllAsync(
   return installAllAsync(workspacePath, editor, scope, true);
 }
 
-export function runInstallerCli(): void {
+export async function runInstallerCli(): Promise<void> {
   let editor: string | undefined = undefined;
   let workspacePath: string | undefined = undefined;
   let scope: "global" | "project" | "both" | undefined = undefined;
@@ -1541,10 +1570,14 @@ Options:
     }
   }
 
-  installAll(workspacePath, editor, scope, uninstall);
+  if (isInteractive()) {
+    await installAllAsync(workspacePath, editor, scope, uninstall);
+  } else {
+    installAll(workspacePath, editor, scope, uninstall);
+  }
 }
 
 if (import.meta.path === Bun.main) {
-  runInstallerCli();
+  await runInstallerCli();
 }
 
