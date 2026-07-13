@@ -43,7 +43,7 @@ describe("MCP Entrypoint Shell Run Tests", () => {
   }, 15000);
 
   test("Spawns MCP Server and processes JSON-RPC requests on stdio", async () => {
-    const proc = spawn("bun", ["src/index.ts"]);
+    const proc = spawn("bun", ["src/index.ts", "--verbose"]);
 
     // Wait for the server to signal readiness on stderr — event-driven, no sleep.
     const { promise: ready, resolve: readyResolve } =
@@ -91,6 +91,28 @@ describe("MCP Entrypoint Shell Run Tests", () => {
     };
     const forgetText = forgetResp.result.content[0].text;
     expect(forgetText).toContain('"removed": true');
+
+    // 4. arive_explain tool
+    const explainLine = await rpc(proc, 6, "tools/call", {
+      name: "arive_explain",
+      arguments: {
+        message: "This is a test message to be formatted.",
+        brevity: "lite",
+      },
+    });
+    expect(explainLine).toContain("explanation");
+    expect(explainLine).toContain("formatted");
+
+    // 5. arive_compress tool
+    const compressLine = await rpc(proc, 7, "tools/call", {
+      name: "arive_compress",
+      arguments: {
+        content: "function test() { console.log('hello'); }",
+        contentType: "code",
+      },
+    });
+    expect(compressLine).toContain("compressed");
+
     proc.kill();
   });
 

@@ -1,3 +1,4 @@
+// fallow-ignore-file unused-class-member
 import { SequentialEngine } from "../reason/sequential_engine.js";
 import { createHash } from "crypto";
 

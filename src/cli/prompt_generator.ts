@@ -185,6 +185,7 @@ When executing the updates requested in the user prompt:
    directories (specifically '.arive/') to the project's .gitignore.
 4. Ensure all changes are covered by comprehensive unit/integration tests.
 5. Provide a final Report summarizing the outcome of the 5-phase protocol.
+6. Enforce a professional, objective, and emoji-free tone. Do not use informal greetings or emojis (e.g. 🚀) in any part of your output.
 
 Proceed to implement the requested updates using this framework.
 ================================================================================

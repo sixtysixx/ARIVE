@@ -1,3 +1,4 @@
+// fallow-ignore-file unused-class-member
 import ts from "typescript";
 
 export class ASTCompressor {

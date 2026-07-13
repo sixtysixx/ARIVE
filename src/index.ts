@@ -1121,15 +1121,29 @@ if (process.stdout.isTTY && process.stdin.isTTY && process.argv.length <= 2) {
 }
 
 // Start Std Listener
-console.error("[arive] start: initializing MCP stdio transport");
+const isVerbose =
+  process.argv.includes("--verbose") ||
+  process.argv.includes("-v") ||
+  process.argv.includes("--debug") ||
+  process.env.ARIVE_VERBOSE === "true" ||
+  process.env.ARIVE_DEBUG === "true" ||
+  (process.env.DEBUG !== undefined && process.env.DEBUG.includes("arive"));
+
+if (isVerbose) {
+  console.error("[arive] start: initializing MCP stdio transport");
+}
 try {
   const before = Date.now();
   const transport = new StdioServerTransport();
-  console.error(
-    `[arive] transport created after ${Date.now() - before}ms, connecting...`,
-  );
+  if (isVerbose) {
+    console.error(
+      `[arive] transport created after ${Date.now() - before}ms, connecting...`,
+    );
+  }
   await server.connect(transport);
-  console.error(`[arive] ready after ${Date.now() - before}ms`);
+  if (isVerbose) {
+    console.error(`[arive] ready after ${Date.now() - before}ms`);
+  }
 } catch (error: unknown) {
   console.error("[arive] fatal: failed to connect to stdio transport:", error);
   process.exit(1);

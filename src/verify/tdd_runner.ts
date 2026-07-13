@@ -2,16 +2,7 @@ import { spawnSync } from "child_process";
 import * as fs from "fs";
 
 export class TDDRunner {
-  public static run(
-    cwd: string,
-    testCommand: string,
-  ): {
-    success: boolean;
-    failures: string[];
-    exitCode: number;
-    stdout: string;
-    stderr: string;
-  } {
+  private static parseCommand(testCommand: string): { cmd: string; args: string[] } {
     const parts: string[] = [];
     const regex = /"[^"\\]*(?:\\.[^"\\]*)*"|'[^'\\]*(?:\\.[^'\\]*)*'|[^\s]+/g;
     let match;
@@ -26,16 +17,57 @@ export class TDDRunner {
     }
     const cmd = parts[0] || "";
     const args = parts.slice(1);
+    return { cmd, args };
+  }
+
+  private static parseFailures(stdout: string, stderr: string): string[] {
+    const failures: string[] = [];
+    const allLines = (stdout + "\n" + stderr).split("\n");
+    let captureRemaining = 0;
+
+    const syntaxErrorRegex = /(SyntaxError|ParseError|TS\d{4}:|Compilation failed|Unexpected token)/i;
+    const logicErrorRegex = /(FAIL\b|failing|Error:|Exception|failed\b|AssertionError|Expected|Received|✕|×|●|FAILED)/i;
+
+    for (const line of allLines) {
+      if (syntaxErrorRegex.test(line)) {
+        failures.push("[Syntax/Compile Error] " + line.trimEnd());
+        captureRemaining = 5;
+      } else if (logicErrorRegex.test(line)) {
+        failures.push("[Logic/Assertion Error] " + line.trimEnd());
+        captureRemaining = 5;
+      } else if (captureRemaining > 0) {
+        if (line.trim()) {
+          failures.push("  " + line.trimEnd());
+        }
+        captureRemaining--;
+      }
+    }
+
+    if (failures.length === 0) {
+      const nonEmptyLines = allLines.filter(l => l.trim().length > 0);
+      failures.push(...nonEmptyLines.slice(-5).map(l => "  " + l.trimEnd()));
+    }
+
+    return failures;
+  }
+
+  public static run(
+    cwd: string,
+    testCommand: string,
+  ): {
+    success: boolean;
+    failures: string[];
+    exitCode: number;
+    stdout: string;
+    stderr: string;
+  } {
+    const { cmd, args } = TDDRunner.parseCommand(testCommand);
 
     let stdoutAccum = "";
     let stderrAccum = "";
-    const failures: string[] = [];
+    let failures: string[] = [];
     let success = true;
     let exitCode = 0;
-
-    // Expanded: catches assertion failures (Expected/Received), framework markers, and common error keywords.
-    const failLineRegex =
-      /(FAIL\b|failing|Error:|Exception|failed\b|AssertionError|Expected|Received|✕|×|●|FAILED)/i;
 
     try {
       const child = spawnSync(cmd, args, {
@@ -56,31 +88,7 @@ export class TDDRunner {
 
       if (exitCode !== 0) {
         success = false;
-        const allLines = (stdoutAccum + "\n" + stderrAccum).split("\n");
-        let captureRemaining = 0;
-
-        const syntaxErrorRegex = /(SyntaxError|ParseError|TS\d{4}:|Compilation failed|Unexpected token)/i;
-        const logicErrorRegex = /(FAIL\b|failing|Error:|Exception|failed\b|AssertionError|Expected|Received|✕|×|●|FAILED)/i;
-
-        for (const line of allLines) {
-          if (syntaxErrorRegex.test(line)) {
-            failures.push("[Syntax/Compile Error] " + line.trimEnd());
-            captureRemaining = 5;
-          } else if (logicErrorRegex.test(line)) {
-            failures.push("[Logic/Assertion Error] " + line.trimEnd());
-            captureRemaining = 5;
-          } else if (captureRemaining > 0) {
-            if (line.trim()) {
-              failures.push("  " + line.trimEnd());
-            }
-            captureRemaining--;
-          }
-        }
-
-        if (failures.length === 0) {
-          const nonEmptyLines = allLines.filter(l => l.trim().length > 0);
-          failures.push(...nonEmptyLines.slice(-5).map(l => "  " + l.trimEnd()));
-        }
+        failures.push(...TDDRunner.parseFailures(stdoutAccum, stderrAccum));
       } else {
         success = true;
       }

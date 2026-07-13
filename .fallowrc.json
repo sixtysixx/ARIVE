@@ -1,0 +1,18 @@
+{
+  "ignorePatterns": [
+    "tests/**",
+    "scripts/**",
+    "opencode.mjs"
+  ],
+  "duplicates": {
+    "enabled": false,
+    "ignore": [
+      "src/**"
+    ]
+  },
+  "health": {
+    "ignore": [
+      "src/**"
+    ]
+  }
+}

@@ -1,0 +1,38 @@
+description: 'ARIVE Prompt Evaluation: With vs. Without MCP Tools using OpenCode Free Model'
+
+prompts:
+  - arive_prompt.txt
+  - baseline_prompt.txt
+
+providers:
+  - id: openai:chat:mimo-v2.5-free
+    config:
+      apiBaseUrl: https://opencode.ai/zen/v1
+      apiKey: public
+      temperature: 0.2
+
+tests:
+  - vars:
+      task: 'Develop and integrate promptfoo benchmarks for ARIVE. Do not ask for clarification. Assume a standard workspace and execute all 5 phases of the reasoning protocol in your response immediately.'
+    assert:
+      - type: icontains
+        value: 'SCOPE GATE'
+        description: 'Verify Scope Gate presence'
+      - type: icontains
+        value: 'EVIDENCE GATE'
+        description: 'Verify Evidence Gate presence'
+      - type: icontains
+        value: 'CHALLENGE GATE'
+        description: 'Verify Challenge Gate presence'
+      - type: icontains
+        value: 'VERIFICATION GATE'
+        description: 'Verify Verification Gate presence'
+      - type: icontains
+        value: 'REPORT GATE'
+        description: 'Verify Report Gate presence'
+      - type: not-icontains
+        value: 'hey there'
+        description: 'Verify no informal greetings'
+      - type: not-icontains
+        value: '🚀'
+        description: 'Verify no emojis'

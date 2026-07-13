@@ -89,12 +89,19 @@ The table below quantifies the performance delta of an LLM operating **with** th
 | **Context Window Efficiency** | 0% savings — raw content repeatedly fills context | Up to 90% savings — `arive_compress` + CCR hash references | **Exponential token efficiency** — prompt size stays constant |
 | **Verification & Self-Correction** | Single-pass guess — no compilation check, failures survive | Active TDD loop — `arive_verify` backpropagates failures into reasoning | **Correctness jumps** — code compiles and tests pass before yielding |
 
-Run the benchmark yourself:
+Run the benchmarks yourself:
 ```bash
+# 1. Promptfoo single-run evaluation (Actual model: mimo-v2.5-free)
 bun run benchmark
+
+# 2. Multi-run prompt evaluation (Averages stats across 3 runs)
+bun run benchmark:prompts
+
+# 3. Toolset latency and token performance evaluation
+bun run benchmark:toolset
 ```
 
-For detailed methodology and agent-based testing instructions, see [BENCHMARKS.md](BENCHMARKS.md).
+For detailed methodology, multi-run statistics, and agent-based testing instructions, see [BENCHMARKS.md](BENCHMARKS.md).
 
 ## Architecture & Phases
 

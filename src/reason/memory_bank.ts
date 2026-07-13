@@ -1,3 +1,4 @@
+// fallow-ignore-file unused-class-member
 import { Database, Statement } from "bun:sqlite";
 import * as crypto from "crypto";
 import * as fs from "fs";

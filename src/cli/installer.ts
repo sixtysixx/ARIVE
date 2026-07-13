@@ -285,7 +285,20 @@ Rules:
 - No boilerplate nobody asked for.
 - Deletion over addition. Boring over clever. Fewest files possible.
 - Shortest working diff wins, but only once you understand the problem.
-- Mark intentional simplifications with a \`fade:\` comment.`;
+  - Mark intentional simplifications with a \`fade:\` comment.
+
+Anti-Patterns to Avoid:
+- Python: Bare 'except:', mutable defaults (e.g. def fn(x=[])), nested comprehensions, manual loop generators.
+- Rust: Excess '.clone()' or '.unwrap()', verbose manual matching instead of '?' or combinators, ignoring clippy warnings.
+- C/C++: Direct 'new'/'delete' (use RAII), non-const parameters, buffer overflows (strcpy), magic numbers, macro-based constants.
+- C#: Missing 'using' for IDisposable, synchronous waiting on async tasks (.Result), high allocations in hot paths.
+- Go: Ignored error values ('_'), naked goroutine spawns without WG/ctx, 'interface{}'/'any' where specific types/generics fit.
+- HTML: Nested 'div' layouts (div-soup) lacking semantic tags, inline styles, missing accessibility attributes.
+- CSS: Heavy '!important' overriding, duplicate media queries, over-specific selectors, hardcoded pixel layouts.
+- JS/TS: Loose '==' equality, 'any' type casts, unhandled async rejections, nested callback structures.
+- Ruby: Mutating arguments directly, over-engineered monkey patching, mutable strings, 'eval' usage.
+- PHP: Raw SQL concatenation (use parameter binding), global variables/state pollution, mixing templates with controllers.
+- Shell/Bash: Unquoted variables, parsing ls output, missing 'set -euo pipefail', ignoring exit codes.`;
 
 const fadeReview = `Review diffs for unnecessary complexity. One line per finding: location, what to cut, what replaces it. The diff's best outcome is getting shorter.
 
@@ -1160,7 +1173,19 @@ function isRawTTY(): boolean {
     process.stdin.isTTY &&
     process.stdout.isTTY &&
     !process.env.CI &&
-    !process.argv.includes("--non-interactive")
+    !process.argv.includes("--non-interactive") &&
+    !process.argv.includes("-y") &&
+    !process.argv.includes("--yes")
+  );
+}
+
+function isInteractive(): boolean {
+  return (
+    (process.stdout.isTTY || process.stdin.isTTY) &&
+    !process.env.CI &&
+    !process.argv.includes("--non-interactive") &&
+    !process.argv.includes("-y") &&
+    !process.argv.includes("--yes")
   );
 }
 
@@ -1432,7 +1457,7 @@ export async function installAllAsync(
     `Starting ARIVE installer for workspace: ${wsRoot}${editor ? ` (Target: ${editor})` : ""}${scope ? ` (Scope: ${scope})` : ""}`,
   );
 
-  if (isRawTTY()) {
+  if (isInteractive()) {
     if (uninstall) {
       await runInteractiveUninstall(workspacePath, editor, scope);
     } else {
@@ -1451,7 +1476,7 @@ export function installAll(
   scope?: "global" | "project" | "both",
   uninstall?: boolean,
 ): void {
-  if (isRawTTY()) {
+  if (isInteractive()) {
     installAllAsync(workspacePath, editor, scope, uninstall);
   } else if (uninstall) {
     runNonInteractiveUninstall(workspacePath, editor, scope);
@@ -1508,6 +1533,8 @@ Options:
   --scope, -s <scope>   Installation scope: global, project, both (default: both)
   --path, -p <path>     Workspace root path (default: current directory)
   --uninstall, -u       Uninstall ARIVE instead of installing
+  --non-interactive     Do not prompt for inputs
+  -y, --yes             Alias for --non-interactive
   --help, -h            Show this help message
 `);
       process.exit(0);

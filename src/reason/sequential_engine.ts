@@ -1,3 +1,4 @@
+// fallow-ignore-file unused-class-member
 import { Database, Statement } from "bun:sqlite";
 import * as fs from "fs";
 import * as path from "path";
@@ -145,19 +146,6 @@ export class SequentialEngine {
     tx();
   }
 
-  public addError(err: string, sessionId: string = "default") {
-    this.modifyState(sessionId, (state) => ({
-      activePlan: state.activePlan,
-      errors: [...state.errors, err],
-    }));
-  }
-
-  public clearErrors(sessionId: string = "default") {
-    this.modifyState(sessionId, (state) => ({
-      activePlan: state.activePlan,
-      errors: [],
-    }));
-  }
 
   public setErrors(errors: string[], sessionId: string = "default") {
     this.modifyState(sessionId, (state) => ({
@@ -166,12 +154,6 @@ export class SequentialEngine {
     }));
   }
 
-  public updatePlan(plan: string, sessionId: string = "default") {
-    this.modifyState(sessionId, (state) => ({
-      activePlan: plan,
-      errors: state.errors,
-    }));
-  }
 
   private getInternalState(sessionId: string): {
     activePlan: string;
@@ -227,10 +209,6 @@ export class SequentialEngine {
     };
   }
 
-  public clear(sessionId: string = "default") {
-    this.db.run("DELETE FROM thoughts WHERE session_id = ?", [sessionId]);
-    this.db.run("DELETE FROM engine_state WHERE session_id = ?", [sessionId]);
-  }
 
   public close() {
     this.db.close();

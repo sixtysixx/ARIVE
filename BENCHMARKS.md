@@ -37,10 +37,8 @@ We use **[promptfoo](https://promptfoo.dev/)** to perform this side-by-side comp
 3. **Evaluation Runner (`promptfooconfig.yaml`)**:
    Defines assertions to verify the presence of key phase gates and compliance with tone constraints (e.g., absence of informal greetings or emojis).
 
-4. **Mock Provider (`scripts/mock_provider.js`)**:
-   Simulates how LLMs behave in both environments:
-   - When given the **ARIVE Prompt**, it returns a compliant, professional output structure adhering to all gates.
-   - When given the **Baseline Prompt**, it returns an informal, conversational response lacking phase gates and using emojis.
+4. **Xiaomi LLM Core Team Model (`mimo-v2.5-free`)**:
+   Evaluations are performed against the actual open-source frontier model `mimo-v2.5-free` hosted on the OpenCode Zen API (using the public API key).
 
 ---
 
@@ -58,16 +56,26 @@ This script generates the prompt files and runs `promptfoo eval` to compare the 
 
 ```
 ┌────────────────────────────────────────┬────────────────────────────────────────┬────────────────────────────────────────┐
-│ task                                   │ arive_prompt.txt                       │ baseline_prompt.txt                    │
+│ task                                   │ [openai:chat:mimo-v2.5-free]           │ [openai:chat:mimo-v2.5-free]           │
+│                                        │ arive_prompt.txt:                      │ baseline_prompt.txt: You are a helpful │
+│                                        │ =====================================… │ AI assistant.                          │
+│                                        │ ARIVE ADVANCED FRONTIER MODEL          │ Task: {{task}}                         │
+│                                        │ ORCHESTRATION PROMPT                   │ Response:                              │
+│                                        │ =====================================… │                                        │
 ├────────────────────────────────────────┼────────────────────────────────────────┼────────────────────────────────────────┤
-│ Develop and integrate promptfoo        │ [PASS] Here is the comprehensive       │ [FAIL] Hey there! Super excited to     │
-│ benchmarks for ARIVE                   │ response adhering to the ARIVE 5-phase │ tell you about the new config...       │
-│                                        │ protocol...                            │                                        │
+│ Develop and integrate promptfoo        │ [PASS] Thinking: Okay, the user wants  │ [FAIL] Thinking: Hmm, this is a        │
+│ benchmarks for ARIVE. Do not ask for   │ me to develop and integrate promptfoo  │ complex technical request with         │
+│ clarification. Assume a standard       │ benchmarks for the ARIVE codebase.     │ specific constraints. The user wants   │
+│ workspace and execute all 5 phases of  │ They specifically said not to ask for  │ me to develop and integrate promptfoo  │
+│ the reasoning protocol in your         │ clarification and to assume a standard │ benchmarks for ARIVE without asking    │
+│ response immediately.                  │ workspace. I need to follow the        │ questions, executing all 5 reasoning   │
+│                                        │ 5-phase protocol strictly.             │ phases immediately.                    │
+│                                        │ First,...                              │ I need to structure t...               │
 └────────────────────────────────────────┴────────────────────────────────────────┴────────────────────────────────────────┘
 
 Results:
-  ✓ 1 passed (50.00%) - ARIVE Prompt
-  ✗ 1 failed (50.00%) - Baseline Prompt (Violates gates & informal tone check)
+  ✓ 1 passed (50.00%)
+  ✗ 1 failed (50.00%)
 ```
 
 *(Note: The command exiting with code 100 is normal as it indicates the baseline prompt has correctly failed the strict compliance gates).*
@@ -242,12 +250,58 @@ Use this rubric to score any agent session (MCP ON vs. OFF):
 
 ---
 
-### Running the promptfoo Mock Alongside Agent Tests
+### Running the Promptfoo Evaluations Alongside Agent Tests
 
-To validate your agent observations against the formal promptfoo suite:
+To validate your agent observations against the formal promptfoo suite using the actual free model:
 
 ```bash
 bun run benchmark
 ```
 
-This runs the `arive_prompt.txt` vs. `baseline_prompt.txt` comparison through the mock provider, confirming the expected compliance gap (ARIVE: PASS, Baseline: FAIL). Use this as a quick regression gate before or after your agent sessions.
+This runs the `arive_prompt.txt` vs. `baseline_prompt.txt` comparison, confirming the compliance gap (ARIVE: PASS, Baseline: FAIL).
+
+---
+
+## Multi-Run Prompt Evaluation Benchmarks
+
+To combat the non-deterministic nature of large language models, we support a custom multi-run benchmark that queries the real model multiple times (3 iterations) for each prompt and compiles comparative pass rates:
+
+```bash
+bun run benchmark:prompts
+```
+
+### Verified Multi-Run Scores (Model: mimo-v2.5-free)
+
+| Metric | Baseline Prompt (Without ARIVE) | ARIVE Prompt (With ARIVE) | Compliance Delta |
+| :--- | :---: | :---: | :---: |
+| **Overall Pass Rate** | **0.0%** (0/3) | **100.0%** (3/3) | **+100.0%** |
+| **Avg Latency** | 21.76s | 39.54s | -17.78s (due to gate output) |
+| **Avg Prompt Tokens** | 293 | 1,118 | +825 |
+| **Avg Completion Tokens** | 1,499 | 2,702 | +1,203 |
+
+### Assertion compliance:
+- **SCOPE GATE**: 100% Pass with ARIVE vs. 0% Baseline
+- **EVIDENCE GATE**: 100% Pass with ARIVE vs. 0% Baseline
+- **CHALLENGE GATE**: 100% Pass with ARIVE vs. 0% Baseline
+- **VERIFICATION GATE**: 100% Pass with ARIVE vs. 0% Baseline
+- **REPORT GATE**: 100% Pass with ARIVE vs. 0% Baseline
+- **Tone Compliance**: 100% Pass on both
+
+---
+
+## Toolset Performance Benchmarks
+
+In addition to prompt evaluations, we benchmark the latency and token-saving metrics of the actual core TypeScript classes and SQLite/workspace integration layers:
+
+```bash
+bun run benchmark:toolset
+```
+
+### Verified Toolset Metrics
+
+* **ASTCompressor (Code Compression)**: Strips code comments, JSDoc, and whitespace. Normalized 55KB of TypeScript code in **1.599ms** (3.4% character savings).
+* **SmartCrusher (JSON Compression)**: Recursively flattens JSON arrays, keeping object schemas and edge boundaries. Compressed 2.3KB of JSON in **0.061ms** (**saving 76.8% of context space**).
+* **CacheAligner (Prose Normalization)**: Normalizes spacing for maximum KV cache hits. Aligned 21KB of markdown in **0.247ms** (9.1% character savings).
+* **CCR Registry Storage (SQLite)**: Writing 55KB of code to the hash-addressed database cache averages **3.390ms**, and retrieval (read) averages **3.345ms**.
+* **SequentialEngine Thought Insertion**: Appending a thought log sequentially to the SQLite database ledger takes **1.083ms** per insert.
+* **WorkspaceManager Sandbox Creation**: Spawning an isolated Git worktree workspace and symlinking node_modules takes only **73.313ms**.
