@@ -390,8 +390,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ARIVE integrates ideas and pipelines from the following core development paradigms - Thank you for the inspiration:
 
-- **slimroom** (`slimroomlabs-ai/slimroom`): Local, reversible context compression.
-- **backtrack** (`modelcontextprotocol/servers/backtrack`): Step-by-step reasoning with reflective backtracking.
-- **fade** (`DietrichGebert/fade`): Lazy senior dev mode rulesets, skills, and plugins.
-- **codeatlas** (`JordanCoin/codetree`): Compact structural file tree and dependency flow mapping.
-- **mindvault** (`ThoughtArchive/mindvault`): Memory palace-inspired knowledge retention and recall patterns.
+- **headroom** (`headroomlabs-ai/headroom`): Local, reversible context compression.
+- **sequentialthinking** (`modelcontextprotocol/servers/sequentialthinking`): Step-by-step reasoning with reflective backtracking.
+- **ponytail** (`DietrichGebert/ponytail`): Lazy senior dev mode rulesets, skills, and plugins.
+- **codemap** (`JordanCoin/codemap`): Compact structural file tree and dependency flow mapping.
+- **mempalace** (`MemPalace/mempalace`): Memory palace-inspired knowledge retention and recall patterns.
