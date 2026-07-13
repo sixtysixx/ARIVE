@@ -15,14 +15,16 @@
     "test": "bun test",
     "init-hooks": "bun run src/cli/init_hooks.ts",
     "install": "bun run src/cli/installer.ts",
-    "prompt": "bun run src/index.ts prompt"
+    "prompt": "bun run src/index.ts prompt",
+    "benchmark": "bun run scripts/prepare_prompt.ts && bunx promptfoo eval"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "typescript": "^6.0.3"
   },
   "devDependencies": {
-    "@types/node": "^26.1.0",
-    "bun-types": "^1.3.14"
+    "@types/node": "^26.1.1",
+    "bun-types": "^1.3.14",
+    "promptfoo": "^0.121.18"
   }
 }

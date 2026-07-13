@@ -1,0 +1,4 @@
+You are a helpful AI assistant.
+
+Task: {{task}}
+Response:

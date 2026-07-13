@@ -490,15 +490,15 @@ function executeInstallation(
     }
   }
 
-  const clawSkills = [
-    { name: "fade", content: fadeRules },
-    { name: "fade-review", content: fadeReview },
-    { name: "fade-audit", content: fadeAudit },
-    { name: "fade-debt", content: fadeDebt },
-    { name: "fade-gain", content: fadeGain },
-    { name: "fade-help", content: fadeHelp },
-  ];
-  if (installProject) { try {
+  try {
+    const clawSkills = [
+      { name: "fade", content: fadeRules },
+      { name: "fade-review", content: fadeReview },
+      { name: "fade-audit", content: fadeAudit },
+      { name: "fade-debt", content: fadeDebt },
+      { name: "fade-gain", content: fadeGain },
+      { name: "fade-help", content: fadeHelp },
+    ];
 
     if (target === undefined || target === "cursor") {
       const rulePath = path.join(wsRoot, ".cursor", "rules", "fade.mdc");
@@ -623,7 +623,27 @@ function executeInstallation(
         "utf-8",
       );
 
+      const opencodeGlobalDir = path.join(os.homedir(), ".config", "opencode");
+      const globalPluginsDir = path.join(opencodeGlobalDir, "plugins");
+      fs.mkdirSync(globalPluginsDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(globalPluginsDir, "fade.mjs"),
+        fadePlugin,
+        "utf-8",
+      );
+
+      const globalCommandsDir = path.join(opencodeGlobalDir, "command");
+      fs.mkdirSync(globalCommandsDir, { recursive: true });
+      for (const skill of clawSkills) {
+        fs.writeFileSync(
+          path.join(globalCommandsDir, `${skill.name}.md`),
+          `---\ndescription: Fade ${skill.name} command\n---\n${skill.content}`,
+          "utf-8",
+        );
+      }
+
       writeHookSamples(path.join(wsRoot, ".opencode", "hooks"));
+      writeHookSamples(path.join(opencodeGlobalDir, "hooks"));
     }
 
     if (target === undefined || target === "antigravity") {
@@ -727,7 +747,7 @@ function executeInstallation(
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : String(e);
     console.warn(`✗ Failed to write rule/skill/plugin files: ${message}`);
-  } }
+  }
 
   const command = "bunx";
   const args = ["--silent", "github:sixtysixx/ARIVE"];
@@ -823,26 +843,6 @@ function executeInstallation(
         "opencode.json",
       );
       updateOpenCodeConfig(opencodeGlobalConfigPath, [command, ...args]);
-      const opencodeGlobalDir = path.join(os.homedir(), ".config", "opencode");
-      const globalPluginsDir = path.join(opencodeGlobalDir, "plugins");
-      fs.mkdirSync(globalPluginsDir, { recursive: true });
-      fs.writeFileSync(
-        path.join(globalPluginsDir, "fade.mjs"),
-        fadePlugin,
-        "utf-8",
-      );
-
-      const globalCommandsDir = path.join(opencodeGlobalDir, "command");
-      fs.mkdirSync(globalCommandsDir, { recursive: true });
-      for (const skill of clawSkills) {
-        fs.writeFileSync(
-          path.join(globalCommandsDir, `${skill.name}.md`),
-          `---\ndescription: Fade ${skill.name} command\n---\n${skill.content}`,
-          "utf-8",
-        );
-      }
-
-      writeHookSamples(path.join(opencodeGlobalDir, "hooks"));
     }
 
     if (target === undefined || target === "omp") {
@@ -988,9 +988,15 @@ function executeUninstallation(
     }
 
     if (target === undefined || target === "opencode") {
-      fs.rmSync(path.join(wsRoot, ".opencode", "command"), { recursive: true, force: true });
+      const commandDir = path.join(wsRoot, ".opencode", "command");
+      const globalPluginsDir = path.join(os.homedir(), ".config", "opencode", "plugins");
+      const globalCommandsDir = path.join(os.homedir(), ".config", "opencode", "command");
+      fs.rmSync(commandDir, { recursive: true, force: true });
       fs.rmSync(path.join(wsRoot, ".opencode", "plugins"), { recursive: true, force: true });
+      fs.rmSync(globalPluginsDir, { recursive: true, force: true });
+      fs.rmSync(globalCommandsDir, { recursive: true, force: true });
       fs.rmSync(path.join(wsRoot, ".opencode", "hooks"), { recursive: true, force: true });
+      fs.rmSync(path.join(os.homedir(), ".config", "opencode", "hooks"), { recursive: true, force: true });
     }
 
     if (target === undefined || target === "antigravity") {
@@ -1061,9 +1067,6 @@ function executeUninstallation(
     if (target === undefined || target === "opencode") {
       const globalConfigPath = path.join(os.homedir(), ".config", "opencode", "opencode.json");
       removeOpenCodeConfig(globalConfigPath);
-      fs.rmSync(path.join(os.homedir(), ".config", "opencode", "plugins"), { recursive: true, force: true });
-      fs.rmSync(path.join(os.homedir(), ".config", "opencode", "command"), { recursive: true, force: true });
-      fs.rmSync(path.join(os.homedir(), ".config", "opencode", "hooks"), { recursive: true, force: true });
     }
 
     if (target === undefined || target === "omp") {
@@ -1127,7 +1130,6 @@ function executeUninstallation(
     }
   }
   console.log("✓ ARIVE MCP uninstallation completed successfully!");
-}
 
 function runNonInteractiveInstall(
   workspacePath?: string,
@@ -1293,7 +1295,7 @@ async function confirmPrompt(query: string, defaultYes = true): Promise<boolean>
   });
 }
 
-export async function runInteractiveInstall(
+async function runInteractiveInstall(
   workspacePath?: string,
   editor?: string,
   scope?: "global" | "project" | "both",

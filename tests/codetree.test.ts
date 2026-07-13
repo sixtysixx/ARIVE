@@ -1,4 +1,7 @@
-import { expect, test, describe } from "bun:test";
+import * as fs from "fs";
+import * as path from "path";
+import * as os from "os";
+ import { expect, test, describe } from "bun:test";
 import { CodeTreeScanner } from "../src/analyze/codetree.js";
 
 describe("CodeTree Scanner Tests", () => {
@@ -35,11 +38,6 @@ describe("CodeTree Scanner Tests", () => {
     expect(parsed.exports.interfaces).toContain("Info");
   });
 
-  test("Respects maxDepth recursion limit", () => {
-    const scanner = new CodeTreeScanner();
-    const tree = scanner.scanTree("./src", [], 1);
-    expect(tree).toContain("⚠️ [Max depth of 1 reached]");
-  });
 
   test("getGitDiff rejects command injection and invalid branch names", () => {
     const scanner = new CodeTreeScanner();
@@ -61,4 +59,39 @@ describe("CodeTree Scanner Tests", () => {
       expect(results[codetreeKey].exports.classes.length).toBeGreaterThan(0);
     }
   });
+
+  test("writeCodeIndex generates concise file/function index", () => {
+    const scanner = new CodeTreeScanner();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "arive-codetree-"));
+    const indexPath = path.join(tmpDir, "CODE_INDEX.md");
+
+    // Create a small dummy project
+    fs.mkdirSync(path.join(tmpDir, "src"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, "src", "utils.ts"),
+      `
+        import { helper } from "./helper.js";
+        export class Analyzer {
+          public run() { return true; }
+        }
+        export function compute(x: number) { return x + 1; }
+        export interface Result { ok: boolean; }
+      `,
+      "utf-8",
+    );
+
+    scanner.writeCodeIndex(tmpDir, [], indexPath);
+
+    const content = fs.readFileSync(indexPath, "utf-8");
+    expect(content).toContain("Code Index:");
+    expect(content).toContain("utils.ts");
+    expect(content).toContain("class Analyzer");
+    expect(content).toContain("- run()");
+    expect(content).toContain("- compute()");
+    expect(content).toContain("interface Result");
+
+    // Cleanup
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
 });
+

@@ -23,10 +23,10 @@ export class CodeTreeScanner {
     "bun.lockb",
   ];
 
-  public scanTree(dir: string, excludes: string[] = [], maxDepth = 10): string {
+  public scanTree(dir: string, excludes: string[] = []): string {
     const excludeList = [...this.defaultExcludes, ...excludes];
     const lines: string[] = [];
-    this.traverse(dir, "", excludeList, lines, 0, maxDepth);
+    this.traverse(dir, "", excludeList, lines, 0);
     return lines.join("\n");
   }
 
@@ -36,12 +36,7 @@ export class CodeTreeScanner {
     excludes: string[],
     lines: string[],
     currentDepth: number,
-    maxDepth: number,
   ) {
-    if (currentDepth > maxDepth) {
-      lines.push(`${prefix}⚠️ [Max depth of ${maxDepth} reached]`);
-      return;
-    }
     const base = path.basename(currentPath);
     // Check if base matches any excluded names or if current path contains them as exact segments
     if (
@@ -63,7 +58,6 @@ export class CodeTreeScanner {
             excludes,
             lines,
             currentDepth + 1,
-            maxDepth,
           );
         });
       } else {
@@ -197,5 +191,103 @@ export class CodeTreeScanner {
         result[relative] = this.parseFileMetadata(code);
       }
     } catch (e) {}
+  }
+
+  public writeCodeIndex(
+    dir: string,
+    excludes: string[] = [],
+    outputPath: string,
+  ): void {
+    const excludeList = [...this.defaultExcludes, ...excludes];
+    const files: string[] = [];
+    this.collectIndexFiles(dir, excludeList, files);
+
+    const lines: string[] = [`# Code Index: ${dir}`, ``];
+
+    for (const file of files) {
+      const relative = path.relative(dir, file).replace(/\\/g, "/");
+      try {
+        const code = fs.readFileSync(file, "utf-8");
+        const meta = this.parseFileMetadata(code);
+
+        if (meta.imports.length > 0) {
+          lines.push(`<details>`);
+          lines.push(`<summary>📄 <code>${relative}</code></summary>`);
+          lines.push(``);
+          lines.push(`Imports: ${meta.imports.join(", ")}`);
+
+          const classes = meta.exports.classes;
+          const functions = meta.exports.functions;
+          const interfaces = meta.exports.interfaces;
+          const total = classes.length + functions.length + interfaces.length;
+
+          if (total > 0) {
+            lines.push(``);
+            lines.push(`**Exports:**`);
+            for (const cls of classes) {
+              lines.push(`- class ${cls.name}`);
+              for (const method of cls.methods) {
+                lines.push(`  - ${method}()`);
+              }
+            }
+            for (const fn of functions) {
+              lines.push(`- ${fn}()`);
+            }
+            for (const iface of interfaces) {
+              lines.push(`- interface ${iface}`);
+            }
+          }
+
+          lines.push(`</details>`);
+          lines.push(``);
+        }
+      } catch {
+        // Ignore unreadable files
+      }
+    }
+
+    try {
+      const dirPath = path.dirname(outputPath);
+      if (!fs.existsSync(dirPath)) {
+        fs.mkdirSync(dirPath, { recursive: true });
+      }
+      fs.writeFileSync(outputPath, lines.join("\n"), "utf-8");
+      console.log(`✓ Wrote code index → ${outputPath}`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn(`! Failed to write code index: ${msg}`);
+    }
+  }
+
+  private collectIndexFiles(
+    currentPath: string,
+    excludes: string[],
+    files: string[],
+  ): void {
+    const base = path.basename(currentPath);
+    if (
+      excludes.includes(base) ||
+      excludes.some((exc) => currentPath.split(/[\\/]/).includes(exc))
+    ) {
+      return;
+    }
+
+    try {
+      const stats = fs.statSync(currentPath);
+      if (stats.isDirectory()) {
+        const children = fs.readdirSync(currentPath);
+        for (const child of children) {
+          this.collectIndexFiles(
+            path.join(currentPath, child),
+            excludes,
+            files,
+          );
+        }
+      } else if (stats.isFile() && /\.(js|ts|jsx|tsx)$/.test(currentPath)) {
+        files.push(currentPath);
+      }
+    } catch {
+      // Ignore
+    }
   }
 }

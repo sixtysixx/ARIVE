@@ -91,7 +91,19 @@ describe("MCP Entrypoint Shell Run Tests", () => {
     };
     const forgetText = forgetResp.result.content[0].text;
     expect(forgetText).toContain('"removed": true');
-
     proc.kill();
+  });
+
+  test("Running with 'prompt' argument prints advanced prompt", () => {
+    const output = execSync("bun run src/index.ts prompt", { encoding: "utf-8" });
+    expect(output).toContain("ARIVE ADVANCED FRONTIER MODEL ORCHESTRATION PROMPT");
+    expect(output).toContain("THE FIVE-PHASE REASONING & INTEGRITY PROTOCOL");
+  });
+
+  test("Running with 'install --help' argument prints installer help", () => {
+    const output = execSync("bun run src/index.ts install --help", { encoding: "utf-8" });
+    expect(output).toContain("ARIVE MCP Installer/Uninstaller CLI");
+    expect(output).toContain("Usage:");
+    expect(output).toContain("--editor, -e <name>");
   });
 });

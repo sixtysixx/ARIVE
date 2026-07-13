@@ -11,6 +11,91 @@ ARIVE merges local context compression, step-by-step backtracking reasoning grap
 
 ---
 
+## Quick Start & Interactive Setup (Recommended)
+
+The easiest and **highly recommended** way to get started with ARIVE is to use our **Interactive Setup Wizard**. It automatically registers the ARIVE MCP server in your preferred AI clients, handles configurations, and installs Git hooks, plugins, rules, and skills.
+
+### Running the Setup Wizard
+
+To install interactively, simply run:
+
+```bash
+bun run install
+```
+
+> **Note**: In an interactive terminal, running the entrypoint directly (`bun run src/index.ts`) with no arguments will also automatically boot this setup wizard instead of launching the MCP stdio transport.
+
+### Selectable Agents & Editors
+During installation, you can target specific AI agents/editors to automatically configure them, including:
+- **Cursor**
+- **Cline** / **Roo Code**
+- **Windsurf**
+- **OpenCode** / **KiloCode**
+- **Claude Desktop** / **Claude Code**
+- **Google Antigravity** / **omp (oh-my-pi)**
+- Or select **all** to configure all detected installations.
+
+### Installation Scopes
+You can customize where the configuration and rules are applied:
+- **`global`**: Registers the MCP server globally in the editor's system-wide configuration directories.
+- **`project`**: Adds rule files (like `.clinerules`), pre-commit hooks, and a `.gitignore` update to your current project/workspace.
+- **`both`** (Default): Configures both global configurations and local project rules.
+
+### Customizing via CLI Options
+
+If you prefer a non-interactive installation, or want to bypass the prompts, you can pass explicit options:
+
+```bash
+# Non-interactive CLI targeting Cursor for a specific project
+bun run install --agent cursor --scope project
+
+# Non-interactive CLI targeting OpenCode globally
+bun run install -e opencode -s global
+```
+
+For more options, run `bun run install --help`.
+
+### Uninstalling
+
+To remove ARIVE MCP configurations, rules, and hooks:
+
+```bash
+# Interactive uninstall wizard
+bun run install --uninstall
+
+# Non-interactive: remove all Cursor project config
+bun run install --uninstall --agent cursor --scope project
+
+# Non-interactive: remove global OpenCode config
+bun run install -u -e opencode -s global
+```
+
+#### What the Installer Does
+1. **Interactive Questions & Conflict Detection**: If the setup wizard encounters existing configuration files (such as `.clinerules` or pre-existing `.git/hooks/pre-commit`), it will prompt you to choose whether to **overwrite**, **append** (safely inject ARIVE rules/scripts), or **skip**.
+2. **Git pre-commit Hook Configuration**: Installs/appends compilation checks (`tsc --noEmit`) and test suites (`bun test`) to ensure code verification before git commits.
+3. **.gitignore Management**: Automatically updates the repository's `.gitignore` file to ignore the ARIVE run-time databases and isolated workspace directories (`.arive/`).
+4. **Editor Configuration**: Automatically updates configuration files to register the ARIVE MCP server inside supported editors.
+
+---
+
+## Benchmark Results: With vs. Without ARIVE MCP
+
+The table below quantifies the performance delta of an LLM operating **with** the ARIVE MCP tools and sequential reasoning protocol versus a baseline model operating **without** them. Benchmarks are run via `promptfoo` and verified against real agent sessions.
+
+| Metric | Without ARIVE MCP | With ARIVE MCP | Delta |
+| :--- | :--- | :--- | :--- |
+| **Reasoning Protocol Compliance** | 0% — skips gates, produces unstructured output | 100% — enforces all 5 phases (Scope, Evidence, Challenge, Verify, Report) | **Infinite improvement** — prevents rushed, logically incomplete work |
+| **Tone & Style Guard** | Fails — informal greetings, emojis (`🚀`), exclamation marks | Passes — professional, telegraphic, objective, emoji-free | **Eliminates conversational fluff** — output is concise and rigorous |
+| **Context Window Efficiency** | 0% savings — raw content repeatedly fills context | Up to 90% savings — `arive_compress` + CCR hash references | **Exponential token efficiency** — prompt size stays constant |
+| **Verification & Self-Correction** | Single-pass guess — no compilation check, failures survive | Active TDD loop — `arive_verify` backpropagates failures into reasoning | **Correctness jumps** — code compiles and tests pass before yielding |
+
+Run the benchmark yourself:
+```bash
+bun run benchmark
+```
+
+For detailed methodology and agent-based testing instructions, see [BENCHMARKS.md](BENCHMARKS.md).
+
 ## Architecture & Phases
 
 ```mermaid
@@ -188,29 +273,6 @@ cd ARIVE
 bun install
 ```
 
-### Automatic Installation
-
-You can automatically register the ARIVE MCP server in all detected AI clients and install Git pre-commit hooks, ARIVE protocol lifecycle hooks, fade rules/skills, and plugins. The installer is fully interactive and guides you through setting up configurations under uncertainty.
-
-Run the installer CLI using Bun:
-
-```bash
-# Install with interactive wizard
-bun run install
-
-# Install specifically for a preferred AI editor (supports non-interactive overrides)
-bun run install --editor cursor
-bun run install -e opencode
-```
-
-#### What the Installer Does:
-1. **Interactive Questions & Conflict Detection**: If the setup wizard encounters existing configuration files (such as `.clinerules` or pre-existing `.git/hooks/pre-commit`), it will prompt you to choose whether to **overwrite**, **append** (safely inject ARIVE rules/scripts), or **skip**.
-2. **Git pre-commit Hook Configuration**: Installs/appends compilation checks (`tsc --noEmit`) and test suites (`bun test`) to ensure code verification before git commits.
-3. **.gitignore Management**: Automatically updates the repository's `.gitignore` file to ignore the ARIVE run-time databases and isolated workspace directories (`.arive/`).
-4. **Editor Configuration**: Automatically updates configuration files to register the ARIVE MCP server inside supported editors.
-
-Supported editors: `cursor`, `cline`, `roo` (or `roocode`), `windsurf`, `opencode`, `kilocode`, `claude` (Claude Desktop), `claudecode` (Claude Code), `antigravity` (Google Antigravity), `omp` (oh-my-pi).
-
 ### Generating Advanced Prompt for Frontier Models
 
 To easily update or refactor the repository using a frontier model, you can output a high-fidelity orchestration prompt incorporating a 5-phase sequential reasoning protocol (Scope, Evidence, Challenge, Verify, Report).
@@ -235,6 +297,17 @@ bun test
 bun x tsc --noEmit
 ```
 
+### Running Benchmarks & Evaluations (With vs. Without MCP Tools)
+
+The repository integrates `promptfoo` to run comparative benchmarks measuring the performance delta of models operating **with** the ARIVE MCP tools and sequential reasoning rules versus a baseline model **without** them.
+
+Run the side-by-side comparative evaluation locally:
+
+```bash
+bun run benchmark
+```
+
+This evaluates prompts for reasoning gate compliance (Scope, Evidence, Challenge, Verify, Report), style constraints, and token efficiency. For details on the comparison metrics and using real LLMs, see [BENCHMARKS.md](BENCHMARKS.md)
 ---
 
 ## Client Configurations

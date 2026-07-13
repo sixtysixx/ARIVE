@@ -163,6 +163,209 @@ describe("Installer Editor Targeting", () => {
     const content = fs.readFileSync(gitignorePath, "utf-8");
     expect(content).toContain(".arive/");
   });
+
+  test("installs only project-level configs when scope is project", () => {
+    const wsRoot = path.join(tempDir, "workspace-scope-project");
+    fs.mkdirSync(wsRoot, { recursive: true });
+
+    // Clean up homedir mock configs if any
+    const globalPluginsDir = path.join(tempDir, ".config", "opencode", "plugins");
+    const globalCommandsDir = path.join(tempDir, ".config", "opencode", "command");
+    if (fs.existsSync(globalPluginsDir)) fs.rmSync(globalPluginsDir, { recursive: true, force: true });
+    if (fs.existsSync(globalCommandsDir)) fs.rmSync(globalCommandsDir, { recursive: true, force: true });
+
+    installAll(wsRoot, "opencode", "project");
+
+    // Local should exist
+    expect(fs.existsSync(path.join(wsRoot, ".opencode", "plugins", "fade.mjs"))).toBe(true);
+    expect(fs.existsSync(path.join(wsRoot, ".opencode", "command", "fade.md"))).toBe(true);
+
+    // Global should NOT exist
+    expect(fs.existsSync(path.join(globalPluginsDir, "fade.mjs"))).toBe(false);
+    expect(fs.existsSync(path.join(globalCommandsDir, "fade.md"))).toBe(false);
+  });
+
+  test("installs only global-level configs when scope is global", () => {
+    const wsRoot = path.join(tempDir, "workspace-scope-global");
+    fs.mkdirSync(wsRoot, { recursive: true });
+
+    const globalPluginsDir = path.join(tempDir, ".config", "opencode", "plugins");
+    const globalCommandsDir = path.join(tempDir, ".config", "opencode", "command");
+    if (fs.existsSync(globalPluginsDir)) fs.rmSync(globalPluginsDir, { recursive: true, force: true });
+    if (fs.existsSync(globalCommandsDir)) fs.rmSync(globalCommandsDir, { recursive: true, force: true });
+
+    installAll(wsRoot, "opencode", "global");
+
+    // Local should NOT exist
+    expect(fs.existsSync(path.join(wsRoot, ".opencode"))).toBe(false);
+
+    // Global should exist
+    expect(fs.existsSync(path.join(globalPluginsDir, "fade.mjs"))).toBe(true);
+    expect(fs.existsSync(path.join(globalCommandsDir, "fade.md"))).toBe(true);
+  });
+
+  test("installs both local and global configs when scope is both", () => {
+    const wsRoot = path.join(tempDir, "workspace-scope-both");
+    fs.mkdirSync(wsRoot, { recursive: true });
+
+    const globalPluginsDir = path.join(tempDir, ".config", "opencode", "plugins");
+    const globalCommandsDir = path.join(tempDir, ".config", "opencode", "command");
+    if (fs.existsSync(globalPluginsDir)) fs.rmSync(globalPluginsDir, { recursive: true, force: true });
+    if (fs.existsSync(globalCommandsDir)) fs.rmSync(globalCommandsDir, { recursive: true, force: true });
+
+    installAll(wsRoot, "opencode", "both");
+
+    // Local should exist
+    expect(fs.existsSync(path.join(wsRoot, ".opencode", "plugins", "fade.mjs"))).toBe(true);
+    expect(fs.existsSync(path.join(wsRoot, ".opencode", "command", "fade.md"))).toBe(true);
+
+    // Global should exist
+    expect(fs.existsSync(path.join(globalPluginsDir, "fade.mjs"))).toBe(true);
+    expect(fs.existsSync(path.join(globalCommandsDir, "fade.md"))).toBe(true);
+  });
+
+  test("uninstalls cursor config correctly", () => {
+    const wsRoot = path.join(tempDir, "workspace-uninst-cursor");
+    fs.mkdirSync(wsRoot, { recursive: true });
+
+    // Install cursor config
+    installAll(wsRoot, "cursor");
+
+    // Verify install worked
+    const mcpJson = path.join(wsRoot, ".cursor", "mcp.json");
+    expect(fs.existsSync(mcpJson)).toBe(true);
+    expect(
+      fs.existsSync(path.join(wsRoot, ".cursor", "rules", "fade.mdc")),
+    ).toBe(true);
+
+    // Verify MCP config has arive entry
+    const config = JSON.parse(fs.readFileSync(mcpJson, "utf-8"));
+    expect(config.mcpServers?.arive).toBeDefined();
+
+    // Uninstall cursor config (uninstall=true)
+    installAll(wsRoot, "cursor", "both", true);
+
+    // Verify files removed
+    expect(
+      fs.existsSync(path.join(wsRoot, ".cursor", "rules", "fade.mdc")),
+    ).toBe(false);
+
+    // MCP config no longer has arive entry (file still exists but entry removed)
+    if (fs.existsSync(mcpJson)) {
+      const updatedConfig = JSON.parse(fs.readFileSync(mcpJson, "utf-8"));
+      expect(updatedConfig.mcpServers?.arive).toBeUndefined();
+    }
+  });
+
+  test("uninstalls only project-level configs when scope is project", () => {
+    const wsRoot = path.join(tempDir, "workspace-uninst-scope-project");
+    fs.mkdirSync(wsRoot, { recursive: true });
+
+    // Install opencode with both scopes
+    installAll(wsRoot, "opencode");
+
+    // Verify local files exist
+    expect(
+      fs.existsSync(path.join(wsRoot, ".opencode", "plugins", "fade.mjs")),
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(wsRoot, ".opencode", "command", "fade.md")),
+    ).toBe(true);
+
+    // Verify global files exist
+    const globalPluginsDir = path.join(
+      tempDir,
+      ".config",
+      "opencode",
+      "plugins",
+    );
+    const globalCommandsDir = path.join(
+      tempDir,
+      ".config",
+      "opencode",
+      "command",
+    );
+    expect(fs.existsSync(path.join(globalPluginsDir, "fade.mjs"))).toBe(
+      true,
+    );
+    expect(fs.existsSync(path.join(globalCommandsDir, "fade.md"))).toBe(
+      true,
+    );
+
+    // Uninstall with scope project
+    installAll(wsRoot, "opencode", "project", true);
+
+    // Local should be removed
+    expect(
+      fs.existsSync(path.join(wsRoot, ".opencode", "plugins", "fade.mjs")),
+    ).toBe(false);
+    expect(
+      fs.existsSync(path.join(wsRoot, ".opencode", "command", "fade.md")),
+    ).toBe(false);
+
+    // Global should remain
+    expect(fs.existsSync(path.join(globalPluginsDir, "fade.mjs"))).toBe(
+      true,
+    );
+    expect(fs.existsSync(path.join(globalCommandsDir, "fade.md"))).toBe(
+      true,
+    );
+  });
+
+  test("uninstalls only global-level configs when scope is global", () => {
+    const wsRoot = path.join(tempDir, "workspace-uninst-scope-global");
+    fs.mkdirSync(wsRoot, { recursive: true });
+
+    // Install opencode with both scopes
+    installAll(wsRoot, "opencode");
+
+    // Verify local files exist
+    expect(
+      fs.existsSync(path.join(wsRoot, ".opencode", "plugins", "fade.mjs")),
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(wsRoot, ".opencode", "command", "fade.md")),
+    ).toBe(true);
+
+    // Verify global files exist
+    const globalPluginsDir = path.join(
+      tempDir,
+      ".config",
+      "opencode",
+      "plugins",
+    );
+    const globalCommandsDir = path.join(
+      tempDir,
+      ".config",
+      "opencode",
+      "command",
+    );
+    expect(fs.existsSync(path.join(globalPluginsDir, "fade.mjs"))).toBe(
+      true,
+    );
+    expect(fs.existsSync(path.join(globalCommandsDir, "fade.md"))).toBe(
+      true,
+    );
+
+    // Uninstall with scope global
+    installAll(wsRoot, "opencode", "global", true);
+
+    // Local should remain
+    expect(
+      fs.existsSync(path.join(wsRoot, ".opencode", "plugins", "fade.mjs")),
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(wsRoot, ".opencode", "command", "fade.md")),
+    ).toBe(true);
+
+    // Global should be removed
+    expect(fs.existsSync(path.join(globalPluginsDir, "fade.mjs"))).toBe(
+      false,
+    );
+    expect(fs.existsSync(path.join(globalCommandsDir, "fade.md"))).toBe(
+      false,
+    );
+  });
 });
 
 describe("writeRuleFileWithConflict", () => {

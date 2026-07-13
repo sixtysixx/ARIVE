@@ -7,3 +7,7 @@ docs
 .arive/*.db-wal
 .arive/workspaces/
 .arive/logs/
+
+# Promptfoo cache and generated prompt
+.promptfoo/
+prompt.txt

@@ -29,6 +29,8 @@ import {
 } from "./mcp/compact.js";
 import * as fs from "fs";
 import * as path from "path";
+import { runInteractiveInstall, runInstallerCli } from "./cli/installer.js";
+import { outputAdvancedPrompt } from "./cli/prompt_generator.js";
 // Setup server instance
 const server = new Server(
   {
@@ -238,10 +240,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               items: { type: "string" },
               description: "List of directories to exclude",
             },
-            maxDepth: {
-              type: "integer",
-              description: "Max depth to scan for directory tree",
-            },
             targetBranch: {
               type: "string",
               description: "Target branch for git diff comparison",
@@ -354,7 +352,39 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             editor: {
               type: "string",
               description:
-                "Optional name of the specific AI editor to install configuration for (e.g. cursor, cline, roo, windsurf, opencode, kilocode, claude, claudecode, antigravity, omp)",
+                "Optional name of the specific AI editor/agent to install configuration for (e.g. cursor, cline, roo, windsurf, opencode, kilocode, claude, claudecode, antigravity, omp)",
+            },
+            scope: {
+              type: "string",
+              description:
+                "Optional installation scope: global, project, both (default: both)",
+              enum: ["global", "project", "both"],
+            },
+          },
+        },
+      },
+      {
+        name: "arive_uninstall",
+        description:
+          "Removes the ARIVE MCP server registration, Fade rules/skills/plugins, lifecycle hooks, and .gitignore entries from all detected AI clients. The inverse of arive_install.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            workspacePath: {
+              type: "string",
+              description:
+                "Optional path to the project/workspace root directory to remove rules, skills, plugins, and hooks from",
+            },
+            editor: {
+              type: "string",
+              description:
+                "Optional name of the specific AI editor/agent to remove configuration for (e.g. cursor, cline, roo, windsurf, opencode, kilocode, claude, claudecode, antigravity, omp)",
+            },
+            scope: {
+              type: "string",
+              description:
+                "Optional uninstall scope: global, project, both (default: both)",
+              enum: ["global", "project", "both"],
             },
           },
         },
@@ -743,18 +773,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
         const dir = resolvedDir;
 
-        let maxDepth = 10;
-        if (args?.maxDepth !== undefined) {
-          const depth = Number(args.maxDepth);
-          if (Number.isNaN(depth) || depth < 0) {
-            throw new Error(
-              "Invalid parameter: 'maxDepth' must be a non-negative number",
-            );
-          }
-          maxDepth = depth;
-        }
-
-        const hookContext = { action, dir, excludes, targetBranch, maxDepth };
+        const hookContext = { action, dir, excludes, targetBranch };
         const preHook = HookManager.runHook(
           "pre-analyze",
           "analyze",
@@ -768,7 +787,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         let resultText = "";
 
         if (action === "tree") {
-          resultText = scanner.scanTree(dir, excludes, maxDepth);
+          resultText = scanner.scanTree(dir, excludes);
+          try {
+            const indexPath = path.join(dir, ".arive", "CODE_INDEX.md");
+            scanner.writeCodeIndex(dir, excludes, indexPath);
+          } catch {
+            // Ignore: code index cache is optional
+          }
         } else if (action === "dependencies") {
           resultText = JSON.stringify(
             scanner.scanDependencies(dir, excludes),
@@ -1014,9 +1039,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           ? String(args.workspacePath)
           : undefined;
         const editor = args?.editor ? String(args.editor) : undefined;
+        const scopeVal = args?.scope ? String(args.scope) : undefined;
+        let scope: "global" | "project" | "both" | undefined = undefined;
+        if (scopeVal === "global" || scopeVal === "project" || scopeVal === "both") {
+          scope = scopeVal;
+        }
         const { installAllAsync } = await import("./cli/installer.js");
         // Start async installation, return immediately
-        installAllAsync(workspacePath, editor).catch((err) => {
+        installAllAsync(workspacePath, editor, scope).catch((err) => {
           console.error("[arive_install] async install failed:", err);
         });
         return {
@@ -1025,7 +1055,35 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               type: "text",
               text: JSON.stringify({
                 status: "started",
-                message: `ARIVE installation started in background${editor ? ` for ${editor}` : ""}. Check logs for progress.`,
+                message: `ARIVE installation started in background${editor ? ` for ${editor}` : ""}${scope ? ` (Scope: ${scope})` : ""}. Check logs for progress.`,
+              }),
+            },
+          ],
+        };
+      }
+
+      case "arive_uninstall": {
+        const workspacePath = args?.workspacePath
+          ? String(args.workspacePath)
+          : undefined;
+        const editor = args?.editor ? String(args.editor) : undefined;
+        const scopeVal = args?.scope ? String(args.scope) : undefined;
+        let scope: "global" | "project" | "both" | undefined = undefined;
+        if (scopeVal === "global" || scopeVal === "project" || scopeVal === "both") {
+          scope = scopeVal;
+        }
+        // Lazy import: installer module heavy and only needed on uninstall
+        const { uninstallAllAsync } = await import("./cli/installer.js");
+        uninstallAllAsync(workspacePath, editor, scope).catch((err) => {
+          console.error("[arive_uninstall] async uninstall failed:", err);
+        });
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                status: "started",
+                message: `ARIVE uninstall started in background${editor ? ` for ${editor}` : ""}${scope ? ` (Scope: ${scope})` : ""}. Check logs for progress.`,
               }),
             },
           ],
@@ -1046,15 +1104,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
 // Check if running in install CLI mode
 if (process.argv.includes("install")) {
-  const { runInstallerCli } = await import("./cli/installer.js");
   runInstallerCli();
   process.exit(0);
 }
 
 // Check if running in prompt/generate-prompt mode
 if (process.argv.includes("prompt") || process.argv.includes("generate-prompt")) {
-  const { outputAdvancedPrompt } = await import("./cli/prompt_generator.js");
   outputAdvancedPrompt();
+  process.exit(0);
+}
+
+// Check if running directly in an interactive terminal with no arguments
+if (process.stdout.isTTY && process.stdin.isTTY && process.argv.length <= 2) {
+  await runInteractiveInstall();
   process.exit(0);
 }
 
