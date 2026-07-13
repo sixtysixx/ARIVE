@@ -14,7 +14,8 @@
     "start": "bun run src/index.ts",
     "test": "bun test",
     "init-hooks": "bun run src/cli/init_hooks.ts",
-    "install": "bun run src/cli/installer.ts"
+    "install": "bun run src/cli/installer.ts",
+    "prompt": "bun run src/index.ts prompt"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

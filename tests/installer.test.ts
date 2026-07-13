@@ -1,4 +1,4 @@
-import { mock, expect, test, describe, beforeAll, afterAll } from "bun:test";
+import { mock, expect, test, describe, beforeAll, afterAll, beforeEach, afterEach } from "bun:test";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -14,7 +14,7 @@ mock.module("os", () => {
 });
 
 // Import installer after mock is registered
-import { installAll } from "../src/cli/installer.js";
+import { installAll, writeRuleFileWithConflict } from "../src/cli/installer.js";
 
 describe("Installer Editor Targeting", () => {
   let tempDir: string;
@@ -64,7 +64,7 @@ describe("Installer Editor Targeting", () => {
     // Cursor local config should exist
     expect(fs.existsSync(path.join(wsRoot, ".cursor", "mcp.json"))).toBe(true);
     expect(
-      fs.existsSync(path.join(wsRoot, ".cursor", "rules", "ponytail.mdc")),
+      fs.existsSync(path.join(wsRoot, ".cursor", "rules", "fade.mdc")),
     ).toBe(true);
 
     // Cline local config should NOT exist
@@ -105,7 +105,7 @@ describe("Installer Editor Targeting", () => {
     );
     expect(fs.existsSync(path.join(pluginDir, "plugin.json"))).toBe(true);
     expect(fs.existsSync(path.join(pluginDir, "mcp_config.json"))).toBe(true);
-    expect(fs.existsSync(path.join(pluginDir, "rules", "ponytail.md"))).toBe(
+    expect(fs.existsSync(path.join(pluginDir, "rules", "fade.md"))).toBe(
       true,
     );
     expect(fs.existsSync(path.join(pluginDir, "skills", "SKILL.md"))).toBe(
@@ -121,10 +121,10 @@ describe("Installer Editor Targeting", () => {
 
     // Local
     expect(
-      fs.existsSync(path.join(wsRoot, ".opencode", "plugins", "ponytail.mjs")),
+      fs.existsSync(path.join(wsRoot, ".opencode", "plugins", "fade.mjs")),
     ).toBe(true);
     expect(
-      fs.existsSync(path.join(wsRoot, ".opencode", "command", "ponytail.md")),
+      fs.existsSync(path.join(wsRoot, ".opencode", "command", "fade.md")),
     ).toBe(true);
 
     // Global
@@ -140,11 +140,87 @@ describe("Installer Editor Targeting", () => {
       "opencode",
       "command",
     );
-    expect(fs.existsSync(path.join(globalPluginsDir, "ponytail.mjs"))).toBe(
+    expect(fs.existsSync(path.join(globalPluginsDir, "fade.mjs"))).toBe(
       true,
     );
-    expect(fs.existsSync(path.join(globalCommandsDir, "ponytail.md"))).toBe(
+    expect(fs.existsSync(path.join(globalCommandsDir, "fade.md"))).toBe(
       true,
     );
+  });
+
+  test("updates gitignore during installation", () => {
+    const wsRoot = path.join(tempDir, "workspace-gitignore");
+    fs.mkdirSync(wsRoot, { recursive: true });
+    
+    // Create initial .gitignore
+    const gitignorePath = path.join(wsRoot, ".gitignore");
+    fs.writeFileSync(gitignorePath, "node_modules\n", "utf-8");
+
+    // Run installation
+    installAll(wsRoot, "cursor");
+
+    // Check if .arive/ was appended
+    const content = fs.readFileSync(gitignorePath, "utf-8");
+    expect(content).toContain(".arive/");
+  });
+});
+
+describe("writeRuleFileWithConflict", () => {
+  let tempDir: string;
+  let ruleFile: string;
+
+  beforeAll(() => {
+    tempDir = fs.mkdtempSync(
+      path.join(require("os").tmpdir(), "rule-conflict-test-"),
+    );
+  });
+
+  afterAll(() => {
+    if (fs.existsSync(tempDir)) {
+      try {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      } catch {
+        // Ignore
+      }
+    }
+  });
+
+  beforeEach(() => {
+    ruleFile = path.join(tempDir, `rule-${Math.random()}.txt`);
+  });
+
+  afterEach(() => {
+    if (fs.existsSync(ruleFile)) {
+      fs.unlinkSync(ruleFile);
+    }
+  });
+
+  test("writes content when file does not exist", () => {
+    writeRuleFileWithConflict(ruleFile, "initial content", "skip");
+    expect(fs.readFileSync(ruleFile, "utf-8")).toBe("initial content");
+  });
+
+  test("skips writing when file exists and action is skip", () => {
+    fs.writeFileSync(ruleFile, "original", "utf-8");
+    writeRuleFileWithConflict(ruleFile, "new content", "skip");
+    expect(fs.readFileSync(ruleFile, "utf-8")).toBe("original");
+  });
+
+  test("overwrites when file exists and action is overwrite", () => {
+    fs.writeFileSync(ruleFile, "original", "utf-8");
+    writeRuleFileWithConflict(ruleFile, "new content", "overwrite");
+    expect(fs.readFileSync(ruleFile, "utf-8")).toBe("new content");
+  });
+
+  test("appends when file exists and action is append", () => {
+    fs.writeFileSync(ruleFile, "original", "utf-8");
+    writeRuleFileWithConflict(ruleFile, "new content", "append");
+    expect(fs.readFileSync(ruleFile, "utf-8")).toBe("original\n\nnew content");
+  });
+
+  test("skips append if content already exists", () => {
+    fs.writeFileSync(ruleFile, "original\n\nnew content", "utf-8");
+    writeRuleFileWithConflict(ruleFile, "new content", "append");
+    expect(fs.readFileSync(ruleFile, "utf-8")).toBe("original\n\nnew content");
   });
 });

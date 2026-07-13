@@ -1,0 +1,4 @@
+#!/bin/sh
+# ARIVE post-verify hook sample
+# This hook runs after the verify tests run.
+exit 0

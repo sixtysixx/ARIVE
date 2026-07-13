@@ -1,0 +1,14 @@
+#!/bin/sh
+# ARIVE post-verify hook sample
+# This hook runs after the verify tests run.
+#
+# Available environment variables:
+# - ARIVE_HOOK_NAME: name of the hook (e.g. post-verify)
+# - ARIVE_HOOK_PHASE: ARIVE phase (e.g. verify)
+# - ARIVE_HOOK_CONTEXT: JSON-stringified argument context (e.g. {"taskId": "task-123", "testCommand": "bun test"})
+# - ARIVE_HOOK_RESULT: JSON-stringified result (e.g. {"success": true, "failures": []})
+#
+# To enable this hook, rename this file to "post-verify" (without .sample) and make it executable.
+
+echo "Verify result: \$ARIVE_HOOK_RESULT"
+exit 0

@@ -1,0 +1,4 @@
+#!/bin/sh
+# OMP post-verify hook sample
+echo "Running local OMP post-verify hook"
+exit 0

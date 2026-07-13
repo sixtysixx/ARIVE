@@ -1,7 +1,8 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import { installPreCommitHook } from "./init_hooks.js";
+import * as readline from "readline";
+import { installPreCommitHook, installPreCommitHookSync } from "./init_hooks.js";
 
 // Types
 interface MCPConfig {
@@ -23,6 +24,7 @@ interface OpenCodeConfig {
       enabled: boolean;
     }
   >;
+  plugin?: string[];
 }
 
 // Helper to resolve app data directories
@@ -34,6 +36,49 @@ function getAppDataPath(): string {
     return path.join(os.homedir(), "Library", "Application Support");
   }
   return path.join(os.homedir(), ".config");
+}
+
+/**
+ * Helper to write a rule file and handle conflicts (overwrite, append, skip).
+ */
+export function writeRuleFileWithConflict(
+  filePath: string,
+  content: string,
+  action: "overwrite" | "append" | "skip",
+): void {
+  const dir = path.dirname(filePath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+
+  if (!fs.existsSync(filePath)) {
+    fs.writeFileSync(filePath, content, "utf-8");
+    return;
+  }
+
+  if (action === "skip") {
+    return;
+  }
+
+  if (action === "overwrite") {
+    fs.writeFileSync(filePath, content, "utf-8");
+    return;
+  }
+
+  if (action === "append") {
+    const current = fs.readFileSync(filePath, "utf-8");
+    const contentFirstLine = content.split("\n")[0] || "";
+    if (contentFirstLine && current.includes(contentFirstLine)) {
+      return;
+    }
+    if (current.includes("Fade, lazy senior dev mode") && content.includes("Fade, lazy senior dev mode")) {
+      return;
+    }
+    if (current.includes(content.trim())) {
+      return;
+    }
+    fs.writeFileSync(filePath, `${current}\n\n${content}`, "utf-8");
+  }
 }
 
 // Update helper for normal MCP JSON configs
@@ -123,8 +168,8 @@ function updateOpenCodeConfig(filePath: string, command: string[]): void {
   }
 }
 
-// Shared Ponytail rules text
-const ponytailRules = `# Ponytail, lazy senior dev mode
+// Shared Fade rules text
+const fadeRules = `# Fade, lazy senior dev mode
 
 You are a lazy senior developer. Lazy means efficient, not careless. The best code is the code never written.
 
@@ -148,9 +193,9 @@ Rules:
 - No boilerplate nobody asked for.
 - Deletion over addition. Boring over clever. Fewest files possible.
 - Shortest working diff wins, but only once you understand the problem.
-- Mark intentional simplifications with a \`ponytail:\` comment.`;
+- Mark intentional simplifications with a \`fade:\` comment.`;
 
-const ponytailReview = `Review diffs for unnecessary complexity. One line per finding: location, what to cut, what replaces it. The diff's best outcome is getting shorter.
+const fadeReview = `Review diffs for unnecessary complexity. One line per finding: location, what to cut, what replaces it. The diff's best outcome is getting shorter.
 
 Format:
 L<line>: <tag> <what>. <replacement>., or <file>:L<line>: ... for multi-file diffs.
@@ -165,98 +210,171 @@ Tags:
 Scoring:
 End with: net: -<N> lines possible.`;
 
-const ponytailAudit = `Audit the whole repo for over-engineering and complexity. Scan the whole tree. Rank findings biggest cut first.
+const fadeAudit = `Audit the whole repo for over-engineering and complexity. Scan the whole tree. Rank findings biggest cut first.
 
-Tags: Same as ponytail-review (delete, stdlib, native, yagni, shrink).
+Tags: Same as fade-review (delete, stdlib, native, yagni, shrink).
 
 Output:
 One line per finding: <tag> <what to cut>. <replacement>. [path]
 End with: net: -<N> lines, -<M> deps possible.`;
 
-const ponytailDebt = `Scan the repository for 'ponytail:' comments and group them into a debt ledger.
+const fadeDebt = `Scan the repository for 'fade:' comments and group them into a debt ledger.
 
 Output:
 <file>:<line>, <what was simplified>. ceiling: <limit>. upgrade: <trigger>.
 End with: <N> markers.`;
 
-const ponytailGain = `Display the ponytail scoreboard:
-  ponytail gain                     benchmark median · 5 tasks · 3 models
+const fadeGain = `Display the fade scoreboard:
+  fade gain                     benchmark median · 5 tasks · 3 models
   Lines of code   no-skill  ████████████████████  100%
-                  ponytail  ██▌·················    6–20%   ▼ 80–94%
+                  fade  ██▌·················    6–20%   ▼ 80–94%
   Cost            no-skill  ████████████████████  100%
-                  ponytail  █████▌··············   23–53%  ▼ 47–77%
-  Speed           ponytail  ▸ 3–6× faster`;
+                  fade  █████▌··············   23–53%  ▼ 47–77%
+  Speed           fade  ▸ 3–6× faster`;
 
-const ponytailHelp = `# Ponytail Help
+const fadeHelp = `# Fade Help
 Levels:
 - Lite: Suggest lazier alternative in one line.
 - Full: The ladder enforced (YAGNI -> stdlib -> native -> minimum).
 - Ultra: Extremist YAGNI. Deletion first. Challenge requirements.
 
 Deactivate:
-Say 'stop ponytail' or 'normal mode'.`;
+Say 'stop fade' or 'normal mode'.`;
 
-const ponytailPlugin = `// ponytail — OpenCode plugin
+const fadePlugin = `// fade — OpenCode plugin
 export default async ({ client } = {}) => {
   return {
     'experimental.chat.system.transform': async (_input, output) => {
-      output.system.push("PONYTAIL ACTIVE: Follow lazy senior developer rules.");
+      output.system.push("FADE ACTIVE: Follow lazy senior developer rules.");
     }
   };
 };`;
 
-export async function installAllAsync(
-  workspacePath?: string,
-  editor?: string,
-): Promise<void> {
-  const wsRoot = workspacePath ? path.resolve(workspacePath) : process.cwd();
-  const rootDir = path.resolve(process.cwd());
-  const relativePath = path.relative(rootDir, wsRoot);
-  const isOutside =
-    relativePath.startsWith("..") || path.isAbsolute(relativePath);
-  if (isOutside && wsRoot !== rootDir) {
-    throw new Error(
-      `Security Exception: Workspace path "${wsRoot}" is outside the allowed project directory.`,
-    );
+// Helper to update gitignore
+function updateGitignore(wsRoot: string, pathsToIgnore: string[]): void {
+  const gitignorePath = path.join(wsRoot, ".gitignore");
+  let content = "";
+  if (fs.existsSync(gitignorePath)) {
+    content = fs.readFileSync(gitignorePath, "utf-8");
   }
 
-  const target = editor ? editor.toLowerCase().trim() : undefined;
-  const validEditors = [
-    "cursor",
-    "cline",
-    "roo",
-    "roocode",
-    "windsurf",
-    "kiro",
-    "agents",
-    "openclaw",
-    "opencode",
-    "kilocode",
-    "antigravity",
-    "claude",
-    "claudecode",
-    "omp",
-  ];
-  if (target && !validEditors.includes(target)) {
-    console.warn(
-      `! Warning: "${target}" is not a recognized editor. Installing for all editors instead.`,
-    );
-  }
+  const lines = content.split(/\r?\n/);
+  const toAdd: string[] = [];
 
-  console.log(
-    `Starting ARIVE installer for workspace: ${wsRoot}${target ? ` (Target: ${target})` : ""}`,
-  );
-
-  const gitDir = path.join(wsRoot, ".git");
-  if (fs.existsSync(gitDir)) {
-    try {
-      installPreCommitHook();
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : String(e);
-      console.warn(`! Failed to install pre-commit hook: ${message}`);
+  const expandedPaths: string[] = [];
+  for (const p of pathsToIgnore) {
+    if (p === ".arive") {
+      expandedPaths.push(
+        ".arive/*.db",
+        ".arive/*.db-shm",
+        ".arive/*.db-wal",
+        ".arive/workspaces/",
+        ".arive/logs/"
+      );
+    } else {
+      expandedPaths.push(p);
     }
+  }
+
+  for (const p of expandedPaths) {
+    const isIgnored = lines.some((line) => {
+      const trimmed = line.trim();
+      return (
+        trimmed === p ||
+        trimmed === `${p}/` ||
+        trimmed === `/${p}` ||
+        (p.endsWith("/") && (trimmed === p.slice(0, -1) || trimmed === `/${p.slice(0, -1)}`))
+      );
+    });
+    if (!isIgnored) {
+      toAdd.push(p);
+    }
+  }
+
+  if (toAdd.length > 0) {
+    const separator = content.endsWith("\n") || content === "" ? "" : "\n";
+    const header = `${separator}\n# ARIVE run-time and database files\n`;
+    const newLines = toAdd.map((p) => {
+      if (p.endsWith("/") || p.endsWith("*") || p.includes(".")) {
+        return p;
+      }
+      return `${p}/`;
+    }).join("\n") + "\n";
+    fs.appendFileSync(gitignorePath, header + newLines, "utf-8");
+    console.log(`✓ Added to .gitignore in ${wsRoot}: ${toAdd.join(", ")}`);
   } else {
-    console.log("ℹ Not a git repository, skipping Git hook installation.");
+    console.log(`ℹ ARIVE paths already ignored in ${wsRoot} .gitignore.`);
+  }
+}
+
+// Interactive prompt helpers
+function askQuestion(query: string): Promise<string> {
+  const { promise, resolve } = Promise.withResolvers<string>();
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  rl.question(query, (answer) => {
+    rl.close();
+    resolve(answer.trim());
+  });
+  return promise;
+}
+
+async function askYesNo(query: string, defaultYes = true): Promise<boolean> {
+  const suffix = defaultYes ? " (Y/n): " : " (y/N): ";
+  const answer = await askQuestion(query + suffix);
+  if (answer === "") {
+    return defaultYes;
+  }
+  return answer.toLowerCase().startsWith("y");
+}
+
+async function askChoice(
+  query: string,
+  choices: string[],
+  defaultChoice: string
+): Promise<string> {
+  const formattedChoices = choices.join("/");
+  const answer = await askQuestion(`${query} (${formattedChoices}) [default: ${defaultChoice}]: `);
+  if (answer === "") {
+    return defaultChoice;
+  }
+  const match = choices.find(c => c.toLowerCase() === answer.toLowerCase() || c.toLowerCase().startsWith(answer.toLowerCase()));
+  return match || defaultChoice;
+}
+// Helper to write lifecycle hooks samples
+function writeHookSamples(hooksDir: string): void {
+  try {
+    fs.mkdirSync(hooksDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(hooksDir, "pre-integrate.sample"),
+      `#!/bin/sh\n# ARIVE pre-integrate hook sample\n# This hook runs before a task workspace is created, command is executed, or cleaned up.\nexit 0\n`,
+      { encoding: "utf-8", mode: 0o755 }
+    );
+    fs.writeFileSync(
+      path.join(hooksDir, "post-verify.sample"),
+      `#!/bin/sh\n# ARIVE post-verify hook sample\n# This hook runs after the verify tests run.\nexit 0\n`,
+      { encoding: "utf-8", mode: 0o755 }
+    );
+  } catch (e: unknown) {
+    // Ignore error silently
+  }
+}
+
+// Shared implementation containing actual file writes & config registrations
+function executeInstallation(
+  wsRoot: string,
+  options: {
+    target?: string;
+    updateGitignore: boolean;
+    ruleConflictAction: "overwrite" | "append" | "skip";
+  }
+): void {
+  const target = options.target ? options.target.toLowerCase().trim() : undefined;
+
+  if (options.updateGitignore) {
+    updateGitignore(wsRoot, [".arive"]);
   }
 
   try {
@@ -285,22 +403,19 @@ export async function installAllAsync(
 
   try {
     const clawSkills = [
-      { name: "ponytail", content: ponytailRules },
-      { name: "ponytail-review", content: ponytailReview },
-      { name: "ponytail-audit", content: ponytailAudit },
-      { name: "ponytail-debt", content: ponytailDebt },
-      { name: "ponytail-gain", content: ponytailGain },
-      { name: "ponytail-help", content: ponytailHelp },
+      { name: "fade", content: fadeRules },
+      { name: "fade-review", content: fadeReview },
+      { name: "fade-audit", content: fadeAudit },
+      { name: "fade-debt", content: fadeDebt },
+      { name: "fade-gain", content: fadeGain },
+      { name: "fade-help", content: fadeHelp },
     ];
 
     if (target === undefined || target === "cursor") {
-      const cursorRulesDir = path.join(wsRoot, ".cursor", "rules");
-      fs.mkdirSync(cursorRulesDir, { recursive: true });
-      fs.writeFileSync(
-        path.join(cursorRulesDir, "ponytail.mdc"),
-        `---\ndescription: Ponytail, lazy senior dev mode\nglobs: "*"\nalwaysApply: true\n---\n${ponytailRules}`,
-        "utf-8",
-      );
+      const rulePath = path.join(wsRoot, ".cursor", "rules", "fade.mdc");
+      const content = `---\ndescription: Fade, lazy senior dev mode\nglobs: "*"\nalwaysApply: true\n---\n${fadeRules}`;
+      writeRuleFileWithConflict(rulePath, content, options.ruleConflictAction);
+      writeHookSamples(path.join(wsRoot, ".cursor", "hooks"));
     }
 
     if (
@@ -309,71 +424,90 @@ export async function installAllAsync(
       target === "roo" ||
       target === "roocode"
     ) {
-      fs.writeFileSync(
-        path.join(wsRoot, ".clinerules"),
-        ponytailRules,
-        "utf-8",
-      );
+      const rulePath = path.join(wsRoot, ".clinerules");
+      writeRuleFileWithConflict(rulePath, fadeRules, options.ruleConflictAction);
+      writeHookSamples(path.join(wsRoot, ".cline", "hooks"));
+      writeHookSamples(path.join(wsRoot, ".roo", "hooks"));
     }
 
     if (target === undefined || target === "windsurf") {
-      const windsurfDir = path.join(wsRoot, ".windsurf", "rules");
-      fs.mkdirSync(windsurfDir, { recursive: true });
-      fs.writeFileSync(
-        path.join(windsurfDir, "ponytail.md"),
-        ponytailRules,
-        "utf-8",
-      );
+      const rulePath = path.join(wsRoot, ".windsurf", "rules", "fade.md");
+      writeRuleFileWithConflict(rulePath, fadeRules, options.ruleConflictAction);
+      writeHookSamples(path.join(wsRoot, ".windsurf", "hooks"));
     }
 
     if (target === undefined || target === "kiro") {
-      const kiroDir = path.join(wsRoot, ".kiro", "steering");
-      fs.mkdirSync(kiroDir, { recursive: true });
-      fs.writeFileSync(
-        path.join(kiroDir, "ponytail.md"),
-        ponytailRules,
-        "utf-8",
-      );
+      const rulePath = path.join(wsRoot, ".kiro", "steering", "fade.md");
+      writeRuleFileWithConflict(rulePath, fadeRules, options.ruleConflictAction);
+      writeHookSamples(path.join(wsRoot, ".kiro", "hooks"));
     }
 
     if (target === undefined || target === "agents") {
-      const agentsDir = path.join(wsRoot, ".agents", "rules");
-      fs.mkdirSync(agentsDir, { recursive: true });
-      fs.writeFileSync(
-        path.join(agentsDir, "ponytail.md"),
-        ponytailRules,
-        "utf-8",
-      );
+      const rulePath = path.join(wsRoot, ".agents", "rules", "fade.md");
+      writeRuleFileWithConflict(rulePath, fadeRules, options.ruleConflictAction);
+      writeHookSamples(path.join(wsRoot, ".agents", "hooks"));
     }
 
+    if (target === undefined || target === "omp") {
+      const rulePath = path.join(wsRoot, ".omp", "rules", "fade.md");
+      const rulesDir = path.dirname(rulePath);
+      fs.mkdirSync(rulesDir, { recursive: true });
+      writeRuleFileWithConflict(rulePath, fadeRules, options.ruleConflictAction);
+
+      const globalRulePath = path.join(os.homedir(), ".omp", "rules", "fade.md");
+      const globalRulesDir = path.dirname(globalRulePath);
+      fs.mkdirSync(globalRulesDir, { recursive: true });
+      writeRuleFileWithConflict(globalRulePath, fadeRules, options.ruleConflictAction);
+
+      // Local OMP hooks
+      const localHooksDir = path.join(wsRoot, ".omp", "hooks");
+      fs.mkdirSync(localHooksDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(localHooksDir, "pre-integrate.sample"),
+        `#!/bin/sh\n# OMP pre-integrate hook sample\necho "Running local OMP pre-integrate hook"\nexit 0\n`,
+        { encoding: "utf-8", mode: 0o755 }
+      );
+      fs.writeFileSync(
+        path.join(localHooksDir, "post-verify.sample"),
+        `#!/bin/sh\n# OMP post-verify hook sample\necho "Running local OMP post-verify hook"\nexit 0\n`,
+        { encoding: "utf-8", mode: 0o755 }
+      );
+
+      // Global OMP hooks
+      const globalHooksDir = path.join(os.homedir(), ".omp", "hooks");
+      fs.mkdirSync(globalHooksDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(globalHooksDir, "pre-integrate.sample"),
+        `#!/bin/sh\n# OMP pre-integrate hook sample\necho "Running global OMP pre-integrate hook"\nexit 0\n`,
+        { encoding: "utf-8", mode: 0o755 }
+      );
+      fs.writeFileSync(
+        path.join(globalHooksDir, "post-verify.sample"),
+        `#!/bin/sh\n# OMP post-verify hook sample\necho "Running global OMP post-verify hook"\nexit 0\n`,
+        { encoding: "utf-8", mode: 0o755 }
+      );
+    }
     if (target === undefined || target === "openclaw") {
       for (const skill of clawSkills) {
-        const skillDir = path.join(wsRoot, ".openclaw", "skills", skill.name);
-        fs.mkdirSync(skillDir, { recursive: true });
-        fs.writeFileSync(
-          path.join(skillDir, "SKILL.md"),
-          `---\nname: ${skill.name}\ndescription: Ponytail ${skill.name} skill\n---\n${skill.content}`,
-          "utf-8",
-        );
+        const skillPath = path.join(wsRoot, ".openclaw", "skills", skill.name, "SKILL.md");
+        const content = `---\nname: ${skill.name}\ndescription: Fade ${skill.name} skill\n---\n${skill.content}`;
+        writeRuleFileWithConflict(skillPath, content, options.ruleConflictAction);
       }
+      writeHookSamples(path.join(wsRoot, ".openclaw", "hooks"));
     }
 
     if (target === undefined || target === "opencode") {
       for (const skill of clawSkills) {
-        const cmdDir = path.join(wsRoot, ".opencode", "command");
-        fs.mkdirSync(cmdDir, { recursive: true });
-        fs.writeFileSync(
-          path.join(cmdDir, `${skill.name}.md`),
-          `---\ndescription: Ponytail ${skill.name} command\n---\n${skill.content}`,
-          "utf-8",
-        );
+        const cmdPath = path.join(wsRoot, ".opencode", "command", `${skill.name}.md`);
+        const content = `---\ndescription: Fade ${skill.name} command\n---\n${skill.content}`;
+        writeRuleFileWithConflict(cmdPath, content, options.ruleConflictAction);
       }
 
       const opencodePluginsDir = path.join(wsRoot, ".opencode", "plugins");
       fs.mkdirSync(opencodePluginsDir, { recursive: true });
       fs.writeFileSync(
-        path.join(opencodePluginsDir, "ponytail.mjs"),
-        ponytailPlugin,
+        path.join(opencodePluginsDir, "fade.mjs"),
+        fadePlugin,
         "utf-8",
       );
 
@@ -391,8 +525,8 @@ export async function installAllAsync(
       if (!opencodeConfig.plugin) {
         opencodeConfig.plugin = [];
       }
-      if (!opencodeConfig.plugin.includes(".opencode/plugins/ponytail.mjs")) {
-        opencodeConfig.plugin.push(".opencode/plugins/ponytail.mjs");
+      if (!opencodeConfig.plugin.includes(".opencode/plugins/fade.mjs")) {
+        opencodeConfig.plugin.push(".opencode/plugins/fade.mjs");
       }
       fs.writeFileSync(
         opencodeJsonPath,
@@ -404,8 +538,8 @@ export async function installAllAsync(
       const globalPluginsDir = path.join(opencodeGlobalDir, "plugins");
       fs.mkdirSync(globalPluginsDir, { recursive: true });
       fs.writeFileSync(
-        path.join(globalPluginsDir, "ponytail.mjs"),
-        ponytailPlugin,
+        path.join(globalPluginsDir, "fade.mjs"),
+        fadePlugin,
         "utf-8",
       );
 
@@ -414,10 +548,13 @@ export async function installAllAsync(
       for (const skill of clawSkills) {
         fs.writeFileSync(
           path.join(globalCommandsDir, `${skill.name}.md`),
-          `---\ndescription: Ponytail ${skill.name} command\n---\n${skill.content}`,
+          `---\ndescription: Fade ${skill.name} command\n---\n${skill.content}`,
           "utf-8",
         );
       }
+
+      writeHookSamples(path.join(wsRoot, ".opencode", "hooks"));
+      writeHookSamples(path.join(opencodeGlobalDir, "hooks"));
     }
 
     if (target === undefined || target === "antigravity") {
@@ -435,7 +572,7 @@ export async function installAllAsync(
           {
             name: "arive",
             version: "1.0.0",
-            description: "ARIVE MCP Server and Ponytail rules plugin",
+            description: "ARIVE MCP Server and Fade rules plugin",
             id: "arive",
           },
           null,
@@ -463,8 +600,8 @@ export async function installAllAsync(
       const antigravityRulesDir = path.join(antigravityPluginDir, "rules");
       fs.mkdirSync(antigravityRulesDir, { recursive: true });
       fs.writeFileSync(
-        path.join(antigravityRulesDir, "ponytail.md"),
-        ponytailRules,
+        path.join(antigravityRulesDir, "fade.md"),
+        fadeRules,
         "utf-8",
       );
 
@@ -472,13 +609,51 @@ export async function installAllAsync(
       fs.mkdirSync(antigravitySkillsDir, { recursive: true });
       fs.writeFileSync(
         path.join(antigravitySkillsDir, "SKILL.md"),
-        `# Ponytail Skills\n\n${ponytailRules}`,
+        `# Fade Skills\n\n${fadeRules}`,
         "utf-8",
       );
+
+      // Local Antigravity rules and hooks
+      const localAntigravityRulesDir = path.join(wsRoot, ".antigravity", "rules");
+      fs.mkdirSync(localAntigravityRulesDir, { recursive: true });
+      writeRuleFileWithConflict(
+        path.join(localAntigravityRulesDir, "fade.md"),
+        fadeRules,
+        options.ruleConflictAction
+      );
+      writeHookSamples(path.join(wsRoot, ".antigravity", "hooks"));
+      writeHookSamples(path.join(antigravityPluginDir, "hooks"));
+    }
+
+    // Claude Local Rules & Hooks
+    if (target === undefined || target === "claude") {
+      const rulePath = path.join(wsRoot, ".clauderules");
+      writeRuleFileWithConflict(rulePath, fadeRules, options.ruleConflictAction);
+      writeHookSamples(path.join(wsRoot, ".claude", "hooks"));
+
+      const appData = getAppDataPath();
+      writeHookSamples(path.join(appData, "Claude", "hooks"));
+    }
+
+    // ClaudeCode Local Rules & Hooks
+    if (target === undefined || target === "claudecode") {
+      const rulePath = path.join(wsRoot, ".clauderules");
+      writeRuleFileWithConflict(rulePath, fadeRules, options.ruleConflictAction);
+      writeHookSamples(path.join(wsRoot, ".claudecode", "hooks"));
+
+      const globalClaudeCodeDir = path.join(os.homedir(), ".config", "claude-code");
+      writeHookSamples(path.join(globalClaudeCodeDir, "hooks"));
+    }
+
+    // Kilocode Local Rules & Hooks
+    if (target === undefined || target === "kilocode") {
+      const rulePath = path.join(wsRoot, ".kilocoderules");
+      writeRuleFileWithConflict(rulePath, fadeRules, options.ruleConflictAction);
+      writeHookSamples(path.join(wsRoot, ".kilocode", "hooks"));
     }
 
     console.log(
-      "✓ Successfully installed all Ponytail rules, skills, and plugins.",
+      "✓ Successfully installed all Fade rules, skills, and plugins.",
     );
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : String(e);
@@ -589,6 +764,7 @@ export async function installAllAsync(
     );
     updateMCPConfig(ompGlobalConfigPath, command, args);
   }
+
   console.log("Registering project-level MCP configurations...");
 
   if (target === undefined || target === "omp") {
@@ -616,6 +792,41 @@ export async function installAllAsync(
     updateMCPConfig(kilocodeProjectConfig, command, args);
   }
 
+  if (target === undefined || target === "windsurf") {
+    const windsurfProjectConfig = path.join(wsRoot, ".windsurf", "mcp_config.json");
+    updateMCPConfig(windsurfProjectConfig, command, args);
+  }
+
+  if (target === undefined || target === "kiro") {
+    const kiroProjectConfig = path.join(wsRoot, ".kiro", "mcp.json");
+    updateMCPConfig(kiroProjectConfig, command, args);
+  }
+
+  if (target === undefined || target === "agents") {
+    const agentsProjectConfig = path.join(wsRoot, ".agents", "mcp.json");
+    updateMCPConfig(agentsProjectConfig, command, args);
+  }
+
+  if (target === undefined || target === "openclaw") {
+    const openclawProjectConfig = path.join(wsRoot, ".openclaw", "mcp.json");
+    updateMCPConfig(openclawProjectConfig, command, args);
+  }
+
+  if (target === undefined || target === "antigravity") {
+    const antigravityProjectConfig = path.join(wsRoot, ".antigravity", "mcp_config.json");
+    updateMCPConfig(antigravityProjectConfig, command, args);
+  }
+
+  if (target === undefined || target === "claude") {
+    const claudeProjectConfig = path.join(wsRoot, ".claude", "mcp.json");
+    updateMCPConfig(claudeProjectConfig, command, args);
+  }
+
+  if (target === undefined || target === "claudecode") {
+    const claudecodeProjectConfig = path.join(wsRoot, ".claudecode", "mcp.json");
+    updateMCPConfig(claudecodeProjectConfig, command, args);
+  }
+
   if (target === undefined || target === "opencode") {
     const opencodeProjectConfig = path.join(wsRoot, "opencode.json");
     updateOpenCodeConfig(opencodeProjectConfig, [command, ...args]);
@@ -623,9 +834,143 @@ export async function installAllAsync(
   console.log("✓ ARIVE MCP installation completed successfully!");
 }
 
+// Asynchronous interactive installation
+async function runInteractiveInstall(
+  workspacePath?: string,
+  editor?: string,
+): Promise<void> {
+  const wsRoot = workspacePath ? path.resolve(workspacePath) : process.cwd();
+  console.log("\n--- ARIVE Interactive Setup Wizard ---\n");
+
+  const rootDir = path.resolve(process.cwd());
+  const relativePath = path.relative(rootDir, wsRoot);
+  const isOutside = relativePath.startsWith("..") || path.isAbsolute(relativePath);
+  if (isOutside && wsRoot !== rootDir) {
+    const confirmOutside = await askYesNo(
+      `Warning: The target workspace path "${wsRoot}" is outside the current project directory.\nAre you sure you want to proceed?`,
+      false
+    );
+    if (!confirmOutside) {
+      console.log("Installation aborted by user.");
+      return;
+    }
+  }
+
+  let targetEditor = editor;
+  if (!targetEditor) {
+    const answer = await askQuestion(
+      "Which editor configuration would you like to install ARIVE rules/plugins for?\n" +
+      "(all, cursor, cline, roo, windsurf, opencode, kilocode, claude, claudecode, antigravity, omp) [default: all]: "
+    );
+    targetEditor = answer ? answer.toLowerCase().trim() : "all";
+  }
+
+  const gitignorePath = path.join(wsRoot, ".gitignore");
+  let updateGit = true;
+  if (fs.existsSync(gitignorePath)) {
+    const content = fs.readFileSync(gitignorePath, "utf-8");
+    if (!content.includes(".arive")) {
+      updateGit = await askYesNo("We detected a .gitignore file, but '.arive/' is not ignored. Update .gitignore?", true);
+    } else {
+      updateGit = false;
+    }
+  } else {
+    updateGit = await askYesNo("No .gitignore file found in the workspace root. Create one to ignore '.arive/'?", true);
+  }
+
+  const gitDir = path.join(wsRoot, ".git");
+  let installHookChoice = false;
+  if (fs.existsSync(gitDir)) {
+    installHookChoice = await askYesNo("Would you like to install/configure the Git pre-commit verification hooks?", true);
+  }
+
+  let conflictAction: "overwrite" | "append" | "skip" = "append";
+  const clinerulesPath = path.join(wsRoot, ".clinerules");
+  if (fs.existsSync(clinerulesPath)) {
+    const ans = await askChoice(
+      "File '.clinerules' already exists. How would you like to handle it?",
+      ["overwrite", "append", "skip"],
+      "append"
+    );
+    conflictAction = ans as "overwrite" | "append" | "skip";
+  }
+
+  console.log("\nRunning ARIVE installation...");
+
+  if (installHookChoice) {
+    await installPreCommitHook(wsRoot);
+  }
+
+  executeInstallation(wsRoot, {
+    target: targetEditor === "all" ? undefined : targetEditor,
+    updateGitignore: updateGit,
+    ruleConflictAction: conflictAction,
+  });
+}
+
+// Synchronous non-interactive installation (for tests & CI)
+function runNonInteractiveInstall(
+  workspacePath?: string,
+  editor?: string,
+): void {
+  const wsRoot = workspacePath ? path.resolve(workspacePath) : process.cwd();
+
+  const rootDir = path.resolve(process.cwd());
+  const relativePath = path.relative(rootDir, wsRoot);
+  const isOutside = relativePath.startsWith("..") || path.isAbsolute(relativePath);
+  if (isOutside && wsRoot !== rootDir) {
+    throw new Error(
+      `Security Exception: Workspace path "${wsRoot}" is outside the allowed project directory.`,
+    );
+  }
+
+  const target = editor ? editor.toLowerCase().trim() : undefined;
+
+  const gitDir = path.join(wsRoot, ".git");
+  if (fs.existsSync(gitDir)) {
+    try {
+      installPreCommitHookSync(wsRoot);
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.warn(`! Failed to install pre-commit hook: ${message}`);
+    }
+  }
+
+  executeInstallation(wsRoot, {
+    target,
+    updateGitignore: true,
+    ruleConflictAction: "append",
+  });
+}
+
+export async function installAllAsync(
+  workspacePath?: string,
+  editor?: string,
+): Promise<void> {
+  const wsRoot = workspacePath ? path.resolve(workspacePath) : process.cwd();
+  console.log(
+    `Starting ARIVE installer for workspace: ${wsRoot}${editor ? ` (Target: ${editor})` : ""}`,
+  );
+
+  const isInteractive = process.stdout.isTTY && !process.env.CI && !process.argv.includes("--non-interactive");
+
+  if (isInteractive) {
+    await runInteractiveInstall(workspacePath, editor);
+  } else {
+    runNonInteractiveInstall(workspacePath, editor);
+  }
+}
+
 export function installAll(workspacePath?: string, editor?: string): void {
-  // Synchronous execution for backward compatibility with tests/CLI
-  installAllAsync(workspacePath, editor);
+  // Synchronous execution path for compatibility:
+  // Since runNonInteractiveInstall contains zero awaits, calling it when non-interactive
+  // runs fully synchronously on the same tick, satisfying test assertions.
+  const isInteractive = process.stdout.isTTY && !process.env.CI && !process.argv.includes("--non-interactive");
+  if (isInteractive) {
+    installAllAsync(workspacePath, editor);
+  } else {
+    runNonInteractiveInstall(workspacePath, editor);
+  }
 }
 
 export function runInstallerCli(): void {

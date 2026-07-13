@@ -1,6 +1,6 @@
-# Ponytail Skills
+# Fade Skills
 
-## ponytail-review
+## fade-review
 
 Review diffs for unnecessary complexity. One line per finding: location, what to cut, what replaces it. The diff's best outcome is getting shorter.
 
@@ -20,11 +20,11 @@ End with: net: -<N> lines possible.
 
 ---
 
-## ponytail-audit
+## fade-audit
 
 Audit the whole repo for over-engineering and complexity. Scan the whole tree. Rank findings biggest cut first.
 
-Tags: Same as ponytail-review (delete, stdlib, native, yagni, shrink).
+Tags: Same as fade-review (delete, stdlib, native, yagni, shrink).
 
 Output:
 One line per finding: <tag> <what to cut>. <replacement>. [path]

@@ -1,0 +1,4 @@
+#!/bin/sh
+# OMP pre-integrate hook sample
+echo "Running local OMP pre-integrate hook"
+exit 0

@@ -10,7 +10,7 @@ import { SmartCrusher } from "./analyze/smart_crusher.js";
 import { ASTCompressor } from "./analyze/ast_compressor.js";
 import { CacheAligner } from "./analyze/cache_aligner.js";
 import { CCRRegistry } from "./analyze/ccr_registry.js";
-import { CodeMapScanner } from "./analyze/codemap.js";
+import { CodeTreeScanner } from "./analyze/codetree.js";
 import { SequentialEngine } from "./reason/sequential_engine.js";
 import {
   MemoryBank,
@@ -21,7 +21,7 @@ import { WorkspaceManager } from "./integrate/workspace.js";
 import { HookManager } from "./integrate/hook_manager.js";
 import { TDDRunner } from "./verify/tdd_runner.js";
 import { Validator } from "./verify/validator.js";
-import { PonytailFormatter } from "./explain/ponytail_formatter.js";
+import { FadeFormatter } from "./explain/fade_formatter.js";
 import {
   createCompactHelpers,
   CompactObject,
@@ -198,27 +198,27 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: "arive_explain",
         description:
-          "Transforms conversational messages into telegraphic token-saving ponytail styles, or returns ponytail instruction rules.",
+          "Transforms conversational messages into telegraphic token-saving fade styles, or returns fade instruction rules.",
         inputSchema: {
           type: "object",
           properties: {
             message: {
               type: "string",
               description:
-                "The natural language message, or prompt to get ponytail instructions for",
+                "The natural language message, or prompt to get fade instructions for",
             },
             brevity: {
               type: "string",
               enum: ["lite", "full", "ultra", "normal"],
               default: "full",
-              description: "The ponytail level of brevity/laziness",
+              description: "The fade level of brevity/laziness",
             },
           },
           required: ["message"],
         },
       },
       {
-        name: "arive_codemap",
+        name: "arive_codetree",
         description:
           "Scans folder structure tree, maps imports/exports, or runs git diff checks.",
         inputSchema: {
@@ -227,7 +227,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             action: {
               type: "string",
               enum: ["tree", "dependencies", "diff"],
-              description: "The codemap operation to perform",
+              description: "The codetree operation to perform",
             },
             dir: {
               type: "string",
@@ -253,7 +253,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: "arive_memory_bank",
         description:
-          "High-quality persistent memory bank inspired by MemPalace. " +
+          "High-quality persistent memory bank inspired by ThoughtArchive. " +
           "ACTIVATE IMMEDIATELY when the user says 'remember to …', 'remember that …', 'don't forget …', " +
           "'keep in mind that …', 'make a note that …', or 'note: …'. " +
           "Use action='remember' to auto-parse the user's natural-language phrase and store it with auto-detected category, tags, and importance score. " +
@@ -342,7 +342,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: "arive_install",
         description:
-          "Automatically registers the ARIVE MCP server in all detected AI clients and installs Git pre-commit hooks, ARIVE protocol lifecycle hooks, ponytail skills/rules, and plugins.",
+          "Automatically registers the ARIVE MCP server in all detected AI clients and installs Git pre-commit hooks, ARIVE protocol lifecycle hooks, fade skills/rules, and plugins.",
         inputSchema: {
           type: "object",
           properties: {
@@ -680,14 +680,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           throw new Error(`[Hook Blocked] pre-explain: ${preHook.error}`);
         }
 
-        const formatted = PonytailFormatter.format(message, brevity);
-        const savingsText = PonytailFormatter.getSavings(message, formatted);
+        const formatted = FadeFormatter.format(message, brevity);
+        const savingsText = FadeFormatter.getSavings(message, formatted);
         const charSavings = message.length - formatted.length;
         const charPercentage =
           message.length > 0
             ? Math.round((charSavings / message.length) * 100)
             : 0;
-        const instructions = PonytailFormatter.getInstructions(brevity);
+        const instructions = FadeFormatter.getInstructions(brevity);
 
         const responseObj = {
           explanation: {
@@ -722,7 +722,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
-      case "arive_codemap": {
+      case "arive_codetree": {
         const action = String(args?.action || "tree");
         const rawDir = String(args?.dir || ".");
         const excludes = Array.isArray(args?.excludes)
@@ -764,7 +764,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           throw new Error(`[Hook Blocked] pre-analyze: ${preHook.error}`);
         }
 
-        const scanner = new CodeMapScanner();
+        const scanner = new CodeTreeScanner();
         let resultText = "";
 
         if (action === "tree") {
@@ -778,20 +778,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         } else if (action === "diff") {
           resultText = scanner.getGitDiff(targetBranch);
         } else {
-          throw new Error(`Unknown codemap action: ${action}`);
+          throw new Error(`Unknown codetree action: ${action}`);
         }
 
         let responseText = resultText;
         let responseRef = "";
         if (resultText.length > 0) {
-          responseRef = getCCR().store(resultText, "codemap");
+          responseRef = getCCR().store(resultText, "codetree");
           HookManager.runHook(
             "post-compact",
             "analyze",
             { action, dir },
             {
               ref: responseRef,
-              type: "codemap",
+              type: "codetree",
               originalLength: resultText.length,
             },
           );
@@ -1048,6 +1048,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 if (process.argv.includes("install")) {
   const { runInstallerCli } = await import("./cli/installer.js");
   runInstallerCli();
+  process.exit(0);
+}
+
+// Check if running in prompt/generate-prompt mode
+if (process.argv.includes("prompt") || process.argv.includes("generate-prompt")) {
+  const { outputAdvancedPrompt } = await import("./cli/prompt_generator.js");
+  outputAdvancedPrompt();
   process.exit(0);
 }
 

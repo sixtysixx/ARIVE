@@ -1,3 +1,9 @@
 node_modules
 docs
-.arive
+
+# ARIVE run-time and database files
+.arive/*.db
+.arive/*.db-shm
+.arive/*.db-wal
+.arive/workspaces/
+.arive/logs/
