@@ -14,7 +14,7 @@ mock.module("os", () => {
 });
 
 // Import installer after mock is registered
-import { installAll, writeRuleFileWithConflict } from "../src/cli/installer.js";
+import { installAll, writeRuleFileWithConflict, isInteractive, isRawTTY } from "../src/cli/installer.js";
 
 describe("Installer Editor Targeting", () => {
   let tempDir: string;
@@ -425,5 +425,103 @@ describe("writeRuleFileWithConflict", () => {
     fs.writeFileSync(ruleFile, "original\n\nnew content", "utf-8");
     writeRuleFileWithConflict(ruleFile, "new content", "append");
     expect(fs.readFileSync(ruleFile, "utf-8")).toBe("original\n\nnew content");
+  });
+});
+
+describe("isInteractive", () => {
+  let originalArgv: string[];
+  let originalEnv: typeof process.env;
+
+  beforeEach(() => {
+    originalArgv = [...process.argv];
+    originalEnv = { ...process.env };
+  });
+
+  afterEach(() => {
+    process.argv = originalArgv;
+    // Restore process.env
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) {
+        delete process.env[key];
+      } else {
+        process.env[key] = originalEnv[key];
+      }
+    }
+  });
+
+  test("returns false when CI env is set", () => {
+    process.env.CI = "true";
+    expect(isInteractive()).toBe(false);
+  });
+
+  test("returns false when BUN_TEST env is set", () => {
+    process.env.BUN_TEST = "true";
+    expect(isInteractive()).toBe(false);
+  });
+
+  test("returns false when argv contains --non-interactive", () => {
+    delete process.env.CI;
+    delete process.env.BUN_TEST;
+    delete process.env.NODE_ENV;
+    process.argv = ["bun", "src/cli/installer.ts", "--non-interactive"];
+    expect(isInteractive()).toBe(false);
+  });
+
+  test("returns false when argv contains -y", () => {
+    delete process.env.CI;
+    delete process.env.BUN_TEST;
+    delete process.env.NODE_ENV;
+    process.argv = ["bun", "src/cli/installer.ts", "-y"];
+    expect(isInteractive()).toBe(false);
+  });
+
+  test("returns true in normal interactive shell conditions", () => {
+    delete process.env.CI;
+    delete process.env.BUN_TEST;
+    delete process.env.NODE_ENV;
+    process.argv = ["bun", "src/cli/installer.ts"];
+    expect(isInteractive()).toBe(true);
+  });
+});
+
+describe("isRawTTY", () => {
+  let originalArgv: string[];
+  let originalEnv: typeof process.env;
+
+  beforeEach(() => {
+    originalArgv = [...process.argv];
+    originalEnv = { ...process.env };
+  });
+
+  afterEach(() => {
+    process.argv = originalArgv;
+    // Restore process.env
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) {
+        delete process.env[key];
+      } else {
+        process.env[key] = originalEnv[key];
+      }
+    }
+  });
+
+  test("returns false when stdin is not a TTY", () => {
+    const originalTTY = process.stdin.isTTY;
+    process.stdin.isTTY = false;
+    try {
+      expect(isRawTTY()).toBe(false);
+    } finally {
+      process.stdin.isTTY = originalTTY;
+    }
+  });
+
+  test("returns false when stdout is not a TTY", () => {
+    const originalTTY = process.stdout.isTTY;
+    process.stdout.isTTY = false;
+    try {
+      expect(isRawTTY()).toBe(false);
+    } finally {
+      process.stdout.isTTY = originalTTY;
+    }
   });
 });

@@ -1168,8 +1168,8 @@ function runNonInteractiveUninstall(
   });
 }
 
-function isRawTTY(): boolean {
-  return (
+export function isRawTTY(): boolean {
+  return !!(
     process.stdin.isTTY &&
     process.stdout.isTTY &&
     !process.env.CI &&
@@ -1213,6 +1213,10 @@ async function selectPrompt(message: string, options: string[], defaultIndex = 0
     const cleanup = () => {
       process.stdout.write("\x1b[?25h");
       process.stdin.removeListener("data", onData);
+      try {
+        process.stdin.setRawMode(false);
+        process.stdin.pause();
+      } catch (e) {}
     };
     const render = () => {
       let output = `\x1b[32m?\x1b[0m \x1b[1m${message}\x1b[0m\n`;
@@ -1259,6 +1263,7 @@ async function selectPrompt(message: string, options: string[], defaultIndex = 0
       }
     };
     process.stdin.setRawMode(true);
+    process.stdin.resume();
     process.stdin.on("data", onData);
     render();
   });
@@ -1280,6 +1285,10 @@ async function confirmPrompt(query: string, defaultYes = true): Promise<boolean>
     const cleanup = () => {
       process.stdout.write("\x1b[?25h");
       process.stdin.removeListener("data", onData);
+      try {
+        process.stdin.setRawMode(false);
+        process.stdin.pause();
+      } catch (e) {}
     };
     const render = () => {
       let output = `\x1b[32m?\x1b[0m \x1b[1m${query}\x1b[0m\n`;
@@ -1324,6 +1333,7 @@ async function confirmPrompt(query: string, defaultYes = true): Promise<boolean>
       }
     };
     process.stdin.setRawMode(true);
+    process.stdin.resume();
     process.stdin.on("data", onData);
     render();
   });

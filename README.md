@@ -20,7 +20,7 @@ The easiest and **highly recommended** way to get started with ARIVE is to use o
 To install interactively, simply run:
 
 ```bash
-bun run install
+bun run installer
 ```
 
 > **Note**: In an interactive terminal, running the entrypoint directly (`bun run src/index.ts`) with no arguments will also automatically boot this setup wizard instead of launching the MCP stdio transport.
@@ -47,13 +47,13 @@ If you prefer a non-interactive installation, or want to bypass the prompts, you
 
 ```bash
 # Non-interactive CLI targeting Cursor for a specific project
-bun run install --agent cursor --scope project
+bun run installer --agent cursor --scope project
 
 # Non-interactive CLI targeting OpenCode globally
-bun run install -e opencode -s global
+bun run installer -e opencode -s global
 ```
 
-For more options, run `bun run install --help`.
+For more options, run `bun run installer --help`.
 
 ### Uninstalling
 
@@ -61,13 +61,13 @@ To remove ARIVE MCP configurations, rules, and hooks:
 
 ```bash
 # Interactive uninstall wizard
-bun run install --uninstall
+bun run installer --uninstall
 
 # Non-interactive: remove all Cursor project config
-bun run install --uninstall --agent cursor --scope project
+bun run installer --uninstall --agent cursor --scope project
 
 # Non-interactive: remove global OpenCode config
-bun run install -u -e opencode -s global
+bun run installer -u -e opencode -s global
 ```
 
 #### What the Installer Does

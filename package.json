@@ -14,7 +14,7 @@
     "start": "bun run src/index.ts",
     "test": "bun test",
     "init-hooks": "bun run src/cli/init_hooks.ts",
-    "install": "bun run src/cli/installer.ts",
+    "installer": "bun run src/cli/installer.ts",
     "prompt": "bun run src/index.ts prompt",
     "benchmark": "bun run scripts/prepare_prompt.ts && bunx promptfoo eval",
     "benchmark:toolset": "bun run scripts/benchmark_arive_toolset.ts",
