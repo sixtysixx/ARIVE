@@ -5,6 +5,8 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import { EngineLifecycle } from "./lifecycle.js";
+import { TOOL_REGISTRY } from "./mcp/tools/index.js";
 import { ContentRouter } from "./analyze/content_router.js";
 import { SmartCrusher } from "./analyze/smart_crusher.js";
 import { ASTCompressor } from "./analyze/ast_compressor.js";
@@ -45,352 +47,33 @@ const server = new Server(
   },
 );
 
-// Registries and Engine State — lazy so stdio can connect immediately
-interface EngineState {
-  ccr: CCRRegistry | undefined;
-  engine: SequentialEngine | undefined;
-  memoryBank: MemoryBank | undefined;
-  compactText: CompactText | undefined;
-  compactObject: CompactObject | undefined;
-}
+// Registries and Engine State — explicit lifecycle
+const lifecycle = new EngineLifecycle();
 
-const engineState: EngineState = {
-  ccr: undefined,
-  engine: undefined,
-  memoryBank: undefined,
-  compactText: undefined,
-  compactObject: undefined,
-};
+function getCCR() { return lifecycle.getCCR(); }
+function getEngine() { return lifecycle.getEngine(); }
+function getMemoryBank() { return lifecycle.getMemoryBank(); }
+function getCompactHelpers() { return lifecycle.getCompactHelpers(); }
 
-function getCCR(): CCRRegistry {
-  if (!engineState.ccr) engineState.ccr = new CCRRegistry();
-  return engineState.ccr;
-}
+process.on("exit", () => {
+  lifecycle.close();
+});
 
-function getEngine(): SequentialEngine {
-  if (!engineState.engine) engineState.engine = new SequentialEngine();
-  return engineState.engine;
-}
+process.on("SIGINT", () => {
+  lifecycle.close();
+  process.exit(0);
+});
 
-function getMemoryBank(): MemoryBank {
-  if (!engineState.memoryBank) engineState.memoryBank = new MemoryBank();
-  return engineState.memoryBank;
-}
+process.on("SIGTERM", () => {
+  lifecycle.close();
+  process.exit(0);
+});
 
-function getCompactHelpers() {
-  if (!engineState.compactText || !engineState.compactObject) {
-    const helpers = createCompactHelpers(getCCR());
-    engineState.compactText = helpers.compactText;
-    engineState.compactObject = helpers.compactObject;
-  }
-  return {
-    compactText: engineState.compactText!,
-    compactObject: engineState.compactObject!,
-  };
-}
 
 // Register List Tools handler
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
-    tools: [
-      {
-        name: "arive_compress",
-        description:
-          "Compresses strings based on code, JSON, logs or prose optimizations, return hash references for large sizes.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            content: {
-              type: "string",
-              description: "The content raw text block",
-            },
-            contentType: {
-              type: "string",
-              enum: ["json", "code", "logs", "prose", "auto"],
-              default: "auto",
-            },
-            forceCcr: { type: "boolean", default: false },
-            ccrThreshold: {
-              type: "integer",
-              description: "Character length threshold for CCR storage",
-              default: 1000,
-            },
-          },
-          required: ["content"],
-        },
-      },
-      {
-        name: "arive_decompress",
-        description:
-          "Resolves CCR reference hashes back to their raw uncompressed representation.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            hash: {
-              type: "string",
-              description: "The CCR hash (e.g. ccr:sha256_hash)",
-            },
-          },
-          required: ["hash"],
-        },
-      },
-      {
-        name: "arive_think",
-        description:
-          "Records a single thought block in the reasoning sequence, managing backtracking.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            thought: { type: "string" },
-            thoughtNumber: { type: "integer" },
-            totalThoughts: { type: "integer" },
-            nextThoughtNeeded: { type: "boolean" },
-            isRevision: { type: "boolean" },
-            revisesThoughtNum: { type: "integer" },
-            branchToThoughtNum: { type: "integer" },
-            sessionId: {
-              type: "string",
-              description: "Optional session ID for multi-session reasoning",
-              default: "default",
-            },
-          },
-          required: [
-            "thought",
-            "thoughtNumber",
-            "totalThoughts",
-            "nextThoughtNeeded",
-          ],
-        },
-      },
-      {
-        name: "arive_integrate",
-        description:
-          "Controls the workspace lifecycle (Git worktrees) and spawns subprocesses.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            taskId: { type: "string" },
-            action: { type: "string", enum: ["create", "execute", "cleanup"] },
-            branchName: { type: "string" },
-            command: { type: "string" },
-          },
-          required: ["taskId", "action"],
-        },
-      },
-      {
-        name: "arive_workspace_list",
-        description: "Lists all active ARIVE worktree workspaces.",
-        inputSchema: {
-          type: "object",
-          properties: {},
-        },
-      },
-      {
-        name: "arive_verify",
-        description:
-          "Runs testing suites in the isolated workspace path and backpropagates failures.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            taskId: { type: "string" },
-            testCommand: { type: "string" },
-          },
-          required: ["taskId", "testCommand"],
-        },
-      },
-      {
-        name: "arive_explain",
-        description:
-          "Transforms conversational messages into telegraphic token-saving fade styles, or returns fade instruction rules.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            message: {
-              type: "string",
-              description:
-                "The natural language message, or prompt to get fade instructions for",
-            },
-            brevity: {
-              type: "string",
-              enum: ["lite", "full", "ultra", "normal"],
-              default: "full",
-              description: "The fade level of brevity/laziness",
-            },
-          },
-          required: ["message"],
-        },
-      },
-      {
-        name: "arive_codetree",
-        description:
-          "Scans folder structure tree, maps imports/exports, or runs git diff checks.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            action: {
-              type: "string",
-              enum: ["tree", "dependencies", "diff"],
-              description: "The codetree operation to perform",
-            },
-            dir: {
-              type: "string",
-              description: "The directory to scan for tree/dependencies",
-            },
-            excludes: {
-              type: "array",
-              items: { type: "string" },
-              description: "List of directories to exclude",
-            },
-            targetBranch: {
-              type: "string",
-              description: "Target branch for git diff comparison",
-            },
-          },
-          required: ["action"],
-        },
-      },
-      {
-        name: "arive_memory_bank",
-        description:
-          "High-quality persistent memory bank inspired by ThoughtArchive. " +
-          "ACTIVATE IMMEDIATELY when the user says 'remember to …', 'remember that …', 'don't forget …', " +
-          "'keep in mind that …', 'make a note that …', or 'note: …'. " +
-          "Use action='remember' to auto-parse the user's natural-language phrase and store it with auto-detected category, tags, and importance score. " +
-          "Stores entries in a spatial hierarchy: wings > rooms > halls > drawers. " +
-          "Use action='recall'/'search' to retrieve memories. Use action='stats' for a summary.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            action: {
-              type: "string",
-              enum: [
-                "remember",
-                "drawer_write",
-                "drawer_read",
-                "drawer_list",
-                "wing_create",
-                "room_create",
-                "hall_create",
-                "search",
-                "forget",
-                "recall",
-                "stats",
-              ],
-              description:
-                "remember: PRIMARY verb — pass the user's full phrase (e.g. 'remember to buy milk') as content; auto-parses intent, tags, and importance. " +
-                "drawer_write: directly store a memory with explicit wing/room/hall. " +
-                "drawer_read: retrieve by drawerId. " +
-                "drawer_list: list entries in a wing/room/hall. " +
-                "search/recall: full-text LIKE search across all fields. " +
-                "forget: delete by drawerId. " +
-                "stats: return totals (drawers, wings, rooms, halls). " +
-                "wing_create/room_create/hall_create: create hierarchy nodes (no-op, created lazily on write).",
-            },
-            wing: {
-              type: "string",
-              description:
-                "Top-level category (wing). E.g. a project name, person name, or domain.",
-            },
-            room: {
-              type: "string",
-              description: "Sub-topic within the wing.",
-            },
-            hall: {
-              type: "string",
-              description:
-                "Corridor organising memories by type: facts, preferences, decisions, reminders, discoveries, rules, general.",
-            },
-            drawer: {
-              type: "string",
-              description:
-                "Optional label for the drawer (auto-derived from content if omitted).",
-            },
-            content: {
-              type: "string",
-              description:
-                "For action='remember': the full user phrase (e.g. 'remember to fix the login bug'). " +
-                "For drawer_write: the verbatim text to store.",
-            },
-            tags: {
-              type: "array",
-              items: { type: "string" },
-              description: "Optional tags for categorization.",
-            },
-            metadata: {
-              type: "object",
-              additionalProperties: true,
-              description: "Optional structured metadata.",
-            },
-            drawerId: {
-              type: "string",
-              description: "Required for drawer_read and forget.",
-            },
-            query: {
-              type: "string",
-              description: "Search query for search/recall verbs.",
-            },
-            limit: {
-              type: "integer",
-              description: "Max results for list/search. Default 50.",
-              default: 50,
-            },
-          },
-          required: ["action"],
-        },
-      },
-      {
-        name: "arive_install",
-        description:
-          "Automatically registers the ARIVE MCP server in all detected AI clients and installs Git pre-commit hooks, ARIVE protocol lifecycle hooks, fade skills/rules, and plugins.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            workspacePath: {
-              type: "string",
-              description:
-                "Optional path to the project/workspace root directory to install rules, skills, plugins, and hooks in",
-            },
-            editor: {
-              type: "string",
-              description:
-                "Optional name of the specific AI editor/agent to install configuration for (e.g. cursor, cline, roo, windsurf, opencode, kilocode, claude, claudecode, antigravity, omp)",
-            },
-            scope: {
-              type: "string",
-              description:
-                "Optional installation scope: global, project, both (default: both)",
-              enum: ["global", "project", "both"],
-            },
-          },
-        },
-      },
-      {
-        name: "arive_uninstall",
-        description:
-          "Removes the ARIVE MCP server registration, Fade rules/skills/plugins, lifecycle hooks, and .gitignore entries from all detected AI clients. The inverse of arive_install.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            workspacePath: {
-              type: "string",
-              description:
-                "Optional path to the project/workspace root directory to remove rules, skills, plugins, and hooks from",
-            },
-            editor: {
-              type: "string",
-              description:
-                "Optional name of the specific AI editor/agent to remove configuration for (e.g. cursor, cline, roo, windsurf, opencode, kilocode, claude, claudecode, antigravity, omp)",
-            },
-            scope: {
-              type: "string",
-              description:
-                "Optional uninstall scope: global, project, both (default: both)",
-              enum: ["global", "project", "both"],
-            },
-          },
-        },
-      },
-    ],
+    tools: Object.values(TOOL_REGISTRY),
   };
 });
 

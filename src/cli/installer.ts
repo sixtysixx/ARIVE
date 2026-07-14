@@ -50,8 +50,11 @@ export function writeRuleFileWithConflict(
     fs.mkdirSync(dir, { recursive: true });
   }
 
+  const ARIVE_MARKER = "<!-- arive:fade-rules -->";
+  const markedContent = content.includes(ARIVE_MARKER) ? content : `${ARIVE_MARKER}\n${content}`;
+
   if (!fs.existsSync(filePath)) {
-    fs.writeFileSync(filePath, content, "utf-8");
+    fs.writeFileSync(filePath, markedContent, "utf-8");
     return;
   }
 
@@ -59,24 +62,19 @@ export function writeRuleFileWithConflict(
     return;
   }
 
+  const current = fs.readFileSync(filePath, "utf-8");
+
   if (action === "overwrite") {
-    fs.writeFileSync(filePath, content, "utf-8");
+    fs.writeFileSync(filePath, markedContent, "utf-8");
     return;
   }
 
   if (action === "append") {
-    const current = fs.readFileSync(filePath, "utf-8");
-    const contentFirstLine = content.split("\n")[0] || "";
-    if (contentFirstLine && current.includes(contentFirstLine)) {
+    // Deterministic idempotency check
+    if (current.includes(ARIVE_MARKER)) {
       return;
     }
-    if (current.includes("Fade, lazy senior dev mode") && content.includes("Fade, lazy senior dev mode")) {
-      return;
-    }
-    if (current.includes(content.trim())) {
-      return;
-    }
-    fs.writeFileSync(filePath, `${current}\n\n${content}`, "utf-8");
+    fs.writeFileSync(filePath, `${current}\n\n${markedContent}`, "utf-8");
   }
 }
 
