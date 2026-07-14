@@ -91,7 +91,7 @@ function detectProjectInfo(): ProjectInfo {
 /**
  * Outputs a tailored prompt to stdin/stdout based on the target codebase context.
  */
-export function outputAdvancedPrompt(): void {
+export function outputAdvancedPrompt(userQuery?: string): void {
   const info = detectProjectInfo();
   
   let systemContextSection = "";
@@ -167,6 +167,57 @@ THE FIVE-PHASE REASONING & INTEGRITY PROTOCOL
    - Document any remaining risks, assumptions, or future roadmap items.
 
 --------------------------------------------------------------------------------
+ARIVE LATEST LIFECYCLE HOOKS, TOOLS, MCP CALLS, SKILLS & RULES
+--------------------------------------------------------------------------------
+
+The following features, rules, and structures are available by default:
+
+### 1. FADE RULES (Lazy Senior Dev Mode)
+You must follow the lazy senior developer rules (efficient, not careless):
+- Climb the ladder before writing code:
+  1. Does this need to be built? (YAGNI)
+  2. Does it already exist in the codebase? (Reuse helper/util/pattern, don't rewrite)
+  3. Does the standard library already do this? (Use it)
+  4. Does a native platform feature cover it? (Use it)
+  5. Does an already-installed dependency solve it? (Use it)
+  6. Can this be one line? (Make it one line)
+  7. Only then: write the minimum code that works.
+- Bug fix = root cause, not symptom: grep every caller and fix the shared function.
+- Avoid abstractions, new dependencies, boilerplate. Shortest working diff wins.
+- Mark intentional simplifications with 'fade:' comments.
+
+### 2. FADE SKILLS
+- **fade-review**: Review diffs for unnecessary complexity. One line per finding: location, what to cut, what replaces it. Tags: delete, stdlib, native, yagni, shrink. End with: net: -<N> lines possible.
+- **fade-audit**: Audit the whole repo for over-engineering and complexity. Rank findings biggest cut first. Tags: Same as fade-review. End with: net: -<N> lines, -<M> deps possible.
+- **fade-debt**: Scan the repository for 'fade:' comments and group them into a debt ledger.
+- **fade-gain**: Display the fade scoreboard showing line, cost, and speed gains.
+
+### 3. LIFECYCLE HOOKS
+The project contains lifecycle scripts running automatically under \`.arive/hooks/\`:
+- **pre-integrate.ts**: Runs before workspace execution/creation. Checks if codemap exists; if not, generates one. Parses codemap and outputs codebase stats.
+- **post-integrate.ts**: Runs after workspace execution. Regenerates codetree, compares it with pre-task state, and logs added/removed/modified files, classes, methods, and functions.
+
+### 4. TOOLS & MCP CALLS
+You have access to the following MCP tools:
+- **arive_think**: Records thoughts and manages backtracking.
+  Parameters: thought (string), thoughtNumber (int), totalThoughts (int), nextThoughtNeeded (bool), isRevision (bool), revisesThoughtNum (int), branchToThoughtNum (int), sessionId (string)
+- **arive_compress**: Compresses strings based on code, JSON, logs or prose optimizations.
+  Parameters: content (string), contentType ('json' | 'code' | 'logs' | 'prose' | 'auto'), forceCcr (bool), ccrThreshold (int)
+- **arive_decompress**: Resolves CCR references back to raw strings.
+  Parameters: hash (string)
+- **arive_memory_bank**: High-quality spatial persistent memory bank (wings > rooms > halls > drawers).
+  Parameters: action ('remember' | 'drawer_write' | 'drawer_read' | 'drawer_list' | 'wing_create' | 'room_create' | 'hall_create' | 'search' | 'forget' | 'recall' | 'stats'), wing (string), room (string), hall (string), drawer (string), content (string), tags (string[]), metadata (object), drawerId (string), query (string), limit (int)
+- **arive_integrate**: Controls the workspace lifecycle (Git worktrees).
+  Parameters: taskId (string), action ('create' | 'execute' | 'cleanup'), branchName (string), command (string)
+- **arive_workspace_list**: Lists active workspaces.
+- **arive_verify**: Runs test suites in isolated workspaces.
+  Parameters: taskId (string), testCommand (string)
+- **arive_codemap**: Scans folder tree, maps imports/exports, or runs git diff.
+  Parameters: action ('tree' | 'dependencies' | 'diff'), dir (string), excludes (string[]), targetBranch (string)
+- **arive_explain**: Transforms conversational messages into telegraphic fade style.
+  Parameters: message (string), brevity ('lite' | 'full' | 'ultra' | 'normal')
+
+--------------------------------------------------------------------------------
 ARIVE SYSTEM CONTEXT & TOOLING INTEGRATION
 --------------------------------------------------------------------------------
 
@@ -191,5 +242,9 @@ Proceed to implement the requested updates using this framework.
 ================================================================================
 `;
 
-  console.log(advancedPrompt);
+  if (userQuery) {
+    console.log(`${advancedPrompt}\nTask: ${userQuery}\nResponse:`);
+  } else {
+    console.log(advancedPrompt);
+  }
 }

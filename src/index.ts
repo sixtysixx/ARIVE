@@ -30,6 +30,7 @@ import {
 import * as fs from "fs";
 import * as path from "path";
 import { runInteractiveInstall, runInstallerCli, isInteractive } from "./cli/installer.js";
+import { runTui } from "./cli/tui.js";
 import { outputAdvancedPrompt } from "./cli/prompt_generator.js";
 // Setup server instance
 const server = new Server(
@@ -1103,19 +1104,50 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 });
 
 // Check if running in install CLI mode
-if (process.argv.includes("install")) {
+if (process.argv.includes("install") || process.argv.includes("installer")) {
   await runInstallerCli();
+  process.exit(0);
+}
+
+if (process.argv.includes("tui")) {
+  await runTui();
   process.exit(0);
 }
 
 // Check if running in prompt/generate-prompt mode
 if (process.argv.includes("prompt") || process.argv.includes("generate-prompt")) {
-  outputAdvancedPrompt();
+  const index = process.argv.indexOf("prompt") !== -1
+    ? process.argv.indexOf("prompt")
+    : process.argv.indexOf("generate-prompt");
+  
+  let userQuery = "";
+  if (index !== -1 && index + 1 < process.argv.length) {
+    userQuery = process.argv.slice(index + 1).join(" ");
+  } else if (!process.stdin.isTTY) {
+    // Read from stdin asynchronously
+    userQuery = await new Promise<string>((resolve) => {
+      let data = "";
+      process.stdin.on("data", (chunk: Buffer) => {
+        data += chunk.toString();
+      });
+      process.stdin.on("end", () => {
+        resolve(data.trim());
+      });
+      // Set a short timeout in case nothing is written
+      setTimeout(() => resolve(""), 300);
+    });
+  }
+
+  outputAdvancedPrompt(userQuery);
   process.exit(0);
 }
 
-if (isInteractive() && process.argv.length <= 2) {
-  await runInteractiveInstall();
+if (process.argv.length <= 2) {
+  if (isInteractive()) {
+    await runTui();
+  } else {
+    await runInstallerCli();
+  }
   process.exit(0);
 }
 

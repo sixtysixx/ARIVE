@@ -17,14 +17,19 @@ The easiest and **highly recommended** way to get started with ARIVE is to use o
 
 ### Running the Setup Wizard
 
-To install interactively, simply run:
+To install and configure ARIVE interactively using the TUI, simply run the entrypoint directly with no arguments:
 
 ```bash
-bun run installer
+bun run start
 ```
 
-> **Note**: In an interactive terminal, running the entrypoint directly (`bun run src/index.ts`) with no arguments will also automatically boot this setup wizard instead of launching the MCP stdio transport.
+Or run it universally without local setup:
 
+```bash
+bunx github:sixtysixx/ARIVE
+```
+
+Both launch the configurator TUI to easily select and apply options.
 ### Selectable Agents & Editors
 During installation, you can target specific AI agents/editors to automatically configure them, including:
 - **Cursor**
@@ -47,27 +52,27 @@ If you prefer a non-interactive installation, or want to bypass the prompts, you
 
 ```bash
 # Non-interactive CLI targeting Cursor for a specific project
-bun run installer --agent cursor --scope project
+bun run start install --agent cursor --scope project
 
 # Non-interactive CLI targeting OpenCode globally
-bun run installer -e opencode -s global
+bun run start install -e opencode -s global
 ```
 
-For more options, run `bun run installer --help`.
+For more options, run `bun run start install --help`.
 
 ### Uninstalling
 
 To remove ARIVE MCP configurations, rules, and hooks:
 
 ```bash
-# Interactive uninstall wizard
-bun run installer --uninstall
+# Interactive uninstall wizard (starts via TUI by default)
+bun run start
 
 # Non-interactive: remove all Cursor project config
-bun run installer --uninstall --agent cursor --scope project
+bun run start install --uninstall --agent cursor --scope project
 
 # Non-interactive: remove global OpenCode config
-bun run installer -u -e opencode -s global
+bun run start install -u -e opencode -s global
 ```
 
 #### What the Installer Does

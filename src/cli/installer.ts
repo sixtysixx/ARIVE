@@ -459,7 +459,7 @@ function writeHookSamples(hooksDir: string): void {
 }
 
 // Shared implementation containing actual file writes & config registrations
-function executeInstallation(
+export function executeInstallation(
   wsRoot: string,
   options: {
     target?: string;
@@ -941,7 +941,7 @@ function executeInstallation(
 }
 
 // Uninstallation
-function executeUninstallation(
+export function executeUninstallation(
   wsRoot: string,
   options: {
     target?: string;
