@@ -44,5 +44,11 @@ export class EngineLifecycle {
     if (this.ccr) {
       this.ccr.close();
     }
+    if (this.engine) {
+      // engine might internally have a close if it uses sqlite.
+      if (typeof (this.engine as any).close === "function") {
+        (this.engine as any).close();
+      }
+    }
   }
 }

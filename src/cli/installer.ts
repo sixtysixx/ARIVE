@@ -51,7 +51,20 @@ export function writeRuleFileWithConflict(
   }
 
   const ARIVE_MARKER = "<!-- arive:fade-rules -->";
-  const markedContent = content.includes(ARIVE_MARKER) ? content : `${ARIVE_MARKER}\n${content}`;
+  let markedContent = content;
+  if (!content.includes(ARIVE_MARKER)) {
+    if (content.startsWith("---\n")) {
+      const parts = content.split("---\n");
+      // parts[0] is empty, parts[1] is frontmatter, parts[2] is the rest
+      if (parts.length >= 3) {
+         markedContent = `---\n${parts[1]}---\n${ARIVE_MARKER}\n${parts.slice(2).join("---\n")}`;
+      } else {
+         markedContent = `${ARIVE_MARKER}\n${content}`;
+      }
+    } else {
+      markedContent = `${ARIVE_MARKER}\n${content}`;
+    }
+  }
 
   if (!fs.existsSync(filePath)) {
     fs.writeFileSync(filePath, markedContent, "utf-8");

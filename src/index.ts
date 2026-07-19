@@ -296,7 +296,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               `Workspace path for ${taskId} does not exist. Call create first.`,
             );
           }
-          const execRes = TDDRunner.run(targetPath, command || "bun test");
+          // Validate the command against an explicit allowlist before execution
+          const allowedCommands = ["bun test", "npm test", "yarn test", "pnpm test"];
+          const cmdToRun = command || "bun test";
+          if (!allowedCommands.includes(cmdToRun)) {
+            throw new Error(`Command \"${cmdToRun}\" is not allowed. Only testing commands are permitted.`);
+          }
+          const execRes = TDDRunner.run(targetPath, cmdToRun);
           resultObj = {
             taskId,
             status: "executed",
