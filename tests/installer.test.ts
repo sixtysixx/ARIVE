@@ -544,9 +544,9 @@ describe("isRawTTY", () => {
       const content = fs.readFileSync(mcpPath, "utf-8");
       let parsed: any;
       expect(() => { parsed = JSON.parse(content); }).not.toThrow();
-      if (parsed && parsed.mcpServers) {
-        expect(parsed.mcpServers.arive).toBeDefined();
-      }
+      expect(parsed).toBeDefined();
+      expect(parsed.mcpServers).toBeDefined();
+      expect(parsed.mcpServers.arive).toBeDefined();
     });
 
     test("should create missing parent directories for configs", () => {

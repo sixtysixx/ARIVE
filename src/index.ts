@@ -297,9 +297,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             );
           }
           // Validate the command against an explicit allowlist before execution
-          const allowedCommands = ["bun test", "npm test", "yarn test", "pnpm test"];
+          const allowedRunners = ["bun", "npm", "yarn", "pnpm"];
           const cmdToRun = command || "bun test";
-          if (!allowedCommands.includes(cmdToRun)) {
+          const baseRunner = cmdToRun.trim().split(/\s+/)[0];
+          if (!allowedRunners.includes(baseRunner)) {
             throw new Error(`Command \"${cmdToRun}\" is not allowed. Only testing commands are permitted.`);
           }
           const execRes = TDDRunner.run(targetPath, cmdToRun);
