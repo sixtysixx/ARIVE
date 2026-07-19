@@ -81,29 +81,42 @@ export class CodeTreeScanner {
     }
   }
 
-  private getJsDoc(node: any): string {
-    if (node.jsDoc && Array.isArray(node.jsDoc)) {
-      return node.jsDoc
-        .map((doc: any) => {
-          let result =
-            typeof doc.comment === "string"
-              ? doc.comment
-              : doc.comment
-                ? doc.comment.map((c: any) => c.text).join("")
-                : "";
-          if (doc.tags && Array.isArray(doc.tags)) {
-            doc.tags.forEach((tag: any) => {
-              const tagName = tag.tagName?.text || "";
-              const tagComment =
-                typeof tag.comment === "string"
-                  ? tag.comment
-                  : tag.comment
-                    ? tag.comment.map((c: any) => c.text).join("")
-                    : "";
-              result += `\n@${tagName} ${tagComment}`;
-            });
+  private getJsDoc(node: ts.Node): string {
+    const docs = ts.getJSDocCommentsAndTags(node);
+    if (docs && docs.length > 0) {
+      return docs
+        .map((doc) => {
+          if (ts.isJSDoc(doc)) {
+            let result =
+              typeof doc.comment === "string"
+                ? doc.comment
+                : doc.comment
+                  ? (doc.comment as ts.NodeArray<ts.JSDocText>).map(c => c.text).join("")
+                  : "";
+            if (doc.tags && Array.isArray(doc.tags)) {
+              doc.tags.forEach((tag: ts.JSDocTag) => {
+                const tagName = tag.tagName?.text || "";
+                const tagComment =
+                  typeof tag.comment === "string"
+                    ? tag.comment
+                    : tag.comment
+                      ? (tag.comment as ts.NodeArray<ts.JSDocText>).map(c => c.text).join("")
+                      : "";
+                result += `\n@${tagName} ${tagComment}`;
+              });
+            }
+            return result.trim();
+          } else {
+             const tag = doc as ts.JSDocTag;
+             const tagName = tag.tagName?.text || "";
+             const tagComment =
+               typeof tag.comment === "string"
+                 ? tag.comment
+                 : tag.comment
+                   ? (tag.comment as ts.NodeArray<ts.JSDocText>).map(c => c.text).join("")
+                   : "";
+             return `@${tagName} ${tagComment}`.trim();
           }
-          return result.trim();
         })
         .join("\n\n")
         .trim();
@@ -149,6 +162,8 @@ export class CodeTreeScanner {
         sigStr = sigStr.slice(0, -6).trim();
       } else if (sigStr.endsWith("dummy")) {
         sigStr = sigStr.slice(0, -5).trim();
+      } else if (sigStr.endsWith("{ }")) {
+        sigStr = sigStr.slice(0, -3).trim();
       } else if (sigStr.endsWith("{}")) {
         sigStr = sigStr.slice(0, -2).trim();
       }
@@ -241,9 +256,18 @@ export class CodeTreeScanner {
                 member.name &&
                 ts.isIdentifier(member.name)
               ) {
-                methods.push(
-                  this.extractFunctionMeta(member.name.text, member, sourceFile),
+                const methodModifiers = ts.canHaveModifiers(member) ? ts.getModifiers(member) : undefined;
+                const isPrivateOrProtected = methodModifiers?.some(
+                  (m) =>
+                    m.kind === ts.SyntaxKind.PrivateKeyword ||
+                    m.kind === ts.SyntaxKind.ProtectedKeyword
                 );
+
+                if (!isPrivateOrProtected) {
+                  methods.push(
+                    this.extractFunctionMeta(member.name.text, member, sourceFile),
+                  );
+                }
               }
             });
             classes.push({ name: className, methods });
