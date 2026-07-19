@@ -33,8 +33,8 @@ describe("CodeTree Scanner Tests", () => {
     expect(parsed.imports).toContain("./helper.js");
     expect(parsed.imports).toContain("typescript");
     expect(parsed.exports.classes[0].name).toBe("Analyzer");
-    expect(parsed.exports.classes[0].methods).toContain("analyze");
-    expect(parsed.exports.functions).toContain("runUtility");
+    expect(parsed.exports.classes[0].methods[0].name).toBe("analyze");
+    expect(parsed.exports.functions[0].name).toBe("runUtility");
     expect(parsed.exports.interfaces).toContain("Info");
   });
 
