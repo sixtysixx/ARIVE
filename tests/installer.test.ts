@@ -1,5 +1,6 @@
 import { mock, expect, test, describe, beforeAll, afterAll, beforeEach, afterEach } from "bun:test";
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 
 let mockHomedirPath = "";
@@ -14,7 +15,7 @@ mock.module("os", () => {
 });
 
 // Import installer after mock is registered
-import { installAll, writeRuleFileWithConflict, isInteractive, isRawTTY } from "../src/cli/installer.js";
+import { installAll, writeRuleFileWithConflict, isInteractive, isRawTTY, executeInstallation } from "../src/cli/installer.js";
 
 describe("Installer Editor Targeting", () => {
   let tempDir: string;
@@ -400,7 +401,7 @@ describe("writeRuleFileWithConflict", () => {
 
   test("writes content when file does not exist", () => {
     writeRuleFileWithConflict(ruleFile, "initial content", "skip");
-    expect(fs.readFileSync(ruleFile, "utf-8")).toBe("initial content");
+    expect(fs.readFileSync(ruleFile, "utf-8")).toBe("<!-- arive:fade-rules -->\ninitial content");
   });
 
   test("skips writing when file exists and action is skip", () => {
@@ -412,20 +413,16 @@ describe("writeRuleFileWithConflict", () => {
   test("overwrites when file exists and action is overwrite", () => {
     fs.writeFileSync(ruleFile, "original", "utf-8");
     writeRuleFileWithConflict(ruleFile, "new content", "overwrite");
-    expect(fs.readFileSync(ruleFile, "utf-8")).toBe("new content");
+    expect(fs.readFileSync(ruleFile, "utf-8")).toBe("<!-- arive:fade-rules -->\nnew content");
   });
 
   test("appends when file exists and action is append", () => {
     fs.writeFileSync(ruleFile, "original", "utf-8");
     writeRuleFileWithConflict(ruleFile, "new content", "append");
-    expect(fs.readFileSync(ruleFile, "utf-8")).toBe("original\n\nnew content");
+    expect(fs.readFileSync(ruleFile, "utf-8")).toBe("original\n\n<!-- arive:fade-rules -->\nnew content");
   });
 
-  test("skips append if content already exists", () => {
-    fs.writeFileSync(ruleFile, "original\n\nnew content", "utf-8");
-    writeRuleFileWithConflict(ruleFile, "new content", "append");
-    expect(fs.readFileSync(ruleFile, "utf-8")).toBe("original\n\nnew content");
-  });
+
 });
 
 describe("isInteractive", () => {
@@ -523,5 +520,89 @@ describe("isRawTTY", () => {
     } finally {
       process.stdout.isTTY = originalTTY;
     }
+  });
+
+  describe("writeJsonConfig error handling", () => {
+    let wsRoot: string;
+
+    beforeEach(() => {
+      wsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "arive-install-test-"));
+    });
+
+    afterEach(() => {
+      fs.rmSync(wsRoot, { recursive: true, force: true });
+    });
+
+    test("should merge correctly if existing file contains corrupted JSON", () => {
+      const targetDir = path.join(wsRoot, ".claude");
+      fs.mkdirSync(targetDir, { recursive: true });
+      const mcpPath = path.join(targetDir, "mcp.json");
+      fs.writeFileSync(mcpPath, "{ corrupted json: ]");
+
+      executeInstallation(wsRoot, { target: "claude", updateGitignore: false, ruleConflictAction: "overwrite", scope: "project" });
+
+      const content = fs.readFileSync(mcpPath, "utf-8");
+      let parsed: any;
+      expect(() => { parsed = JSON.parse(content); }).not.toThrow();
+      expect(parsed).toBeDefined();
+      expect(parsed.mcpServers).toBeDefined();
+      expect(parsed.mcpServers.arive).toBeDefined();
+    });
+
+    test("should create missing parent directories for configs", () => {
+      // It's safer to test directory creation in the project scope using a mock workspace path
+      // that we can cleanly delete before running.
+      const deepConfigPath = path.join(wsRoot, ".omp");
+      if (fs.existsSync(deepConfigPath)) {
+          fs.rmSync(deepConfigPath, { recursive: true, force: true });
+      }
+      executeInstallation(wsRoot, { target: "omp", updateGitignore: false, ruleConflictAction: "overwrite", scope: "project" });
+      expect(fs.existsSync(path.join(deepConfigPath, "mcp.json"))).toBe(true);
+    });
+
+    test("should gracefully handle permission denied during rule write", () => {
+      const targetDir = path.join(wsRoot, ".agents");
+      fs.mkdirSync(targetDir, { recursive: true });
+      const rulePath = path.join(targetDir, "rules", "fade.md");
+      fs.mkdirSync(path.dirname(rulePath), { recursive: true });
+      fs.writeFileSync(rulePath, "readonly");
+
+      fs.chmodSync(rulePath, 0o444);
+      fs.chmodSync(path.dirname(rulePath), 0o555);
+
+      try {
+        expect(() => {
+          executeInstallation(wsRoot, { target: "agents", updateGitignore: false, ruleConflictAction: "overwrite", scope: "project" });
+        }).not.toThrow();
+      } finally {
+        fs.chmodSync(path.dirname(rulePath), 0o777);
+        fs.chmodSync(rulePath, 0o666);
+      }
+    });
+  });
+
+  describe("writeRuleFileWithConflict idempotency", () => {
+    let wsRoot: string;
+
+    beforeEach(() => {
+      wsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "arive-install-test-"));
+    });
+
+    afterEach(() => {
+      fs.rmSync(wsRoot, { recursive: true, force: true });
+    });
+
+    test("should not double-append when marker is present", () => {
+      executeInstallation(wsRoot, { target: "agents", updateGitignore: false, ruleConflictAction: "append", scope: "project" });
+      const rulePath = path.join(wsRoot, ".agents", "rules", "fade.md");
+      const content1 = fs.readFileSync(rulePath, "utf-8");
+
+      // Run again
+      executeInstallation(wsRoot, { target: "agents", updateGitignore: false, ruleConflictAction: "append", scope: "project" });
+      const content2 = fs.readFileSync(rulePath, "utf-8");
+
+      expect(content1).toEqual(content2);
+      expect(content1.includes("<!-- arive:fade-rules -->")).toBe(true);
+    });
   });
 });

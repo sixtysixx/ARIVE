@@ -73,7 +73,7 @@ export class TDDRunner {
       const child = spawnSync(cmd, args, {
         cwd,
         env: { ...process.env, FORCE_COLOR: "0" },
-        shell: true,
+        shell: process.platform === "win32", // Windows needs shell: true to resolve .cmd shims (npm, yarn, etc.)
         timeout: 10000,
         encoding: "utf-8",
       });
