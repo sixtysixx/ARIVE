@@ -3,11 +3,23 @@ import * as path from "path";
 import { execFileSync } from "child_process";
 import ts from "typescript";
 
+export interface FunctionMeta {
+  name: string;
+  signature: string;
+  description: string;
+  usage: string;
+}
+
+export interface ClassMeta {
+  name: string;
+  methods: FunctionMeta[];
+}
+
 export interface FileMeta {
   imports: string[];
   exports: {
-    classes: { name: string; methods: string[] }[];
-    functions: string[];
+    classes: ClassMeta[];
+    functions: FunctionMeta[];
     interfaces: string[];
   };
 }
@@ -69,10 +81,144 @@ export class CodeTreeScanner {
     }
   }
 
+  private getJsDoc(node: ts.Node): string {
+    const docs = ts.getJSDocCommentsAndTags(node);
+    if (docs && docs.length > 0) {
+      return docs
+        .map((doc) => {
+          if (ts.isJSDoc(doc)) {
+            let result =
+              typeof doc.comment === "string"
+                ? doc.comment
+                : doc.comment
+                  ? (doc.comment as ts.NodeArray<ts.JSDocText>).map(c => c.text).join("")
+                  : "";
+            if (doc.tags && Array.isArray(doc.tags)) {
+              doc.tags.forEach((tag: ts.JSDocTag) => {
+                const tagName = tag.tagName?.text || "";
+                const tagComment =
+                  typeof tag.comment === "string"
+                    ? tag.comment
+                    : tag.comment
+                      ? (tag.comment as ts.NodeArray<ts.JSDocText>).map(c => c.text).join("")
+                      : "";
+                result += `\n@${tagName} ${tagComment}`;
+              });
+            }
+            return result.trim();
+          } else {
+             const tag = doc as ts.JSDocTag;
+             const tagName = tag.tagName?.text || "";
+             const tagComment =
+               typeof tag.comment === "string"
+                 ? tag.comment
+                 : tag.comment
+                   ? (tag.comment as ts.NodeArray<ts.JSDocText>).map(c => c.text).join("")
+                   : "";
+             return `@${tagName} ${tagComment}`.trim();
+          }
+        })
+        .join("\n\n")
+        .trim();
+    }
+    return "";
+  }
+
+  private extractFunctionMeta(
+    name: string,
+    node: ts.Node,
+    sourceFile: ts.SourceFile,
+    isArrow = false,
+  ): FunctionMeta {
+    const printer = ts.createPrinter({ removeComments: true });
+    let sigStr = "";
+    let docs = "";
+
+    if (isArrow && (ts.isArrowFunction(node) || ts.isFunctionExpression(node))) {
+      let clone;
+      if (ts.isArrowFunction(node)) {
+        clone = ts.factory.createArrowFunction(
+          node.modifiers,
+          node.typeParameters,
+          node.parameters,
+          node.type,
+          node.equalsGreaterThanToken,
+          ts.factory.createIdentifier("dummy"), // Use dummy identifier to prevent body printing
+        );
+      } else {
+        clone = ts.factory.createFunctionExpression(
+          node.modifiers,
+          node.asteriskToken,
+          node.name,
+          node.typeParameters,
+          node.parameters,
+          node.type,
+          ts.factory.createBlock([]),
+        );
+      }
+
+      sigStr = printer.printNode(ts.EmitHint.Unspecified, clone, sourceFile).trim();
+      if (sigStr.endsWith(" dummy")) {
+        sigStr = sigStr.slice(0, -6).trim();
+      } else if (sigStr.endsWith("dummy")) {
+        sigStr = sigStr.slice(0, -5).trim();
+      } else if (sigStr.endsWith("{ }")) {
+        sigStr = sigStr.slice(0, -3).trim();
+      } else if (sigStr.endsWith("{}")) {
+        sigStr = sigStr.slice(0, -2).trim();
+      }
+
+      // For variables, JSDoc is attached to the VariableStatement
+      docs = this.getJsDoc(node.parent.parent.parent);
+
+    } else if (ts.isFunctionDeclaration(node)) {
+      const clone = ts.factory.createFunctionDeclaration(
+        node.modifiers,
+        node.asteriskToken,
+        node.name,
+        node.typeParameters,
+        node.parameters,
+        node.type,
+        undefined,
+      );
+      sigStr = printer.printNode(ts.EmitHint.Unspecified, clone, sourceFile).trim();
+      docs = this.getJsDoc(node);
+    } else if (ts.isMethodDeclaration(node)) {
+      const clone = ts.factory.createMethodDeclaration(
+        node.modifiers,
+        node.asteriskToken,
+        node.name,
+        node.questionToken,
+        node.typeParameters,
+        node.parameters,
+        node.type,
+        undefined,
+      );
+      sigStr = printer.printNode(ts.EmitHint.Unspecified, clone, sourceFile).trim();
+      docs = this.getJsDoc(node);
+    } else {
+      sigStr = printer.printNode(ts.EmitHint.Unspecified, node, sourceFile).trim();
+      docs = this.getJsDoc(node);
+    }
+
+    // Strip 'export ' or 'export default ' prefix if present and remove trailing semicolons
+    sigStr = sigStr.replace(/^export\s+(default\s+)?/, "").replace(/;$/, "").trim();
+
+    // Replace multiple spaces and newlines with a single space for concise JSON output
+    sigStr = sigStr.replace(/\s+/g, " ");
+
+    return {
+      name,
+      signature: sigStr,
+      description: docs,
+      usage: docs ? "Refer to description and signature." : "",
+    };
+  }
+
   public parseFileMetadata(code: string): FileMeta {
     const imports: string[] = [];
-    const classes: { name: string; methods: string[] }[] = [];
-    const functions: string[] = [];
+    const classes: ClassMeta[] = [];
+    const functions: FunctionMeta[] = [];
     const interfaces: string[] = [];
 
     try {
@@ -103,19 +249,53 @@ export class CodeTreeScanner {
         if (isExported) {
           if (ts.isClassDeclaration(node) && node.name) {
             const className = node.name.text;
-            const methods: string[] = [];
+            const methods: FunctionMeta[] = [];
             node.members.forEach((member) => {
               if (
                 ts.isMethodDeclaration(member) &&
                 member.name &&
                 ts.isIdentifier(member.name)
               ) {
-                methods.push(member.name.text);
+                const methodModifiers = ts.canHaveModifiers(member) ? ts.getModifiers(member) : undefined;
+                const isPrivateOrProtected = methodModifiers?.some(
+                  (m) =>
+                    m.kind === ts.SyntaxKind.PrivateKeyword ||
+                    m.kind === ts.SyntaxKind.ProtectedKeyword
+                );
+
+                if (!isPrivateOrProtected) {
+                  methods.push(
+                    this.extractFunctionMeta(member.name.text, member, sourceFile),
+                  );
+                }
               }
             });
             classes.push({ name: className, methods });
           } else if (ts.isFunctionDeclaration(node) && node.name) {
-            functions.push(node.name.text);
+            functions.push(
+              this.extractFunctionMeta(node.name.text, node, sourceFile),
+            );
+          } else if (ts.isVariableStatement(node)) {
+            const decls = node.declarationList.declarations;
+            for (const decl of decls) {
+              if (
+                ts.isVariableDeclaration(decl) &&
+                decl.name &&
+                ts.isIdentifier(decl.name) &&
+                decl.initializer &&
+                (ts.isArrowFunction(decl.initializer) ||
+                  ts.isFunctionExpression(decl.initializer))
+              ) {
+                functions.push(
+                  this.extractFunctionMeta(
+                    decl.name.text,
+                    decl.initializer,
+                    sourceFile,
+                    true,
+                  ),
+                );
+              }
+            }
           } else if (ts.isInterfaceDeclaration(node) && node.name) {
             interfaces.push(node.name.text);
           }
@@ -149,6 +329,40 @@ export class CodeTreeScanner {
       const errorMessage = e instanceof Error ? e.message : String(e);
       return `Git diff failed: ${errorMessage}`;
     }
+  }
+
+  public scanCodemap(
+    dir: string,
+    excludes: string[] = [],
+  ): { codemap: Record<string, FileMeta>; needsComments: { file: string; name: string }[] } {
+    const excludeList = [...this.defaultExcludes, ...excludes];
+    const codemap: Record<string, FileMeta> = {};
+    const needsComments: { file: string; name: string }[] = [];
+
+    this.collectDependencies(dir, excludeList, codemap);
+
+    for (const [file, meta] of Object.entries(codemap)) {
+      for (const fn of meta.exports.functions) {
+        if (!fn.description) {
+          needsComments.push({ file, name: fn.name });
+        }
+      }
+      for (const cls of meta.exports.classes) {
+        for (const method of cls.methods) {
+          if (!method.description) {
+            needsComments.push({ file, name: `${cls.name}.${method.name}` });
+          }
+        }
+      }
+    }
+
+    const outputDir = path.join(dir, ".arive");
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
+    }
+    fs.writeFileSync(path.join(outputDir, "codemap.json"), JSON.stringify(codemap, null, 2), "utf-8");
+
+    return { codemap, needsComments };
   }
 
   public scanDependencies(
@@ -227,11 +441,11 @@ export class CodeTreeScanner {
             for (const cls of classes) {
               lines.push(`- class ${cls.name}`);
               for (const method of cls.methods) {
-                lines.push(`  - ${method}()`);
+                lines.push(`  - ${method.name}()`);
               }
             }
             for (const fn of functions) {
-              lines.push(`- ${fn}()`);
+              lines.push(`- ${fn.name}()`);
             }
             for (const iface of interfaces) {
               lines.push(`- interface ${iface}`);

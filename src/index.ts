@@ -477,6 +477,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const scanner = new CodeTreeScanner();
         let resultText = "";
 
+        let isCodemapAction = false;
+        let needsCommentsResult: any[] = [];
+
         if (action === "tree") {
           resultText = scanner.scanTree(dir, excludes);
           try {
@@ -493,6 +496,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           );
         } else if (action === "diff") {
           resultText = scanner.getGitDiff(targetBranch);
+        } else if (action === "codemap") {
+          isCodemapAction = true;
+          const { needsComments } = scanner.scanCodemap(dir, excludes);
+          needsCommentsResult = needsComments;
+          resultText = "codemap generated";
         } else {
           throw new Error(`Unknown codetree action: ${action}`);
         }
@@ -523,9 +531,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           throw new Error(`[Hook Failed] post-analyze: ${postHook.error}`);
         }
 
-        const responsePayload = responseRef
+        let responsePayload: any = responseRef
           ? { ref: responseRef, text: responseText }
           : { text: responseText };
+
+        if (isCodemapAction) {
+          responsePayload = {
+            file_path: path.join(dir, ".arive", "codemap.json"),
+            needs_comments: needsCommentsResult,
+          };
+        }
 
         return {
           content: [{ type: "text", text: JSON.stringify(responsePayload) }],
