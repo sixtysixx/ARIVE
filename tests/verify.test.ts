@@ -49,7 +49,7 @@ describe("TDD & Verification Tests", () => {
       // Using a command that outputs a failure string and exits non-zero
       const result = TDDRunner.run(
         targetCwd,
-        "echo FAIL test abort error && exit 1",
+        `node -e "console.error('FAIL'); process.exitCode=1;"`,
       );
       expect(result.success).toBe(false);
       expect(result.failures.length).toBeGreaterThan(0);

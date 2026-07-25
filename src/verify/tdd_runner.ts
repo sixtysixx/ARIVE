@@ -70,10 +70,14 @@ export class TDDRunner {
     let exitCode = 0;
 
     try {
-      const child = spawnSync(cmd, args, {
+      const isWin = process.platform === "win32";
+      const finalArgs = isWin
+        ? args.map((a) => (a.includes(" ") || a.includes(";") || a.includes("&") || a.includes("|") ? `"${a.replace(/"/g, '\\"')}"` : a))
+        : args;
+      const child = spawnSync(cmd, finalArgs, {
         cwd,
         env: { ...process.env, FORCE_COLOR: "0" },
-        shell: true,
+        shell: isWin,
         timeout: 10000,
         encoding: "utf-8",
       });
