@@ -1,5 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
+import * as readline from "readline";
 import { executeInstallation, executeUninstallation } from "./installer.js";
 
 const ACTIONS = ["install", "uninstall"] as const;
@@ -83,58 +84,79 @@ export async function runTui(): Promise<void> {
 
 
   return new Promise<void>((resolve) => {
-    render();
-    const onData = (chunk: Buffer) => {
-      const key = chunk.toString("utf-8");
+    readline.emitKeypressEvents(process.stdin);
+    if (process.stdin.isTTY) {
+      try {
+        process.stdin.setRawMode(true);
+      } catch {
+        // Ignore
+      }
+    }
+    process.stdin.resume();
 
-      if (chunk.includes(Buffer.from("\x03")) || key === "\u001b") {
+    const cleanup = () => {
+      process.stdout.write("\x1b[?25h");
+      process.stdin.removeListener("keypress", onKeypress);
+      if (process.stdin.isTTY) {
+        try {
+          process.stdin.setRawMode(false);
+        } catch {
+          // Ignore
+        }
+      }
+    };
+
+    render();
+
+    const changeValue = (forward: boolean) => {
+      const delta = forward ? 1 : -1;
+      if (activeRow === 0) {
+        actionIdx = (actionIdx + delta + ACTIONS.length) % ACTIONS.length;
+      } else if (activeRow === 1) {
+        editorIdx = (editorIdx + delta + EDITORS.length) % EDITORS.length;
+      } else if (activeRow === 2) {
+        scopeIdx = (scopeIdx + delta + SCOPES.length) % SCOPES.length;
+      } else if (activeRow === 3) {
+        conflictIdx = (conflictIdx + delta + CONFLICTS.length) % CONFLICTS.length;
+      } else if (activeRow === 4) {
+        gitignoreIdx = (gitignoreIdx + delta + GITIGNORE_OPTS.length) % GITIGNORE_OPTS.length;
+      }
+      render();
+    };
+
+    const onKeypress = (str: string | undefined, key: readline.Key) => {
+      if ((key.ctrl && key.name === "c") || key.name === "escape") {
         cleanup();
         process.stdout.write("\n\x1b[31mOperation cancelled.\x1b[0m\n");
         resolve();
         return;
       }
 
-      if (key === "\u001b[A") {
+      if (key.name === "up" || str === "k") {
         activeRow = (activeRow - 1 + 7) % 7;
         render();
         return;
       }
-      if (key === "\u001b[B") {
+      if (key.name === "down" || str === "j") {
         activeRow = (activeRow + 1) % 7;
         render();
         return;
       }
 
-      const changeValue = (forward: boolean) => {
-        const delta = forward ? 1 : -1;
-        if (activeRow === 0) {
-          actionIdx = (actionIdx + delta + ACTIONS.length) % ACTIONS.length;
-        } else if (activeRow === 1) {
-          editorIdx = (editorIdx + delta + EDITORS.length) % EDITORS.length;
-        } else if (activeRow === 2) {
-          scopeIdx = (scopeIdx + delta + SCOPES.length) % SCOPES.length;
-        } else if (activeRow === 3) {
-          conflictIdx = (conflictIdx + delta + CONFLICTS.length) % CONFLICTS.length;
-        } else if (activeRow === 4) {
-          gitignoreIdx = (gitignoreIdx + delta + GITIGNORE_OPTS.length) % GITIGNORE_OPTS.length;
-        }
-        render();
-      };
-
-      if (key === "\u001b[C" || key === " ") {
+      if (key.name === "right" || key.name === "space" || str === "l") {
         changeValue(true);
         return;
       }
-      if (key === "\u001b[D") {
+      if (key.name === "left" || str === "h") {
         changeValue(false);
         return;
       }
 
-      if (key === "\r" || key === "\n") {
+      if (key.name === "return" || key.name === "enter") {
         if (activeRow === 5) {
           cleanup();
           process.stdout.write("\x1b[2J\x1b[H");
-          
+
           const action = ACTIONS[actionIdx];
           const editor = EDITORS[editorIdx] === "all" ? undefined : EDITORS[editorIdx];
           const scope = SCOPES[scopeIdx];
@@ -180,8 +202,6 @@ export async function runTui(): Promise<void> {
       }
     };
 
-    process.stdin.setRawMode(true);
-    process.stdin.resume();
-    process.stdin.on("data", onData);
+    process.stdin.on("keypress", onKeypress);
   });
 }

@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
+import * as readline from "readline";
 import { installPreCommitHook, installPreCommitHookSync } from "./init_hooks.js";
 
 // Types
@@ -466,32 +467,23 @@ export function executeInstallation(
     updateGitignore: boolean;
     ruleConflictAction: "overwrite" | "append" | "skip";
     scope: "global" | "project" | "both";
+    installHooks?: boolean;
   }
 ): void {
   const target = options.target ? options.target.toLowerCase().trim() : undefined;
   const scope = options.scope || "both";
   const installProject = scope === "project" || scope === "both";
   const installGlobal = scope === "global" || scope === "both";
+  const shouldInstallHooks = options.installHooks !== false;
 
   if (installProject && options.updateGitignore) {
     updateGitignore(wsRoot, [".arive"]);
   }
 
-  if (installProject) {
+  if (installProject && shouldInstallHooks) {
     try {
       const ariveHooksDir = path.join(wsRoot, ".arive", "hooks");
-      fs.mkdirSync(ariveHooksDir, { recursive: true });
-
-      fs.writeFileSync(
-        path.join(ariveHooksDir, "pre-integrate.sample"),
-        `#!/bin/sh\n# ARIVE pre-integrate hook sample\n# This hook runs before a task workspace is created, command is executed, or cleaned up.\n#\n# Available environment variables:\n# - ARIVE_HOOK_NAME: name of the hook (e.g. pre-integrate)\n# - ARIVE_HOOK_PHASE: ARIVE phase (e.g. integrate)\n# - ARIVE_HOOK_CONTEXT: JSON-stringified argument context (e.g. {"taskId": "task-123", "action": "execute"})\n#\n# To enable this hook, rename this file to "pre-integrate" (without .sample) and make it executable.\n# Exit with non-zero code to block the execution of the integration action.\n\necho "Running pre-integrate hook for task: \\$ARIVE_HOOK_CONTEXT"\nexit 0\n`,
-        { encoding: "utf-8", mode: 0o755 }
-      );
-      fs.writeFileSync(
-        path.join(ariveHooksDir, "post-verify.sample"),
-        `#!/bin/sh\n# ARIVE post-verify hook sample\n# This hook runs after the verify tests run.\n#\n# Available environment variables:\n# - ARIVE_HOOK_NAME: name of the hook (e.g. post-verify)\n# - ARIVE_HOOK_PHASE: ARIVE phase (e.g. verify)\n# - ARIVE_HOOK_CONTEXT: JSON-stringified argument context (e.g. {"taskId": "task-123", "testCommand": "bun test"})\n# - ARIVE_HOOK_RESULT: JSON-stringified result (e.g. {"success": true, "failures": []})\n#\n# To enable this hook, rename this file to "post-verify" (without .sample) and make it executable.\n\necho "Verify result: \\$ARIVE_HOOK_RESULT"\nexit 0\n`,
-        { encoding: "utf-8", mode: 0o755 }
-      );
+      writeHookSamples(ariveHooksDir);
       console.log(
         "✓ ARIVE protocol lifecycle hooks folder and samples created successfully.",
       );
@@ -502,7 +494,6 @@ export function executeInstallation(
       );
     }
   }
-
   const clawSkills = [
     { name: "fade", content: fadeRules },
     { name: "fade-review", content: fadeReview },
@@ -987,10 +978,9 @@ export function executeUninstallation(
     const multiTargets = ["cline", "roo", "roocode"];
     if (target === undefined || multiTargets.includes(target)) {
       removeRuleFile(path.join(wsRoot, ".clinerules"));
-      writeHookSamples(path.join(wsRoot, ".cline", "hooks"));
-      writeHookSamples(path.join(wsRoot, ".roo", "hooks"));
+      fs.rmSync(path.join(wsRoot, ".cline", "hooks"), { recursive: true, force: true });
+      fs.rmSync(path.join(wsRoot, ".roo", "hooks"), { recursive: true, force: true });
     }
-
     if (target === undefined || target === "omp") {
       const rulePath = path.join(wsRoot, ".omp", "rules", "fade.md");
       const globalRulePath = path.join(os.homedir(), ".omp", "rules", "fade.md");
@@ -1173,6 +1163,8 @@ export function isRawTTY(): boolean {
     process.stdin.isTTY &&
     process.stdout.isTTY &&
     !process.env.CI &&
+    !process.env.BUN_TEST &&
+    !process.env.NODE_ENV?.includes("test") &&
     !process.argv.includes("--non-interactive") &&
     !process.argv.includes("-y") &&
     !process.argv.includes("--yes")
@@ -1207,18 +1199,35 @@ async function selectPrompt(message: string, options: string[], defaultIndex = 0
     return options[defaultIndex];
   }
 
-  return new Promise<string>((resolve) => {
+  return new Promise<string>((resolve, reject) => {
     let selected = defaultIndex;
+    let linesRendered = 0;
+
+    readline.emitKeypressEvents(process.stdin);
+    if (process.stdin.isTTY) {
+      try { process.stdin.setRawMode(true); } catch {}
+    }
+    process.stdin.resume();
     process.stdout.write("\x1b[?25l");
+
     const cleanup = () => {
       process.stdout.write("\x1b[?25h");
-      process.stdin.removeListener("data", onData);
-      try {
-        process.stdin.setRawMode(false);
-        process.stdin.pause();
-      } catch (e) {}
+      process.stdin.removeListener("keypress", onKeypress);
+      if (process.stdin.isTTY) {
+        try { process.stdin.setRawMode(false); } catch {}
+      }
     };
+
+    const clearScreenLines = () => {
+      if (linesRendered > 0) {
+        for (let i = 0; i < linesRendered; i++) {
+          process.stdout.write("\x1b[1A\x1b[2K");
+        }
+      }
+    };
+
     const render = () => {
+      clearScreenLines();
       let output = `\x1b[32m?\x1b[0m \x1b[1m${message}\x1b[0m\n`;
       for (let i = 0; i < options.length; i++) {
         if (i === selected) {
@@ -1227,44 +1236,48 @@ async function selectPrompt(message: string, options: string[], defaultIndex = 0
           output += `    \x1b[90m${options[i]}\x1b[0m\n`;
         }
       }
-      output += `\x1b[${options.length + 1}A`;
+      linesRendered = options.length + 1;
       process.stdout.write(output);
     };
-    const onData = (chunk: Buffer) => {
-      if (chunk.includes(Buffer.from("\x03"))) {
+
+    const onKeypress = (str: string | undefined, key: readline.Key) => {
+      if ((key.ctrl && key.name === "c") || key.name === "escape") {
         cleanup();
-        process.exit(0);
+        clearScreenLines();
+        reject(new Error("Selection cancelled"));
+        return;
       }
-      if (chunk.includes("\r") || chunk.includes("\n")) {
-        process.stdout.write(`\x1b[${options.length + 1}B`);
-        for (let i = 0; i < options.length + 1; i++) {
-          process.stdout.write("\x1b[1A\x1b[2K");
-        }
-        process.stdout.write(`\r\x1b[32m✔\x1b[0m \x1b[1m${message}\x1b[0m \x1b[36m${options[selected]}\x1b[0m\n`);
+
+      if (key.name === "return" || key.name === "enter") {
         cleanup();
+        clearScreenLines();
+        process.stdout.write(`\x1b[32m✔\x1b[0m \x1b[1m${message}\x1b[0m \x1b[36m${options[selected]}\x1b[0m\n`);
         resolve(options[selected]);
         return;
       }
-      if (chunk.toString("utf-8").includes("\u0009") || chunk.includes(Buffer.from(" "))) {
-        const current = options[selected];
-        const next = options[(selected + 1) % options.length];
-        selected = options.indexOf(next) >= 0 ? options.indexOf(next, selected) : (selected + 1) % options.length;
-        render();
-        return;
-      }
-      if (chunk.includes(Buffer.from("\x1b[A"))) {
+
+      if (key.name === "up" || str === "k") {
         selected = (selected - 1 + options.length) % options.length;
         render();
         return;
       }
-      if (chunk.includes(Buffer.from("\x1b[B"))) {
+
+      if (key.name === "down" || str === "j" || key.name === "space" || key.name === "tab") {
         selected = (selected + 1) % options.length;
         render();
+        return;
+      }
+
+      if (str && /^[1-9]$/.test(str)) {
+        const num = parseInt(str, 10);
+        if (num >= 1 && num <= options.length) {
+          selected = num - 1;
+          render();
+        }
       }
     };
-    process.stdin.setRawMode(true);
-    process.stdin.resume();
-    process.stdin.on("data", onData);
+
+    process.stdin.on("keypress", onKeypress);
     render();
   });
 }
@@ -1278,19 +1291,36 @@ async function confirmPrompt(query: string, defaultYes = true): Promise<boolean>
     return normalized.startsWith("y");
   }
 
-  return new Promise<boolean>((resolve) => {
+  return new Promise<boolean>((resolve, reject) => {
     let selected = defaultYes ? 0 : 1;
     const options = ["Yes", "No"];
+    let linesRendered = 0;
+
+    readline.emitKeypressEvents(process.stdin);
+    if (process.stdin.isTTY) {
+      try { process.stdin.setRawMode(true); } catch {}
+    }
+    process.stdin.resume();
     process.stdout.write("\x1b[?25l");
+
     const cleanup = () => {
       process.stdout.write("\x1b[?25h");
-      process.stdin.removeListener("data", onData);
-      try {
-        process.stdin.setRawMode(false);
-        process.stdin.pause();
-      } catch (e) {}
+      process.stdin.removeListener("keypress", onKeypress);
+      if (process.stdin.isTTY) {
+        try { process.stdin.setRawMode(false); } catch {}
+      }
     };
+
+    const clearScreenLines = () => {
+      if (linesRendered > 0) {
+        for (let i = 0; i < linesRendered; i++) {
+          process.stdout.write("\x1b[1A\x1b[2K");
+        }
+      }
+    };
+
     const render = () => {
+      clearScreenLines();
       let output = `\x1b[32m?\x1b[0m \x1b[1m${query}\x1b[0m\n`;
       for (let i = 0; i < options.length; i++) {
         if (i === selected) {
@@ -1299,42 +1329,51 @@ async function confirmPrompt(query: string, defaultYes = true): Promise<boolean>
           output += `    \x1b[90m${options[i]}\x1b[0m\n`;
         }
       }
-      output += `\x1b[${options.length + 1}A`;
+      linesRendered = options.length + 1;
       process.stdout.write(output);
     };
-    const onData = (chunk: Buffer) => {
-      if (chunk.includes(Buffer.from("\x03"))) {
+
+    const onKeypress = (str: string | undefined, key: readline.Key) => {
+      if ((key.ctrl && key.name === "c") || key.name === "escape") {
         cleanup();
-        process.exit(0);
+        clearScreenLines();
+        reject(new Error("Selection cancelled"));
+        return;
       }
-      if (chunk.includes("\r") || chunk.includes("\n")) {
-        process.stdout.write(`\x1b[${options.length + 1}B`);
-        for (let i = 0; i < options.length + 1; i++) {
-          process.stdout.write("\x1b[1A\x1b[2K");
-        }
-        process.stdout.write(`\r\x1b[32m✔\x1b[0m \x1b[1m${query}\x1b[0m \x1b[36m${options[selected]}\x1b[0m\n`);
+
+      if (str === "y" || str === "Y") {
+        selected = 0;
         cleanup();
+        clearScreenLines();
+        process.stdout.write(`\x1b[32m✔\x1b[0m \x1b[1m${query}\x1b[0m \x1b[36mYes\x1b[0m\n`);
+        resolve(true);
+        return;
+      }
+
+      if (str === "n" || str === "N") {
+        selected = 1;
+        cleanup();
+        clearScreenLines();
+        process.stdout.write(`\x1b[32m✔\x1b[0m \x1b[1m${query}\x1b[0m \x1b[36mNo\x1b[0m\n`);
+        resolve(false);
+        return;
+      }
+
+      if (key.name === "return" || key.name === "enter") {
+        cleanup();
+        clearScreenLines();
+        process.stdout.write(`\x1b[32m✔\x1b[0m \x1b[1m${query}\x1b[0m \x1b[36m${options[selected]}\x1b[0m\n`);
         resolve(selected === 0);
         return;
       }
-      if (chunk.includes(Buffer.from("\u0009")) || chunk.includes(Buffer.from(" "))) {
+
+      if (key.name === "left" || key.name === "right" || key.name === "up" || key.name === "down" || key.name === "space" || key.name === "tab") {
         selected = selected === 0 ? 1 : 0;
-        render();
-        return;
-      }
-      if (chunk.includes(Buffer.from("\x1b[A"))) {
-        selected = (selected - 1 + options.length) % options.length;
-        render();
-        return;
-      }
-      if (chunk.includes(Buffer.from("\x1b[B"))) {
-        selected = (selected + 1) % options.length;
         render();
       }
     };
-    process.stdin.setRawMode(true);
-    process.stdin.resume();
-    process.stdin.on("data", onData);
+
+    process.stdin.on("keypress", onKeypress);
     render();
   });
 }
@@ -1415,6 +1454,7 @@ export async function runInteractiveInstall(
       updateGitignore: gitignoreChoice,
       ruleConflictAction: handleConflict as "overwrite" | "append" | "skip",
       scope: scopeChoice as "global" | "project" | "both",
+      installHooks: installHook,
     });
   } catch (e) {
     if (e instanceof Error && e.message === "Selection cancelled") {
@@ -1484,7 +1524,6 @@ async function runInteractiveUninstall(
   }
 }
 
-
 export async function installAllAsync(
   workspacePath?: string,
   editor?: string,
@@ -1516,7 +1555,9 @@ export function installAll(
   uninstall?: boolean,
 ): void {
   if (isInteractive()) {
-    installAllAsync(workspacePath, editor, scope, uninstall);
+    installAllAsync(workspacePath, editor, scope, uninstall).catch((e) => {
+      console.error("Installation error:", e);
+    });
   } else if (uninstall) {
     runNonInteractiveUninstall(workspacePath, editor, scope);
   } else {
@@ -1590,4 +1631,3 @@ Options:
 if (import.meta.path === Bun.main) {
   await runInstallerCli();
 }
-

@@ -221,6 +221,35 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
+        name: "arive_codemap",
+        description:
+          "Scans folder structure tree, maps imports/exports, or runs git diff checks.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            action: {
+              type: "string",
+              enum: ["tree", "dependencies", "diff"],
+              description: "The codetree operation to perform",
+            },
+            dir: {
+              type: "string",
+              description: "The directory to scan for tree/dependencies",
+            },
+            excludes: {
+              type: "array",
+              items: { type: "string" },
+              description: "List of directories to exclude",
+            },
+            targetBranch: {
+              type: "string",
+              description: "Target branch for git diff comparison",
+            },
+          },
+          required: ["action"],
+        },
+      },
+      {
         name: "arive_codetree",
         description:
           "Scans folder structure tree, maps imports/exports, or runs git diff checks.",
@@ -753,6 +782,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
+      case "arive_codemap":
       case "arive_codetree": {
         const action = String(args?.action || "tree");
         const rawDir = String(args?.dir || ".");
@@ -760,7 +790,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           ? args.excludes.map(String)
           : [];
         const targetBranch = String(args?.targetBranch || "master");
-
         // Anchor dir to workspace root — prevents directory traversal (e.g. dir: "../../../")
         const workspaceRoot = path.resolve(process.cwd());
         const resolvedDir = path.resolve(rawDir);
