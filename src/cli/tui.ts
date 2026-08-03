@@ -1,96 +1,48 @@
-import * as fs from "fs";
-import * as path from "path";
 import * as readline from "readline";
-import { executeInstallation, executeUninstallation } from "./installer.js";
+import {
+  executeInstallation,
+  executeUninstallation,
+  EDITOR_REGISTRY,
+  detectInstalledEditors,
+} from "./installer.js";
 
 const ACTIONS = ["install", "uninstall"] as const;
-const EDITORS = [
-  "all",
-  "cursor",
-  "cline",
-  "roo",
-  "windsurf",
-  "opencode",
-  "kilocode",
-  "claude",
-  "claudecode",
-  "antigravity",
-  "omp",
-] as const;
 const SCOPES = ["both", "project", "global"] as const;
-const CONFLICTS = ["overwrite", "append", "skip"] as const;
+const CONFLICTS = ["append", "overwrite", "skip"] as const;
 const GITIGNORE_OPTS = [true, false] as const;
 
 export async function runTui(): Promise<void> {
+  const wsRoot = process.cwd();
+  const detected = detectInstalledEditors(wsRoot);
+  
+  // Build editor target list dynamically: detected first, then remaining, then "all"
+  const editorOptions: string[] = [];
+  for (const d of detected) {
+    editorOptions.push(d);
+  }
+  for (const t of EDITOR_REGISTRY) {
+    if (!editorOptions.includes(t.id)) {
+      editorOptions.push(t.id);
+    }
+  }
+  editorOptions.push("all");
+
   let activeRow = 0; // 0 to 6
   let actionIdx = 0;
-  let editorIdx = 0;
+  let editorIdx = 0; // Pre-selected to top (which is detected editor if available)
   let scopeIdx = 0;
-  let conflictIdx = 1; // Default to 'append'
+  let conflictIdx = 0; // Default to 'append'
   let gitignoreIdx = 0; // Default to true
 
-  // Hide cursor, clear screen, and configure raw TTY mode
   process.stdout.write("\x1b[?25l");
   process.stdout.write("\x1b[2J\x1b[H");
-
-  const cleanup = () => {
-    process.stdout.write("\x1b[?25h");
-    try {
-      process.stdin.setRawMode(false);
-      process.stdin.pause();
-    } catch {
-      // Ignore errors resetting stdin mode
-    }
-  };
-
-  const render = () => {
-    // Clear screen and draw menu from top
-    process.stdout.write("\x1b[H");
-    let output = "";
-    output += `\x1b[1m\x1b[36m=== ARIVE MCP Interactive Configurator TUI ===\x1b[0m\n\n`;
-    output += `Use ↑/↓ to navigate rows.\n`;
-    output += `Use ←/→ (or Space) to cycle values on the selected option.\n`;
-    output += `Press Enter on [ RUN EXECUTION ] to apply changes.\n\n`;
-
-    const drawRow = (rowIdx: number, label: string, value: string) => {
-      if (rowIdx === activeRow) {
-        return `  \x1b[36m\x1b[1m▸ ${label.padEnd(22)} < ${value} >\x1b[0m\n`;
-      } else {
-        return `    \x1b[90m${label.padEnd(22)}   ${value}\x1b[0m\n`;
-      }
-    };
-
-    output += drawRow(0, "Action:", ACTIONS[actionIdx].toUpperCase());
-    output += drawRow(1, "Editor/Agent Target:", EDITORS[editorIdx]);
-    output += drawRow(2, "Install Scope:", SCOPES[scopeIdx]);
-    output += drawRow(3, "Conflict Policy:", CONFLICTS[conflictIdx]);
-    output += drawRow(4, "Gitignore update:", GITIGNORE_OPTS[gitignoreIdx] ? "Yes" : "No");
-    output += `\n`;
-
-    if (activeRow === 5) {
-      output += `  \x1b[32m\x1b[1m▸ [ RUN EXECUTION ]\x1b[0m\n`;
-    } else {
-      output += `    \x1b[32m[ RUN EXECUTION ]\x1b[0m\n`;
-    }
-
-    if (activeRow === 6) {
-      output += `  \x1b[31m\x1b[1m▸ [ EXIT ]\x1b[0m\n`;
-    } else {
-      output += `    \x1b[31m[ EXIT ]\x1b[0m\n`;
-    }
-
-    process.stdout.write(output);
-  };
-
 
   return new Promise<void>((resolve) => {
     readline.emitKeypressEvents(process.stdin);
     if (process.stdin.isTTY) {
       try {
         process.stdin.setRawMode(true);
-      } catch {
-        // Ignore
-      }
+      } catch {}
     }
     process.stdin.resume();
 
@@ -100,10 +52,50 @@ export async function runTui(): Promise<void> {
       if (process.stdin.isTTY) {
         try {
           process.stdin.setRawMode(false);
-        } catch {
-          // Ignore
-        }
+        } catch {}
       }
+    };
+
+    const render = () => {
+      process.stdout.write("\x1b[H");
+      let output = "";
+      output += `\x1b[1m\x1b[36m=== ARIVE MCP Interactive Configurator TUI ===\x1b[0m\n\n`;
+      output += `Use ↑/↓ to navigate rows.\n`;
+      output += `Use ←/→ (or Space) to cycle values on the selected option.\n`;
+      output += `Press Enter on [ RUN EXECUTION ] to apply changes.\n\n`;
+
+      const drawRow = (rowIdx: number, label: string, value: string) => {
+        if (rowIdx === activeRow) {
+          return `  \x1b[36m\x1b[1m▸ ${label.padEnd(22)} < ${value} >\x1b[0m\n`;
+        } else {
+          return `    \x1b[90m${label.padEnd(22)}   ${value}\x1b[0m\n`;
+        }
+      };
+
+      const selectedEditorId = editorOptions[editorIdx];
+      const isDetected = detected.includes(selectedEditorId);
+      const editorDisplay = selectedEditorId + (isDetected ? " (detected)" : "");
+
+      output += drawRow(0, "Action:", ACTIONS[actionIdx].toUpperCase());
+      output += drawRow(1, "Editor/Agent Target:", editorDisplay);
+      output += drawRow(2, "Install Scope:", SCOPES[scopeIdx]);
+      output += drawRow(3, "Conflict Policy:", CONFLICTS[conflictIdx]);
+      output += drawRow(4, "Gitignore update:", GITIGNORE_OPTS[gitignoreIdx] ? "Yes" : "No");
+      output += `\n`;
+
+      if (activeRow === 5) {
+        output += `  \x1b[32m\x1b[1m▸ [ RUN EXECUTION ]\x1b[0m\n`;
+      } else {
+        output += `    \x1b[32m[ RUN EXECUTION ]\x1b[0m\n`;
+      }
+
+      if (activeRow === 6) {
+        output += `  \x1b[31m\x1b[1m▸ [ EXIT ]\x1b[0m\n`;
+      } else {
+        output += `    \x1b[31m[ EXIT ]\x1b[0m\n`;
+      }
+
+      process.stdout.write(output);
     };
 
     render();
@@ -113,7 +105,7 @@ export async function runTui(): Promise<void> {
       if (activeRow === 0) {
         actionIdx = (actionIdx + delta + ACTIONS.length) % ACTIONS.length;
       } else if (activeRow === 1) {
-        editorIdx = (editorIdx + delta + EDITORS.length) % EDITORS.length;
+        editorIdx = (editorIdx + delta + editorOptions.length) % editorOptions.length;
       } else if (activeRow === 2) {
         scopeIdx = (scopeIdx + delta + SCOPES.length) % SCOPES.length;
       } else if (activeRow === 3) {
@@ -158,7 +150,8 @@ export async function runTui(): Promise<void> {
           process.stdout.write("\x1b[2J\x1b[H");
 
           const action = ACTIONS[actionIdx];
-          const editor = EDITORS[editorIdx] === "all" ? undefined : EDITORS[editorIdx];
+          const chosenTarget = editorOptions[editorIdx];
+          const editor = chosenTarget === "all" ? undefined : chosenTarget;
           const scope = SCOPES[scopeIdx];
           const conflict = CONFLICTS[conflictIdx];
           const gitignore = GITIGNORE_OPTS[gitignoreIdx];
@@ -173,14 +166,14 @@ export async function runTui(): Promise<void> {
 
           try {
             if (action === "install") {
-              executeInstallation(process.cwd(), {
+              executeInstallation(wsRoot, {
                 target: editor,
                 updateGitignore: gitignore,
                 ruleConflictAction: conflict,
                 scope: scope,
               });
             } else {
-              executeUninstallation(process.cwd(), {
+              executeUninstallation(wsRoot, {
                 target: editor,
                 updateGitignore: gitignore,
                 ruleConflictAction: conflict,

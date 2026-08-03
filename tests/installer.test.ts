@@ -15,7 +15,7 @@ mock.module("os", () => {
 });
 
 // Import installer after mock is registered
-import { installAll, writeRuleFileWithConflict, isInteractive, isRawTTY, executeInstallation } from "../src/cli/installer.js";
+import { installAll, writeRuleFileWithConflict, isInteractive, isRawTTY, executeInstallation, detectInstalledEditors } from "../src/cli/installer.js";
 
 describe("Installer Editor Targeting", () => {
   let tempDir: string;
@@ -74,6 +74,17 @@ describe("Installer Editor Targeting", () => {
 
     // Windsurf rules should NOT exist
     expect(fs.existsSync(path.join(wsRoot, ".windsurf"))).toBe(false);
+  });
+
+  test("detects installed editors in workspace correctly", () => {
+    const wsRoot = path.join(tempDir, "workspace-detect");
+    fs.mkdirSync(path.join(wsRoot, ".cursor"), { recursive: true });
+    fs.mkdirSync(path.join(wsRoot, ".claude"), { recursive: true });
+
+    const detected = detectInstalledEditors(wsRoot);
+    expect(detected).toContain("cursor");
+    expect(detected).toContain("claude");
+    expect(detected).not.toContain("windsurf");
   });
 
   test("installs only Cline configuration when targeted", () => {
@@ -421,8 +432,6 @@ describe("writeRuleFileWithConflict", () => {
     writeRuleFileWithConflict(ruleFile, "new content", "append");
     expect(fs.readFileSync(ruleFile, "utf-8")).toBe("original\n\n<!-- arive:fade-rules -->\nnew content");
   });
-
-
 });
 
 describe("isInteractive", () => {
@@ -540,9 +549,8 @@ describe("isRawTTY", () => {
       fs.writeFileSync(mcpPath, "{ corrupted json: ]");
 
       executeInstallation(wsRoot, { target: "claude", updateGitignore: false, ruleConflictAction: "overwrite", scope: "project" });
-
       const content = fs.readFileSync(mcpPath, "utf-8");
-      let parsed: any;
+      let parsed: Record<string, Record<string, unknown>> = {};
       expect(() => { parsed = JSON.parse(content); }).not.toThrow();
       expect(parsed).toBeDefined();
       expect(parsed.mcpServers).toBeDefined();
@@ -550,11 +558,9 @@ describe("isRawTTY", () => {
     });
 
     test("should create missing parent directories for configs", () => {
-      // It's safer to test directory creation in the project scope using a mock workspace path
-      // that we can cleanly delete before running.
       const deepConfigPath = path.join(wsRoot, ".omp");
       if (fs.existsSync(deepConfigPath)) {
-          fs.rmSync(deepConfigPath, { recursive: true, force: true });
+        fs.rmSync(deepConfigPath, { recursive: true, force: true });
       }
       executeInstallation(wsRoot, { target: "omp", updateGitignore: false, ruleConflictAction: "overwrite", scope: "project" });
       expect(fs.existsSync(path.join(deepConfigPath, "mcp.json"))).toBe(true);

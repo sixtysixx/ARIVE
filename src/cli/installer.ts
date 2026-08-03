@@ -2,270 +2,6 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import * as readline from "readline";
-import { installPreCommitHook, installPreCommitHookSync } from "./init_hooks.js";
-
-// Types
-interface MCPConfig {
-  mcpServers?: Record<
-    string,
-    {
-      command: string;
-      args: string[];
-    }
-  >;
-}
-
-interface OpenCodeConfig {
-  mcp?: Record<
-    string,
-    {
-      type: string;
-      command: string[];
-      enabled: boolean;
-    }
-  >;
-  plugin?: string[];
-}
-
-// Helper to resolve app data directories
-function getAppDataPath(): string {
-  if (process.platform === "win32") {
-    return process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming");
-  }
-  if (process.platform === "darwin") {
-    return path.join(os.homedir(), "Library", "Application Support");
-  }
-  return path.join(os.homedir(), ".config");
-}
-
-/**
- * Helper to write a rule file and handle conflicts (overwrite, append, skip).
- */
-export function writeRuleFileWithConflict(
-  filePath: string,
-  content: string,
-  action: "overwrite" | "append" | "skip",
-): void {
-  const dir = path.dirname(filePath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-
-  const ARIVE_MARKER = "<!-- arive:fade-rules -->";
-  let markedContent = content;
-  if (!content.includes(ARIVE_MARKER)) {
-    const match = /^---\r?\n[\s\S]*?\r?\n---\r?\n/.exec(content);
-    if (match) {
-      markedContent = `${match[0]}${ARIVE_MARKER}\n${content.slice(match[0].length)}`;
-    } else {
-      markedContent = `${ARIVE_MARKER}\n${content}`;
-    }
-  }
-
-  if (!fs.existsSync(filePath)) {
-    fs.writeFileSync(filePath, markedContent, "utf-8");
-    return;
-  }
-
-  if (action === "skip") {
-    return;
-  }
-
-  const current = fs.readFileSync(filePath, "utf-8");
-
-  if (action === "overwrite") {
-    fs.writeFileSync(filePath, markedContent, "utf-8");
-    return;
-  }
-
-  if (action === "append") {
-    // Deterministic idempotency check
-    if (current.includes(ARIVE_MARKER)) {
-      return;
-    }
-    fs.writeFileSync(filePath, `${current}\n\n${markedContent}`, "utf-8");
-  }
-}
-
-// Update helper for normal MCP JSON configs
-function updateMCPConfig(
-  filePath: string,
-  command: string,
-  args: string[],
-): void {
-  try {
-    const parentDir = path.dirname(filePath);
-    if (!fs.existsSync(parentDir)) {
-      fs.mkdirSync(parentDir, { recursive: true });
-    }
-
-    let config: MCPConfig = {};
-    if (fs.existsSync(filePath)) {
-      try {
-        const content = fs.readFileSync(filePath, "utf-8");
-        config = JSON.parse(content) as MCPConfig;
-      } catch {
-        // Ignore parsing errors and start fresh
-      }
-    }
-
-    if (!config || typeof config !== "object") {
-      config = {};
-    }
-
-    if (!config.mcpServers || typeof config.mcpServers !== "object") {
-      config.mcpServers = {};
-    }
-
-    config.mcpServers["arive"] = {
-      command,
-      args,
-    };
-
-    fs.writeFileSync(filePath, JSON.stringify(config, null, 2), "utf-8");
-    console.log(`✓ Registered ARIVE MCP server in: ${filePath}`);
-  } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : String(e);
-    console.warn(`✗ Failed to update config at ${filePath}: ${message}`);
-  }
-}
-
-// Update helper for OpenCode configs
-function updateOpenCodeConfig(filePath: string, command: string[]): void {
-  try {
-    const parentDir = path.dirname(filePath);
-    if (!fs.existsSync(parentDir)) {
-      fs.mkdirSync(parentDir, { recursive: true });
-    }
-
-    let config: OpenCodeConfig = {};
-    if (fs.existsSync(filePath)) {
-      try {
-        const content = fs.readFileSync(filePath, "utf-8");
-        config = JSON.parse(content) as OpenCodeConfig;
-      } catch {
-        // Ignore parsing errors and start fresh
-      }
-    }
-
-    if (!config || typeof config !== "object") {
-      config = {};
-    }
-
-    if (!config.mcp || typeof config.mcp !== "object") {
-      config.mcp = {};
-    }
-
-    config.mcp["arive"] = {
-      type: "local",
-      command,
-      enabled: true,
-    };
-
-    fs.writeFileSync(filePath, JSON.stringify(config, null, 2), "utf-8");
-    console.log(
-      `✓ Registered ARIVE MCP server in OpenCode config: ${filePath}`,
-    );
-  } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : String(e);
-    console.warn(
-      `✗ Failed to update OpenCode config at ${filePath}: ${message}`,
-    );
-  }
-}
-
-// Uninstall helpers — mirror the install helpers but remove entries instead of writing them
-function removeMCPConfig(filePath: string): void {
-  try {
-    if (!fs.existsSync(filePath)) {
-      console.log(`ℹ MCP config not found, skipping: ${filePath}`);
-      return;
-    }
-    let config: MCPConfig = {};
-    try {
-      const content = fs.readFileSync(filePath, "utf-8");
-      config = JSON.parse(content) as MCPConfig;
-    } catch {
-      // If we can't parse it, leave it alone
-      return;
-    }
-    if (!config || typeof config !== "object") return;
-
-    if (config.mcpServers && config.mcpServers["arive"]) {
-      delete config.mcpServers["arive"];
-      if (Object.keys(config.mcpServers).length === 0) {
-        delete config.mcpServers;
-      }
-      fs.writeFileSync(filePath, JSON.stringify(config, null, 2), "utf-8");
-      console.log(`✓ Removed ARIVE MCP server entry from: ${filePath}`);
-    } else {
-      console.log(`ℹ No ARIVE MCP entry found in: ${filePath}`);
-    }
-  } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : String(e);
-    console.warn(`✗ Failed to remove MCP config at ${filePath}: ${message}`);
-  }
-}
-
-function removeOpenCodeConfig(filePath: string): void {
-  try {
-    if (!fs.existsSync(filePath)) {
-      console.log(`ℹ OpenCode config not found, skipping: ${filePath}`);
-      return;
-    }
-    let config: OpenCodeConfig = {};
-    try {
-      const content = fs.readFileSync(filePath, "utf-8");
-      config = JSON.parse(content) as OpenCodeConfig;
-    } catch {
-      return;
-    }
-    if (!config || typeof config !== "object") return;
-
-    let changed = false;
-
-    // Remove mcp.arive entry
-    if (config.mcp && config.mcp["arive"]) {
-      delete config.mcp["arive"];
-      if (Object.keys(config.mcp).length === 0) {
-        delete config.mcp;
-      }
-      changed = true;
-    }
-
-    // Remove plugin entry if present
-    if (Array.isArray(config.plugin)) {
-      const filtered = config.plugin.filter((entry) => entry !== ".opencode/plugins/fade.mjs");
-      if (filtered.length !== config.plugin.length) {
-        config.plugin = filtered;
-      }
-    }
-
-    if (changed || !config.plugin) {
-      delete config.plugin;
-    }
-
-    fs.writeFileSync(filePath, JSON.stringify(config, null, 2), "utf-8");
-    console.log(`✓ Removed ARIVE OpenCode entry from: ${filePath}`);
-  } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : String(e);
-    console.warn(`✗ Failed to update OpenCode config at ${filePath}: ${message}`);
-  }
-}
-
-function removeRuleFile(filePath: string): void {
-  try {
-    if (fs.existsSync(filePath)) {
-      fs.rmSync(filePath, { recursive: true, force: true });
-      console.log(`✓ Removed ARIVE rule file: ${filePath}`);
-    } else {
-      console.log(`ℹ No ARIVE rule file found at: ${filePath}`);
-    }
-  } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : String(e);
-    console.warn(`✗ Failed to remove ARIVE rule file at ${filePath}: ${message}`);
-  }
-}
 
 // Shared Fade rules text
 const fadeRules = `# Fade, lazy senior dev mode
@@ -362,7 +98,175 @@ export default async ({ client } = {}) => {
   };
 };`;
 
-// Helper to update gitignore
+const clawSkills = [
+  { name: "fade", content: fadeRules },
+  { name: "fade-review", content: fadeReview },
+  { name: "fade-audit", content: fadeAudit },
+  { name: "fade-debt", content: fadeDebt },
+  { name: "fade-gain", content: fadeGain },
+  { name: "fade-help", content: fadeHelp },
+];
+
+function getAppDataPath(): string {
+  if (process.platform === "win32") {
+    return process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming");
+  }
+  return path.join(os.homedir(), ".config");
+}
+
+export function writeRuleFileWithConflict(
+  filePath: string,
+  content: string,
+  action: "overwrite" | "append" | "skip"
+): void {
+  const dir = path.dirname(filePath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+
+  const ARIVE_MARKER = "<!-- arive:fade-rules -->";
+  let markedContent = content;
+  if (!content.includes(ARIVE_MARKER)) {
+    const match = /^---\r?\n[\s\S]*?\r?\n---\r?\n/.exec(content);
+    if (match) {
+      markedContent = `${match[0]}${ARIVE_MARKER}\n${content.slice(match[0].length)}`;
+    } else {
+      markedContent = `${ARIVE_MARKER}\n${content}`;
+    }
+  }
+
+  if (!fs.existsSync(filePath)) {
+    fs.writeFileSync(filePath, markedContent, "utf-8");
+    return;
+  }
+
+  if (action === "skip") return;
+
+  const current = fs.readFileSync(filePath, "utf-8");
+  if (action === "overwrite") {
+    fs.writeFileSync(filePath, markedContent, "utf-8");
+    return;
+  }
+
+  if (action === "append") {
+    if (current.includes(ARIVE_MARKER)) return;
+    fs.writeFileSync(filePath, `${current}\n\n${markedContent}`, "utf-8");
+  }
+}
+
+interface MCPConfig {
+  mcpServers?: Record<string, { command: string; args: string[] }>;
+  mcp_servers?: Record<string, { command: string; args: string[] }>;
+  [key: string]: unknown;
+}
+
+function updateMCPConfig(filePath: string, command: string, args: string[]): void {
+  try {
+    const dir = path.dirname(filePath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    let config: MCPConfig = {};
+    if (fs.existsSync(filePath)) {
+      try {
+        config = JSON.parse(fs.readFileSync(filePath, "utf-8")) as MCPConfig;
+      } catch {
+        config = {};
+      }
+    }
+    if (config.mcp_servers) {
+      config.mcp_servers.arive = { command, args };
+    } else {
+      if (!config.mcpServers) config.mcpServers = {};
+      config.mcpServers.arive = { command, args };
+    }
+    fs.writeFileSync(filePath, JSON.stringify(config, null, 2), "utf-8");
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(`! Failed to write MCP config to ${filePath}: ${msg}`);
+  }
+}
+
+function removeMCPConfig(filePath: string): void {
+  try {
+    if (!fs.existsSync(filePath)) return;
+    let config: MCPConfig = {};
+    try {
+      config = JSON.parse(fs.readFileSync(filePath, "utf-8")) as MCPConfig;
+    } catch {
+      return;
+    }
+    let modified = false;
+    if (config.mcpServers?.arive) {
+      delete config.mcpServers.arive;
+      modified = true;
+    }
+    if (config.mcp_servers?.arive) {
+      delete config.mcp_servers.arive;
+      modified = true;
+    }
+    if (modified) {
+      fs.writeFileSync(filePath, JSON.stringify(config, null, 2), "utf-8");
+    }
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(`! Failed to update MCP config at ${filePath}: ${msg}`);
+  }
+}
+
+function updateOpenCodeConfig(filePath: string, command: string[]): void {
+  try {
+    const dir = path.dirname(filePath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    let config: any = {};
+    if (fs.existsSync(filePath)) {
+      try {
+        config = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+      } catch {
+        config = {};
+      }
+    }
+    if (!config.mcp) config.mcp = {};
+    config.mcp.arive = { command };
+    fs.writeFileSync(filePath, JSON.stringify(config, null, 2), "utf-8");
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(`! Failed to write OpenCode config to ${filePath}: ${msg}`);
+  }
+}
+
+function removeOpenCodeConfig(filePath: string): void {
+  try {
+    if (!fs.existsSync(filePath)) return;
+    let config: any = {};
+    try {
+      config = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+    } catch {
+      return;
+    }
+    if (config.mcp?.arive) {
+      delete config.mcp.arive;
+      fs.writeFileSync(filePath, JSON.stringify(config, null, 2), "utf-8");
+    }
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(`! Failed to update OpenCode config at ${filePath}: ${msg}`);
+  }
+}
+
+function removeRuleFile(filePath: string): void {
+  try {
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(`! Failed to remove rule file ${filePath}: ${msg}`);
+  }
+}
+
 function updateGitignore(wsRoot: string, pathsToIgnore: string[]): void {
   const gitignorePath = path.join(wsRoot, ".gitignore");
   let content = "";
@@ -372,8 +276,8 @@ function updateGitignore(wsRoot: string, pathsToIgnore: string[]): void {
 
   const lines = content.split(/\r?\n/);
   const toAdd: string[] = [];
-
   const expandedPaths: string[] = [];
+
   for (const p of pathsToIgnore) {
     if (p === ".arive") {
       expandedPaths.push(
@@ -398,20 +302,16 @@ function updateGitignore(wsRoot: string, pathsToIgnore: string[]): void {
         (p.endsWith("/") && (trimmed === p.slice(0, -1) || trimmed === `/${p.slice(0, -1)}`))
       );
     });
-    if (!isIgnored) {
-      toAdd.push(p);
-    }
+    if (!isIgnored) toAdd.push(p);
   }
 
   if (toAdd.length > 0) {
     const separator = content.endsWith("\n") || content === "" ? "" : "\n";
     const header = `${separator}\n# ARIVE run-time and database files\n`;
-    const newLines = toAdd.map((p) => {
-      if (p.endsWith("/") || p.endsWith("*") || p.includes(".")) {
-        return p;
-      }
-      return `${p}/`;
-    }).join("\n") + "\n";
+    const newLines =
+      toAdd
+        .map((p) => (p.endsWith("/") || p.endsWith("*") || p.includes(".") ? p : `${p}/`))
+        .join("\n") + "\n";
     fs.appendFileSync(gitignorePath, header + newLines, "utf-8");
     console.log(`✓ Added to .gitignore in ${wsRoot}: ${toAdd.join(", ")}`);
   } else {
@@ -421,23 +321,18 @@ function updateGitignore(wsRoot: string, pathsToIgnore: string[]): void {
 
 function removeFromGitignore(wsRoot: string): void {
   const gitignorePath = path.join(wsRoot, ".gitignore");
-  if (!fs.existsSync(gitignorePath)) {
-    return;
-  }
+  if (!fs.existsSync(gitignorePath)) return;
 
   let content = fs.readFileSync(gitignorePath, "utf-8");
   const marker = "# ARIVE run-time and database files\n";
   const markerIndex = content.indexOf(marker);
-  if (markerIndex === -1) {
-    return;
-  }
+  if (markerIndex === -1) return;
 
   const afterMarker = content.slice(markerIndex + marker.length);
   const match = afterMarker.match(/^(?:[^\n]*\n)*/);
   const removed = match ? match[0] : afterMarker;
-  const cleaned = content
-    .slice(0, markerIndex)
-    .replace(/\s+$/, "") +
+  const cleaned =
+    content.slice(0, markerIndex).replace(/\s+$/, "") +
     (removed.trim() && !content.slice(0, markerIndex).endsWith("\n\n") ? "\n" : "") +
     afterMarker.slice(removed.length).replace(/^\n+/, "");
 
@@ -445,8 +340,6 @@ function removeFromGitignore(wsRoot: string): void {
   console.log(`✓ Removed ARIVE entries from .gitignore in ${wsRoot}`);
 }
 
-
-// Helper to write lifecycle hooks samples
 function writeHookSamples(hooksDir: string): void {
   try {
     fs.mkdirSync(hooksDir, { recursive: true });
@@ -460,12 +353,331 @@ function writeHookSamples(hooksDir: string): void {
       `#!/bin/sh\n# ARIVE post-verify hook sample\n# This hook runs after the verify tests run.\nexit 0\n`,
       { encoding: "utf-8", mode: 0o755 }
     );
-  } catch (e: unknown) {
-    // Ignore error silently
+  } catch {
+    // Ignore
   }
 }
 
-// Shared implementation containing actual file writes & config registrations
+interface TargetOptions {
+  ruleConflictAction: "overwrite" | "append" | "skip";
+}
+
+interface EditorTargetDef {
+  id: string;
+  aliases?: string[];
+  displayName: string;
+  detectPaths?: (wsRoot: string, appData: string, home: string) => string[];
+  projectRule?: {
+    path: (wsRoot: string) => string;
+    content?: string | ((rules: string) => string);
+  };
+  projectMcpPath?: (wsRoot: string) => string;
+  globalMcpPath?: (appData: string, home: string) => string;
+  projectHooksPath?: (wsRoot: string) => string;
+  globalHooksPath?: (appData: string, home: string) => string;
+  customInstallProject?: (wsRoot: string, options: TargetOptions) => void;
+  customInstallGlobal?: (appData: string, home: string, options: TargetOptions) => void;
+  customUninstallProject?: (wsRoot: string) => void;
+  customUninstallGlobal?: (appData: string, home: string) => void;
+}
+
+export const EDITOR_REGISTRY: EditorTargetDef[] = [
+  {
+    id: "cursor",
+    displayName: "Cursor",
+    detectPaths: (ws, app) => [path.join(ws, ".cursor"), path.join(app, "Cursor")],
+    projectRule: {
+      path: (ws) => path.join(ws, ".cursor", "rules", "fade.mdc"),
+      content: (r) => `---\ndescription: Fade, lazy senior dev mode\nglobs: "*"\nalwaysApply: true\n---\n${r}`,
+    },
+    projectHooksPath: (ws) => path.join(ws, ".cursor", "hooks"),
+    projectMcpPath: (ws) => path.join(ws, ".cursor", "mcp.json"),
+    globalMcpPath: (app) =>
+      path.join(app, "Cursor", "User", "globalStorage", "mohammad-rahimi.cursor-mcp", "settings", "mcp_settings.json"),
+  },
+  {
+    id: "cline",
+    displayName: "Cline",
+    detectPaths: (ws, app) => [
+      path.join(ws, ".cline"),
+      path.join(ws, ".clinerules"),
+      path.join(app, "Code", "User", "globalStorage", "saoudrizwan.claude-dev"),
+    ],
+    projectRule: { path: (ws) => path.join(ws, ".clinerules") },
+    projectHooksPath: (ws) => path.join(ws, ".cline", "hooks"),
+    projectMcpPath: (ws) => path.join(ws, ".cline", "mcp.json"),
+    globalMcpPath: (app) =>
+      path.join(app, "Code", "User", "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json"),
+  },
+  {
+    id: "roo",
+    aliases: ["roocode"],
+    displayName: "Roo Code",
+    detectPaths: (ws, app) => [
+      path.join(ws, ".roo"),
+      path.join(app, "Code", "User", "globalStorage", "roodev.roo-cline"),
+    ],
+    projectRule: { path: (ws) => path.join(ws, ".clinerules") },
+    projectHooksPath: (ws) => path.join(ws, ".roo", "hooks"),
+    projectMcpPath: (ws) => path.join(ws, ".roo", "mcp.json"),
+    globalMcpPath: (app) =>
+      path.join(app, "Code", "User", "globalStorage", "roodev.roo-cline", "settings", "cline_mcp_settings.json"),
+  },
+  {
+    id: "windsurf",
+    displayName: "Windsurf",
+    detectPaths: (ws, _, home) => [path.join(ws, ".windsurf"), path.join(home, ".codeium", "windsurf")],
+    projectRule: { path: (ws) => path.join(ws, ".windsurf", "rules", "fade.md") },
+    projectHooksPath: (ws) => path.join(ws, ".windsurf", "hooks"),
+    projectMcpPath: (ws) => path.join(ws, ".windsurf", "mcp_config.json"),
+    globalMcpPath: (_, home) => path.join(home, ".codeium", "windsurf", "mcp_config.json"),
+  },
+  {
+    id: "kiro",
+    displayName: "Kiro",
+    detectPaths: (ws) => [path.join(ws, ".kiro")],
+    projectRule: { path: (ws) => path.join(ws, ".kiro", "steering", "fade.md") },
+    projectHooksPath: (ws) => path.join(ws, ".kiro", "hooks"),
+    projectMcpPath: (ws) => path.join(ws, ".kiro", "mcp.json"),
+  },
+  {
+    id: "agents",
+    displayName: "Agents",
+    detectPaths: (ws) => [path.join(ws, ".agents")],
+    projectRule: { path: (ws) => path.join(ws, ".agents", "rules", "fade.md") },
+    projectHooksPath: (ws) => path.join(ws, ".agents", "hooks"),
+    projectMcpPath: (ws) => path.join(ws, ".agents", "mcp.json"),
+  },
+  {
+    id: "omp",
+    displayName: "OMP",
+    detectPaths: (ws, _, home) => [path.join(ws, ".omp"), path.join(home, ".omp")],
+    projectRule: { path: (ws) => path.join(ws, ".omp", "rules", "fade.md") },
+    projectHooksPath: (ws) => path.join(ws, ".omp", "hooks"),
+    projectMcpPath: (ws) => path.join(ws, ".omp", "mcp.json"),
+    globalMcpPath: (_, home) => path.join(home, ".omp", "agent", "mcp.json"),
+    customInstallProject: (ws) => {
+      const dir = path.join(ws, ".omp", "hooks");
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, "pre-integrate.sample"),
+        `#!/bin/sh\n# OMP pre-integrate hook sample\necho "Running local OMP pre-integrate hook"\nexit 0\n`,
+        { encoding: "utf-8", mode: 0o755 }
+      );
+      fs.writeFileSync(
+        path.join(dir, "post-verify.sample"),
+        `#!/bin/sh\n# OMP post-verify hook sample\necho "Running local OMP post-verify hook"\nexit 0\n`,
+        { encoding: "utf-8", mode: 0o755 }
+      );
+    },
+    customInstallGlobal: (_, home, opt) => {
+      const globalRulePath = path.join(home, ".omp", "rules", "fade.md");
+      writeRuleFileWithConflict(globalRulePath, fadeRules, opt.ruleConflictAction);
+      const dir = path.join(home, ".omp", "hooks");
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, "pre-integrate.sample"),
+        `#!/bin/sh\n# OMP pre-integrate hook sample\necho "Running global OMP pre-integrate hook"\nexit 0\n`,
+        { encoding: "utf-8", mode: 0o755 }
+      );
+      fs.writeFileSync(
+        path.join(dir, "post-verify.sample"),
+        `#!/bin/sh\n# OMP post-verify hook sample\necho "Running global OMP post-verify hook"\nexit 0\n`,
+        { encoding: "utf-8", mode: 0o755 }
+      );
+    },
+    customUninstallGlobal: (_, home) => {
+      removeRuleFile(path.join(home, ".omp", "rules", "fade.md"));
+    },
+  },
+  {
+    id: "openclaw",
+    displayName: "OpenClaw",
+    detectPaths: (ws) => [path.join(ws, ".openclaw")],
+    projectHooksPath: (ws) => path.join(ws, ".openclaw", "hooks"),
+    projectMcpPath: (ws) => path.join(ws, ".openclaw", "mcp.json"),
+    customInstallProject: (ws, opt) => {
+      for (const skill of clawSkills) {
+        const skillPath = path.join(ws, ".openclaw", "skills", skill.name, "SKILL.md");
+        const content = `---\nname: ${skill.name}\ndescription: Fade ${skill.name} skill\n---\n${skill.content}`;
+        writeRuleFileWithConflict(skillPath, content, opt.ruleConflictAction);
+      }
+    },
+    customUninstallProject: (ws) => {
+      for (const skill of clawSkills) {
+        removeRuleFile(path.join(ws, ".openclaw", "skills", skill.name, "SKILL.md"));
+      }
+    },
+  },
+  {
+    id: "opencode",
+    displayName: "OpenCode",
+    detectPaths: (ws, _, home) => [
+      path.join(ws, ".opencode"),
+      path.join(ws, "opencode.json"),
+      path.join(home, ".config", "opencode"),
+    ],
+    projectHooksPath: (ws) => path.join(ws, ".opencode", "hooks"),
+    globalHooksPath: (_, home) => path.join(home, ".config", "opencode", "hooks"),
+    customInstallProject: (ws, opt) => {
+      for (const skill of clawSkills) {
+        const cmdPath = path.join(ws, ".opencode", "command", `${skill.name}.md`);
+        const content = `---\ndescription: Fade ${skill.name} command\n---\n${skill.content}`;
+        writeRuleFileWithConflict(cmdPath, content, opt.ruleConflictAction);
+      }
+      const pluginsDir = path.join(ws, ".opencode", "plugins");
+      fs.mkdirSync(pluginsDir, { recursive: true });
+      fs.writeFileSync(path.join(pluginsDir, "fade.mjs"), fadePlugin, "utf-8");
+
+      const jsonPath = path.join(ws, "opencode.json");
+      let cfg: { plugin?: string[] } = {};
+      if (fs.existsSync(jsonPath)) {
+        try {
+          cfg = JSON.parse(fs.readFileSync(jsonPath, "utf-8"));
+        } catch {}
+      }
+      if (!cfg.plugin) cfg.plugin = [];
+      if (!cfg.plugin.includes(".opencode/plugins/fade.mjs")) {
+        cfg.plugin.push(".opencode/plugins/fade.mjs");
+      }
+      fs.writeFileSync(jsonPath, JSON.stringify(cfg, null, 2), "utf-8");
+      updateOpenCodeConfig(jsonPath, ["bun", "x", "--silent", "github:sixtysixx/ARIVE"]);
+    },
+    customInstallGlobal: (_, home) => {
+      const globalDir = path.join(home, ".config", "opencode");
+      updateOpenCodeConfig(path.join(globalDir, "opencode.json"), ["bun", "x", "--silent", "github:sixtysixx/ARIVE"]);
+      const pluginsDir = path.join(globalDir, "plugins");
+      fs.mkdirSync(pluginsDir, { recursive: true });
+      fs.writeFileSync(path.join(pluginsDir, "fade.mjs"), fadePlugin, "utf-8");
+      const commandsDir = path.join(globalDir, "command");
+      fs.mkdirSync(commandsDir, { recursive: true });
+      for (const skill of clawSkills) {
+        fs.writeFileSync(
+          path.join(commandsDir, `${skill.name}.md`),
+          `---\ndescription: Fade ${skill.name} command\n---\n${skill.content}`,
+          "utf-8"
+        );
+      }
+    },
+    customUninstallProject: (ws) => {
+      removeRuleFile(path.join(ws, ".opencode", "plugins", "fade.mjs"));
+      for (const skill of clawSkills) {
+        removeRuleFile(path.join(ws, ".opencode", "command", `${skill.name}.md`));
+      }
+      removeOpenCodeConfig(path.join(ws, "opencode.json"));
+    },
+    customUninstallGlobal: (_, home) => {
+      const globalDir = path.join(home, ".config", "opencode");
+      removeRuleFile(path.join(globalDir, "plugins", "fade.mjs"));
+      for (const skill of clawSkills) {
+        removeRuleFile(path.join(globalDir, "command", `${skill.name}.md`));
+      }
+      removeOpenCodeConfig(path.join(globalDir, "opencode.json"));
+    },
+  },
+  {
+    id: "antigravity",
+    displayName: "Antigravity",
+    detectPaths: (ws, _, home) => [path.join(ws, ".antigravity"), path.join(home, ".gemini", "antigravity-cli")],
+    projectRule: { path: (ws) => path.join(ws, ".antigravity", "rules", "fade.md") },
+    projectHooksPath: (ws) => path.join(ws, ".antigravity", "hooks"),
+    projectMcpPath: (ws) => path.join(ws, ".antigravity", "mcp_config.json"),
+    globalMcpPath: (_, home) => path.join(home, ".gemini", "antigravity-cli", "mcp_config.json"),
+    customInstallGlobal: (_, home) => {
+      const pluginDir = path.join(home, ".gemini", "antigravity-cli", "plugins", "arive");
+      fs.mkdirSync(pluginDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(pluginDir, "plugin.json"),
+        JSON.stringify(
+          { name: "arive", version: "1.0.0", description: "ARIVE MCP Server and Fade rules plugin", id: "arive" },
+          null,
+          2
+        ),
+        "utf-8"
+      );
+      fs.writeFileSync(
+        path.join(pluginDir, "mcp_config.json"),
+        JSON.stringify(
+          { mcpServers: { arive: { command: "bunx", args: ["--silent", "github:sixtysixx/ARIVE"] } } },
+          null,
+          2
+        ),
+        "utf-8"
+      );
+      const rulesDir = path.join(pluginDir, "rules");
+      fs.mkdirSync(rulesDir, { recursive: true });
+      fs.writeFileSync(path.join(rulesDir, "fade.md"), fadeRules, "utf-8");
+      const skillsDir = path.join(pluginDir, "skills");
+      fs.mkdirSync(skillsDir, { recursive: true });
+      fs.writeFileSync(path.join(skillsDir, "SKILL.md"), `# Fade Skills\n\n${fadeRules}`, "utf-8");
+      writeHookSamples(path.join(pluginDir, "hooks"));
+    },
+    customUninstallGlobal: (_, home) => {
+      const pluginDir = path.join(home, ".gemini", "antigravity-cli", "plugins", "arive");
+      if (fs.existsSync(pluginDir)) {
+        try {
+          fs.rmSync(pluginDir, { recursive: true, force: true });
+        } catch {}
+      }
+    },
+  },
+  {
+    id: "claude",
+    displayName: "Claude Desktop",
+    detectPaths: (ws, app) => [path.join(ws, ".claude"), path.join(ws, ".clauderules"), path.join(app, "Claude")],
+    projectRule: { path: (ws) => path.join(ws, ".clauderules") },
+    projectHooksPath: (ws) => path.join(ws, ".claude", "hooks"),
+    globalHooksPath: (app) => path.join(app, "Claude", "hooks"),
+    projectMcpPath: (ws) => path.join(ws, ".claude", "mcp.json"),
+    globalMcpPath: (app) => path.join(app, "Claude", "claude_desktop_config.json"),
+  },
+  {
+    id: "claudecode",
+    displayName: "Claude Code",
+    detectPaths: (ws, _, home) => [path.join(ws, ".claudecode"), path.join(home, ".config", "claude-code")],
+    projectRule: { path: (ws) => path.join(ws, ".clauderules") },
+    projectHooksPath: (ws) => path.join(ws, ".claudecode", "hooks"),
+    globalHooksPath: (_, home) => path.join(home, ".config", "claude-code", "hooks"),
+    projectMcpPath: (ws) => path.join(ws, ".claudecode", "mcp.json"),
+    globalMcpPath: (_, home) => path.join(home, ".config", "claude-code", "config.json"),
+  },
+  {
+    id: "kilocode",
+    displayName: "KiloCode",
+    detectPaths: (ws) => [path.join(ws, ".kilocode"), path.join(ws, ".kilocoderules")],
+    projectRule: { path: (ws) => path.join(ws, ".kilocoderules") },
+    projectHooksPath: (ws) => path.join(ws, ".kilocode", "hooks"),
+    projectMcpPath: (ws) => path.join(ws, ".kilocode", "mcp.json"),
+  },
+];
+
+export function detectInstalledEditors(wsRoot: string): string[] {
+  const appData = getAppDataPath();
+  const home = os.homedir();
+  const detected: string[] = [];
+
+  for (const target of EDITOR_REGISTRY) {
+    if (target.detectPaths) {
+      const paths = target.detectPaths(wsRoot, appData, home);
+      if (paths.some((p) => fs.existsSync(p))) {
+        detected.push(target.id);
+      }
+    }
+  }
+  return detected;
+}
+
+function resolveTargets(targetName?: string): EditorTargetDef[] {
+  if (!targetName || targetName.toLowerCase().trim() === "all") {
+    return EDITOR_REGISTRY;
+  }
+  const normalized = targetName.toLowerCase().trim();
+  const matched = EDITOR_REGISTRY.filter(
+    (t) => t.id === normalized || (t.aliases && t.aliases.includes(normalized))
+  );
+  return matched.length > 0 ? matched : EDITOR_REGISTRY;
+}
+
 export function executeInstallation(
   wsRoot: string,
   options: {
@@ -476,11 +688,12 @@ export function executeInstallation(
     installHooks?: boolean;
   }
 ): void {
-  const target = options.target ? options.target.toLowerCase().trim() : undefined;
   const scope = options.scope || "both";
   const installProject = scope === "project" || scope === "both";
   const installGlobal = scope === "global" || scope === "both";
   const shouldInstallHooks = options.installHooks !== false;
+  const appData = getAppDataPath();
+  const home = os.homedir();
 
   if (installProject && options.updateGitignore) {
     updateGitignore(wsRoot, [".arive"]);
@@ -488,456 +701,69 @@ export function executeInstallation(
 
   if (installProject && shouldInstallHooks) {
     try {
-      const ariveHooksDir = path.join(wsRoot, ".arive", "hooks");
-      writeHookSamples(ariveHooksDir);
-      console.log(
-        "✓ ARIVE protocol lifecycle hooks folder and samples created successfully.",
-      );
+      writeHookSamples(path.join(wsRoot, ".arive", "hooks"));
+      console.log("✓ ARIVE protocol lifecycle hooks folder and samples created successfully.");
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);
-      console.warn(
-        `! Failed to create ARIVE hooks directory or samples: ${message}`,
-      );
+      console.warn(`! Failed to create ARIVE hooks directory or samples: ${message}`);
     }
   }
-  const clawSkills = [
-    { name: "fade", content: fadeRules },
-    { name: "fade-review", content: fadeReview },
-    { name: "fade-audit", content: fadeAudit },
-    { name: "fade-debt", content: fadeDebt },
-    { name: "fade-gain", content: fadeGain },
-    { name: "fade-help", content: fadeHelp },
-  ];
-  if (installProject) { try {
 
-    if (target === undefined || target === "cursor") {
-      const rulePath = path.join(wsRoot, ".cursor", "rules", "fade.mdc");
-      const content = `---\ndescription: Fade, lazy senior dev mode\nglobs: "*"\nalwaysApply: true\n---\n${fadeRules}`;
-      writeRuleFileWithConflict(rulePath, content, options.ruleConflictAction);
-      writeHookSamples(path.join(wsRoot, ".cursor", "hooks"));
-    }
-
-    if (
-      target === undefined ||
-      target === "cline" ||
-      target === "roo" ||
-      target === "roocode"
-    ) {
-      const rulePath = path.join(wsRoot, ".clinerules");
-      writeRuleFileWithConflict(rulePath, fadeRules, options.ruleConflictAction);
-      writeHookSamples(path.join(wsRoot, ".cline", "hooks"));
-      writeHookSamples(path.join(wsRoot, ".roo", "hooks"));
-    }
-
-    if (target === undefined || target === "windsurf") {
-      const rulePath = path.join(wsRoot, ".windsurf", "rules", "fade.md");
-      writeRuleFileWithConflict(rulePath, fadeRules, options.ruleConflictAction);
-      writeHookSamples(path.join(wsRoot, ".windsurf", "hooks"));
-    }
-
-    if (target === undefined || target === "kiro") {
-      const rulePath = path.join(wsRoot, ".kiro", "steering", "fade.md");
-      writeRuleFileWithConflict(rulePath, fadeRules, options.ruleConflictAction);
-      writeHookSamples(path.join(wsRoot, ".kiro", "hooks"));
-    }
-
-    if (target === undefined || target === "agents") {
-      const rulePath = path.join(wsRoot, ".agents", "rules", "fade.md");
-      writeRuleFileWithConflict(rulePath, fadeRules, options.ruleConflictAction);
-      writeHookSamples(path.join(wsRoot, ".agents", "hooks"));
-    }
-
-    if (target === undefined || target === "omp") {
-      const rulePath = path.join(wsRoot, ".omp", "rules", "fade.md");
-      const rulesDir = path.dirname(rulePath);
-      fs.mkdirSync(rulesDir, { recursive: true });
-      writeRuleFileWithConflict(rulePath, fadeRules, options.ruleConflictAction);
-
-      const globalRulePath = path.join(os.homedir(), ".omp", "rules", "fade.md");
-      const globalRulesDir = path.dirname(globalRulePath);
-      fs.mkdirSync(globalRulesDir, { recursive: true });
-      writeRuleFileWithConflict(globalRulePath, fadeRules, options.ruleConflictAction);
-
-      // Local OMP hooks
-      const localHooksDir = path.join(wsRoot, ".omp", "hooks");
-      fs.mkdirSync(localHooksDir, { recursive: true });
-      fs.writeFileSync(
-        path.join(localHooksDir, "pre-integrate.sample"),
-        `#!/bin/sh\n# OMP pre-integrate hook sample\necho "Running local OMP pre-integrate hook"\nexit 0\n`,
-        { encoding: "utf-8", mode: 0o755 }
-      );
-      fs.writeFileSync(
-        path.join(localHooksDir, "post-verify.sample"),
-        `#!/bin/sh\n# OMP post-verify hook sample\necho "Running local OMP post-verify hook"\nexit 0\n`,
-        { encoding: "utf-8", mode: 0o755 }
-      );
-
-      // Global OMP hooks
-      const globalHooksDir = path.join(os.homedir(), ".omp", "hooks");
-      fs.mkdirSync(globalHooksDir, { recursive: true });
-      fs.writeFileSync(
-        path.join(globalHooksDir, "pre-integrate.sample"),
-        `#!/bin/sh\n# OMP pre-integrate hook sample\necho "Running global OMP pre-integrate hook"\nexit 0\n`,
-        { encoding: "utf-8", mode: 0o755 }
-      );
-      fs.writeFileSync(
-        path.join(globalHooksDir, "post-verify.sample"),
-        `#!/bin/sh\n# OMP post-verify hook sample\necho "Running global OMP post-verify hook"\nexit 0\n`,
-        { encoding: "utf-8", mode: 0o755 }
-      );
-    }
-    if (target === undefined || target === "openclaw") {
-      for (const skill of clawSkills) {
-        const skillPath = path.join(wsRoot, ".openclaw", "skills", skill.name, "SKILL.md");
-        const content = `---\nname: ${skill.name}\ndescription: Fade ${skill.name} skill\n---\n${skill.content}`;
-        writeRuleFileWithConflict(skillPath, content, options.ruleConflictAction);
-      }
-      writeHookSamples(path.join(wsRoot, ".openclaw", "hooks"));
-    }
-
-    if (target === undefined || target === "opencode") {
-      for (const skill of clawSkills) {
-        const cmdPath = path.join(wsRoot, ".opencode", "command", `${skill.name}.md`);
-        const content = `---\ndescription: Fade ${skill.name} command\n---\n${skill.content}`;
-        writeRuleFileWithConflict(cmdPath, content, options.ruleConflictAction);
-      }
-
-      const opencodePluginsDir = path.join(wsRoot, ".opencode", "plugins");
-      fs.mkdirSync(opencodePluginsDir, { recursive: true });
-      fs.writeFileSync(
-        path.join(opencodePluginsDir, "fade.mjs"),
-        fadePlugin,
-        "utf-8",
-      );
-
-      const opencodeJsonPath = path.join(wsRoot, "opencode.json");
-      let opencodeConfig: { plugin?: string[] } = {};
-      if (fs.existsSync(opencodeJsonPath)) {
-        try {
-          opencodeConfig = JSON.parse(
-            fs.readFileSync(opencodeJsonPath, "utf-8"),
-          ) as { plugin?: string[] };
-        } catch {
-          // Ignore
-        }
-      }
-      if (!opencodeConfig.plugin) {
-        opencodeConfig.plugin = [];
-      }
-      if (!opencodeConfig.plugin.includes(".opencode/plugins/fade.mjs")) {
-        opencodeConfig.plugin.push(".opencode/plugins/fade.mjs");
-      }
-      fs.writeFileSync(
-        opencodeJsonPath,
-        JSON.stringify(opencodeConfig, null, 2),
-        "utf-8",
-      );
-
-      writeHookSamples(path.join(wsRoot, ".opencode", "hooks"));
-    }
-
-    if (target === undefined || target === "antigravity") {
-      const antigravityPluginDir = path.join(
-        os.homedir(),
-        ".gemini",
-        "antigravity-cli",
-        "plugins",
-        "arive",
-      );
-      fs.mkdirSync(antigravityPluginDir, { recursive: true });
-      fs.writeFileSync(
-        path.join(antigravityPluginDir, "plugin.json"),
-        JSON.stringify(
-          {
-            name: "arive",
-            version: "1.0.0",
-            description: "ARIVE MCP Server and Fade rules plugin",
-            id: "arive",
-          },
-          null,
-          2,
-        ),
-        "utf-8",
-      );
-      fs.writeFileSync(
-        path.join(antigravityPluginDir, "mcp_config.json"),
-        JSON.stringify(
-          {
-            mcpServers: {
-              arive: {
-                command: "bunx",
-                args: ["--silent", "github:sixtysixx/ARIVE"],
-              },
-            },
-          },
-          null,
-          2,
-        ),
-        "utf-8",
-      );
-
-      const antigravityRulesDir = path.join(antigravityPluginDir, "rules");
-      fs.mkdirSync(antigravityRulesDir, { recursive: true });
-      fs.writeFileSync(
-        path.join(antigravityRulesDir, "fade.md"),
-        fadeRules,
-        "utf-8",
-      );
-
-      const antigravitySkillsDir = path.join(antigravityPluginDir, "skills");
-      fs.mkdirSync(antigravitySkillsDir, { recursive: true });
-      fs.writeFileSync(
-        path.join(antigravitySkillsDir, "SKILL.md"),
-        `# Fade Skills\n\n${fadeRules}`,
-        "utf-8",
-      );
-
-      // Local Antigravity rules and hooks
-      const localAntigravityRulesDir = path.join(wsRoot, ".antigravity", "rules");
-      fs.mkdirSync(localAntigravityRulesDir, { recursive: true });
-      writeRuleFileWithConflict(
-        path.join(localAntigravityRulesDir, "fade.md"),
-        fadeRules,
-        options.ruleConflictAction
-      );
-      writeHookSamples(path.join(wsRoot, ".antigravity", "hooks"));
-      writeHookSamples(path.join(antigravityPluginDir, "hooks"));
-    }
-
-    // Claude Local Rules & Hooks
-    if (target === undefined || target === "claude") {
-      const rulePath = path.join(wsRoot, ".clauderules");
-      writeRuleFileWithConflict(rulePath, fadeRules, options.ruleConflictAction);
-      writeHookSamples(path.join(wsRoot, ".claude", "hooks"));
-
-      const appData = getAppDataPath();
-      writeHookSamples(path.join(appData, "Claude", "hooks"));
-    }
-
-    // ClaudeCode Local Rules & Hooks
-    if (target === undefined || target === "claudecode") {
-      const rulePath = path.join(wsRoot, ".clauderules");
-      writeRuleFileWithConflict(rulePath, fadeRules, options.ruleConflictAction);
-      writeHookSamples(path.join(wsRoot, ".claudecode", "hooks"));
-
-      const globalClaudeCodeDir = path.join(os.homedir(), ".config", "claude-code");
-      writeHookSamples(path.join(globalClaudeCodeDir, "hooks"));
-    }
-
-    // Kilocode Local Rules & Hooks
-    if (target === undefined || target === "kilocode") {
-      const rulePath = path.join(wsRoot, ".kilocoderules");
-      writeRuleFileWithConflict(rulePath, fadeRules, options.ruleConflictAction);
-      writeHookSamples(path.join(wsRoot, ".kilocode", "hooks"));
-    }
-
-    console.log(
-      "✓ Successfully installed all Fade rules, skills, and plugins.",
-    );
-  } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : String(e);
-    console.warn(`✗ Failed to write rule/skill/plugin files: ${message}`);
-  } }
-
+  const targets = resolveTargets(options.target);
   const command = "bun";
   const args = ["x", "--silent", "github:sixtysixx/ARIVE"];
 
-  if (installGlobal) {
-    if (target === undefined || target === "antigravity") {
-      const antigravityConfigPath = path.join(
-        os.homedir(),
-        ".gemini",
-        "antigravity-cli",
-        "mcp_config.json",
-      );
-      updateMCPConfig(antigravityConfigPath, command, args);
-    }
-
-    if (target === undefined || target === "claude") {
-      const appData = getAppDataPath();
-      const claudeDesktopConfigPath = path.join(
-        appData,
-        "Claude",
-        "claude_desktop_config.json",
-      );
-      updateMCPConfig(claudeDesktopConfigPath, command, args);
-    }
-
-    if (target === undefined || target === "claudecode") {
-      const claudeCodeConfigPath = path.join(
-        os.homedir(),
-        ".config",
-        "claude-code",
-        "config.json",
-      );
-      updateMCPConfig(claudeCodeConfigPath, command, args);
-    }
-
-    if (target === undefined || target === "cline") {
-      const appData = getAppDataPath();
-      const clineGlobalConfigPath = path.join(
-        appData,
-        "Code",
-        "User",
-        "globalStorage",
-        "saoudrizwan.claude-dev",
-        "settings",
-        "cline_mcp_settings.json",
-      );
-      updateMCPConfig(clineGlobalConfigPath, command, args);
-    }
-
-    if (target === undefined || target === "roo" || target === "roocode") {
-      const appData = getAppDataPath();
-      const rooGlobalConfigPath = path.join(
-        appData,
-        "Code",
-        "User",
-        "globalStorage",
-        "roodev.roo-cline",
-        "settings",
-        "cline_mcp_settings.json",
-      );
-      updateMCPConfig(rooGlobalConfigPath, command, args);
-    }
-
-    if (target === undefined || target === "cursor") {
-      const appData = getAppDataPath();
-      const cursorGlobalConfigPath = path.join(
-        appData,
-        "Cursor",
-        "User",
-        "globalStorage",
-        "mohammad-rahimi.cursor-mcp",
-        "settings",
-        "mcp_settings.json",
-      );
-      updateMCPConfig(cursorGlobalConfigPath, command, args);
-    }
-
-    if (target === undefined || target === "windsurf") {
-      const windsurfGlobalConfigPath = path.join(
-        os.homedir(),
-        ".codeium",
-        "windsurf",
-        "mcp_config.json",
-      );
-      updateMCPConfig(windsurfGlobalConfigPath, command, args);
-    }
-
-    if (target === undefined || target === "opencode") {
-      const opencodeGlobalConfigPath = path.join(
-        os.homedir(),
-        ".config",
-        "opencode",
-        "opencode.json",
-      );
-      updateOpenCodeConfig(opencodeGlobalConfigPath, [command, ...args]);
-      const opencodeGlobalDir = path.join(os.homedir(), ".config", "opencode");
-      const globalPluginsDir = path.join(opencodeGlobalDir, "plugins");
-      fs.mkdirSync(globalPluginsDir, { recursive: true });
-      fs.writeFileSync(
-        path.join(globalPluginsDir, "fade.mjs"),
-        fadePlugin,
-        "utf-8",
-      );
-
-      const globalCommandsDir = path.join(opencodeGlobalDir, "command");
-      fs.mkdirSync(globalCommandsDir, { recursive: true });
-      for (const skill of clawSkills) {
-        fs.writeFileSync(
-          path.join(globalCommandsDir, `${skill.name}.md`),
-          `---\ndescription: Fade ${skill.name} command\n---\n${skill.content}`,
-          "utf-8",
-        );
+  if (installProject) {
+    try {
+      for (const target of targets) {
+        if (target.projectRule) {
+          const rulePath = target.projectRule.path(wsRoot);
+          const content =
+            typeof target.projectRule.content === "function"
+              ? target.projectRule.content(fadeRules)
+              : target.projectRule.content || fadeRules;
+          writeRuleFileWithConflict(rulePath, content, options.ruleConflictAction);
+        }
+        if (target.projectHooksPath) {
+          writeHookSamples(target.projectHooksPath(wsRoot));
+        }
+        if (target.customInstallProject) {
+          target.customInstallProject(wsRoot, { ruleConflictAction: options.ruleConflictAction });
+        }
       }
-
-      writeHookSamples(path.join(opencodeGlobalDir, "hooks"));
-    }
-
-    if (target === undefined || target === "omp") {
-      const ompGlobalConfigPath = path.join(
-        os.homedir(),
-        ".omp",
-        "agent",
-        "mcp.json",
-      );
-      updateMCPConfig(ompGlobalConfigPath, command, args);
+      console.log("✓ Successfully installed all Fade rules, skills, and plugins.");
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.warn(`✗ Failed to write rule/skill/plugin files: ${message}`);
     }
   }
 
-  console.log("Registering project-level MCP configurations...");
+  if (installGlobal) {
+    for (const target of targets) {
+      if (target.globalMcpPath) {
+        updateMCPConfig(target.globalMcpPath(appData, home), command, args);
+      }
+      if (target.globalHooksPath) {
+        writeHookSamples(target.globalHooksPath(appData, home));
+      }
+      if (target.customInstallGlobal) {
+        target.customInstallGlobal(appData, home, { ruleConflictAction: options.ruleConflictAction });
+      }
+    }
+  }
 
   if (installProject) {
-    if (target === undefined || target === "omp") {
-      const ompProjectConfig = path.join(wsRoot, ".omp", "mcp.json");
-      updateMCPConfig(ompProjectConfig, command, args);
-    }
-
-    if (target === undefined || target === "cursor") {
-      const cursorProjectConfig = path.join(wsRoot, ".cursor", "mcp.json");
-      updateMCPConfig(cursorProjectConfig, command, args);
-    }
-
-    if (target === undefined || target === "cline") {
-      const clineProjectConfig = path.join(wsRoot, ".cline", "mcp.json");
-      updateMCPConfig(clineProjectConfig, command, args);
-    }
-
-    if (target === undefined || target === "roo" || target === "roocode") {
-      const rooProjectConfig = path.join(wsRoot, ".roo", "mcp.json");
-      updateMCPConfig(rooProjectConfig, command, args);
-    }
-
-    if (target === undefined || target === "kilocode") {
-      const kilocodeProjectConfig = path.join(wsRoot, ".kilocode", "mcp.json");
-      updateMCPConfig(kilocodeProjectConfig, command, args);
-    }
-
-    if (target === undefined || target === "windsurf") {
-      const windsurfProjectConfig = path.join(wsRoot, ".windsurf", "mcp_config.json");
-      updateMCPConfig(windsurfProjectConfig, command, args);
-    }
-
-    if (target === undefined || target === "kiro") {
-      const kiroProjectConfig = path.join(wsRoot, ".kiro", "mcp.json");
-      updateMCPConfig(kiroProjectConfig, command, args);
-    }
-
-    if (target === undefined || target === "agents") {
-      const agentsProjectConfig = path.join(wsRoot, ".agents", "mcp.json");
-      updateMCPConfig(agentsProjectConfig, command, args);
-    }
-
-    if (target === undefined || target === "openclaw") {
-      const openclawProjectConfig = path.join(wsRoot, ".openclaw", "mcp.json");
-      updateMCPConfig(openclawProjectConfig, command, args);
-    }
-
-    if (target === undefined || target === "antigravity") {
-      const antigravityProjectConfig = path.join(wsRoot, ".antigravity", "mcp_config.json");
-      updateMCPConfig(antigravityProjectConfig, command, args);
-    }
-
-    if (target === undefined || target === "claude") {
-      const claudeProjectConfig = path.join(wsRoot, ".claude", "mcp.json");
-      updateMCPConfig(claudeProjectConfig, command, args);
-    }
-
-    if (target === undefined || target === "claudecode") {
-      const claudecodeProjectConfig = path.join(wsRoot, ".claudecode", "mcp.json");
-      updateMCPConfig(claudecodeProjectConfig, command, args);
-    }
-
-    if (target === undefined || target === "opencode") {
-      const opencodeProjectConfig = path.join(wsRoot, "opencode.json");
-      updateOpenCodeConfig(opencodeProjectConfig, [command, ...args]);
+    console.log("Registering project-level MCP configurations...");
+    for (const target of targets) {
+      if (target.projectMcpPath) {
+        updateMCPConfig(target.projectMcpPath(wsRoot), command, args);
+      }
     }
   }
+
   console.log("✓ ARIVE MCP installation completed successfully!");
 }
 
-// Uninstallation
 export function executeUninstallation(
   wsRoot: string,
   options: {
@@ -947,201 +773,49 @@ export function executeUninstallation(
     scope: "global" | "project" | "both";
   }
 ): void {
-  const target = options.target ? options.target.toLowerCase().trim() : undefined;
   const scope = options.scope || "both";
   const uninstallProject = scope === "project" || scope === "both";
   const uninstallGlobal = scope === "global" || scope === "both";
-
-  if (options.updateGitignore) {
-    removeFromGitignore(wsRoot);
-  }
+  const appData = getAppDataPath();
+  const home = os.homedir();
+  const targets = resolveTargets(options.target);
 
   if (uninstallProject) {
-    const ariveHooksDir = path.join(wsRoot, ".arive", "hooks");
-    try {
-      fs.rmSync(ariveHooksDir, { recursive: true, force: true });
-      console.log(`✓ Removed ARIVE hooks samples from ${wsRoot}.`);
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : String(e);
-      console.warn(`! Failed to remove ARIVE hooks: ${message}`);
-    }
-
-    const targets = [
-      ["cursor", path.join(wsRoot, ".cursor", "rules", "fade.mdc")],
-      ["windsurf", path.join(wsRoot, ".windsurf", "rules", "fade.md")],
-      ["kiro", path.join(wsRoot, ".kiro", "steering", "fade.md")],
-      ["agents", path.join(wsRoot, ".agents", "rules", "fade.md")],
-      ["openclaw", path.join(wsRoot, ".openclaw", "rules", "fade.md")],
-      ["kilocode", path.join(wsRoot, ".kilocoderules")],
-    ];
-
-    for (const [key, rulePath] of targets) {
-      if (target === undefined || target === key) {
-        removeRuleFile(rulePath);
+    for (const target of targets) {
+      if (target.projectRule) {
+        removeRuleFile(target.projectRule.path(wsRoot));
+      }
+      if (target.projectMcpPath) {
+        removeMCPConfig(target.projectMcpPath(wsRoot));
+      }
+      if (target.customUninstallProject) {
+        target.customUninstallProject(wsRoot);
       }
     }
-
-    const multiTargets = ["cline", "roo", "roocode"];
-    if (target === undefined || multiTargets.includes(target)) {
-      removeRuleFile(path.join(wsRoot, ".clinerules"));
-      fs.rmSync(path.join(wsRoot, ".cline", "hooks"), { recursive: true, force: true });
-      fs.rmSync(path.join(wsRoot, ".roo", "hooks"), { recursive: true, force: true });
-    }
-    if (target === undefined || target === "omp") {
-      const rulePath = path.join(wsRoot, ".omp", "rules", "fade.md");
-      const globalRulePath = path.join(os.homedir(), ".omp", "rules", "fade.md");
-      removeRuleFile(rulePath);
-      removeRuleFile(globalRulePath);
-      fs.rmSync(path.join(wsRoot, ".omp", "hooks"), { recursive: true, force: true });
-      fs.rmSync(path.join(os.homedir(), ".omp", "hooks"), { recursive: true, force: true });
-    }
-
-    if (target === undefined || target === "opencode") {
-      fs.rmSync(path.join(wsRoot, ".opencode", "command"), { recursive: true, force: true });
-      fs.rmSync(path.join(wsRoot, ".opencode", "plugins"), { recursive: true, force: true });
-      fs.rmSync(path.join(wsRoot, ".opencode", "hooks"), { recursive: true, force: true });
-    }
-
-    if (target === undefined || target === "antigravity") {
-      const pluginDir = path.join(
-        os.homedir(),
-        ".gemini",
-        "antigravity-cli",
-        "plugins",
-        "arive",
-      );
-      fs.rmSync(pluginDir, { recursive: true, force: true });
-      fs.rmSync(path.join(wsRoot, ".antigravity", "rules"), { recursive: true, force: true });
-      fs.rmSync(path.join(wsRoot, ".antigravity", "hooks"), { recursive: true, force: true });
-    }
-
-    if (target === undefined || target === "claude") {
-      removeRuleFile(path.join(wsRoot, ".clauderules"));
-      const appData = getAppDataPath();
-      fs.rmSync(path.join(wsRoot, ".claude", "hooks"), { recursive: true, force: true });
-      fs.rmSync(path.join(appData, "Claude", "hooks"), { recursive: true, force: true });
-    }
-
-    if (target === undefined || target === "claudecode") {
-      removeRuleFile(path.join(wsRoot, ".clauderules"));
-      const globalClaudeCodeDir = path.join(os.homedir(), ".config", "claude-code");
-      fs.rmSync(path.join(wsRoot, ".claudecode", "hooks"), { recursive: true, force: true });
-      fs.rmSync(path.join(globalClaudeCodeDir, "hooks"), { recursive: true, force: true });
-    }
-
-    console.log("✓ Uninstalled ARIVE project rules, hooks, and plugins.");
   }
 
   if (uninstallGlobal) {
-    if (target === undefined || target === "clade") {
-      const appData = getAppDataPath();
-      removeMCPConfig(path.join(appData, "Claude", "claude_desktop_config.json"));
-    }
-
-    if (target === undefined || target === "claude-code") {
-      removeMCPConfig(path.join(os.homedir(), ".config", "claude-code", "config.json"));
-    }
-
-    if (target === undefined || target === "cline") {
-      const appData = getAppDataPath();
-      removeMCPConfig(
-        path.join(appData, "Code", "User", "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json")
-      );
-    }
-
-    if (target === undefined || target === "roo" || target === "roocode") {
-      const appData = getAppDataPath();
-      removeMCPConfig(
-        path.join(appData, "Code", "User", "globalStorage", "roodev.roo-cline", "settings", "cline_mcp_settings.json")
-      );
-    }
-
-    if (target === undefined || target === "cursor") {
-      const appData = getAppDataPath();
-      removeMCPConfig(
-        path.join(appData, "Cursor", "User", "globalStorage", "mohammad-rahimi.cursor-mcp", "settings", "mcp_settings.json")
-      );
-    }
-
-    if (target === undefined || target === "windsurf") {
-      removeMCPConfig(path.join(os.homedir(), ".codeium", "windsurf", "mcp_config.json"));
-    }
-
-    if (target === undefined || target === "opencode") {
-      const globalConfigPath = path.join(os.homedir(), ".config", "opencode", "opencode.json");
-      removeOpenCodeConfig(globalConfigPath);
-      fs.rmSync(path.join(os.homedir(), ".config", "opencode", "plugins"), { recursive: true, force: true });
-      fs.rmSync(path.join(os.homedir(), ".config", "opencode", "command"), { recursive: true, force: true });
-      fs.rmSync(path.join(os.homedir(), ".config", "opencode", "hooks"), { recursive: true, force: true });
-    }
-
-    if (target === undefined || target === "omp") {
-      removeMCPConfig(path.join(os.homedir(), ".omp", "agent", "mcp.json"));
-    }
-    console.log("✓ Uninstalled ARIVE global MCP configurations.");
-  }
-
-  // Project-level MCP config removal
-  if (uninstallProject) {
-    if (target === undefined || target === "omp") {
-      removeMCPConfig(path.join(wsRoot, ".omp", "mcp.json"));
-    }
-
-    if (target === undefined || target === "cursor") {
-      removeMCPConfig(path.join(wsRoot, ".cursor", "mcp.json"));
-    }
-
-    if (target === undefined || target === "cline") {
-      removeMCPConfig(path.join(wsRoot, ".cline", "mcp.json"));
-    }
-
-    if (target === undefined || target === "roo" || target === "roocode") {
-      removeMCPConfig(path.join(wsRoot, ".roo", "mcp.json"));
-    }
-
-    if (target === undefined || target === "kilocode") {
-      removeMCPConfig(path.join(wsRoot, ".kilocode", "mcp.json"));
-    }
-
-    if (target === undefined || target === "windsurf") {
-      removeMCPConfig(path.join(wsRoot, ".windsurf", "mcp_config.json"));
-    }
-
-    if (target === undefined || target === "kiro") {
-      removeMCPConfig(path.join(wsRoot, ".kiro", "mcp.json"));
-    }
-
-    if (target === undefined || target === "agents") {
-      removeMCPConfig(path.join(wsRoot, ".agents", "mcp.json"));
-    }
-
-    if (target === undefined || target === "openclaw") {
-      removeMCPConfig(path.join(wsRoot, ".openclaw", "mcp.json"));
-    }
-
-    if (target === undefined || target === "antigravity") {
-      removeMCPConfig(path.join(wsRoot, ".antigravity", "mcp_config.json"));
-    }
-
-    if (target === undefined || target === "claude") {
-      removeMCPConfig(path.join(wsRoot, ".claude", "mcp.json"));
-    }
-
-    if (target === undefined || target === "claudecode") {
-      removeMCPConfig(path.join(wsRoot, ".claudecode", "mcp.json"));
-    }
-
-    if (target === undefined || target === "opencode") {
-      removeOpenCodeConfig(path.join(wsRoot, "opencode.json"));
+    for (const target of targets) {
+      if (target.globalMcpPath) {
+        removeMCPConfig(target.globalMcpPath(appData, home));
+      }
+      if (target.customUninstallGlobal) {
+        target.customUninstallGlobal(appData, home);
+      }
     }
   }
+
+  if (uninstallProject && options.updateGitignore) {
+    removeFromGitignore(wsRoot);
+  }
+
   console.log("✓ ARIVE MCP uninstallation completed successfully!");
 }
 
 function runNonInteractiveInstall(
   workspacePath?: string,
   editor?: string,
-  scope?: "global" | "project" | "both",
+  scope?: "global" | "project" | "both"
 ): void {
   executeInstallation(workspacePath ? workspacePath : process.cwd(), {
     target: editor,
@@ -1154,7 +828,7 @@ function runNonInteractiveInstall(
 function runNonInteractiveUninstall(
   workspacePath?: string,
   editor?: string,
-  scope?: "global" | "project" | "both",
+  scope?: "global" | "project" | "both"
 ): void {
   executeUninstallation(workspacePath ? workspacePath : process.cwd(), {
     target: editor,
@@ -1188,16 +862,18 @@ export function isInteractive(): boolean {
   );
 }
 
-async function selectPrompt(message: string, options: string[], defaultIndex = 0): Promise<string> {
+export async function selectPrompt(
+  message: string,
+  options: string[],
+  defaultIndex = 0
+): Promise<string> {
   if (!isRawTTY()) {
     console.log(message);
     for (let i = 0; i < options.length; i++) {
       console.log(`  ${i + 1}. ${options[i]}`);
     }
     const raw = prompt(`Enter a number [${defaultIndex + 1}]:`);
-    if (raw === null) {
-      return options[defaultIndex];
-    }
+    if (raw === null) return options[defaultIndex];
     const parsed = parseInt(raw.trim(), 10);
     if (!Number.isNaN(parsed) && parsed >= 1 && parsed <= options.length) {
       return options[parsed - 1];
@@ -1211,7 +887,9 @@ async function selectPrompt(message: string, options: string[], defaultIndex = 0
 
     readline.emitKeypressEvents(process.stdin);
     if (process.stdin.isTTY) {
-      try { process.stdin.setRawMode(true); } catch {}
+      try {
+        process.stdin.setRawMode(true);
+      } catch {}
     }
     process.stdin.resume();
     process.stdout.write("\x1b[?25l");
@@ -1220,7 +898,9 @@ async function selectPrompt(message: string, options: string[], defaultIndex = 0
       process.stdout.write("\x1b[?25h");
       process.stdin.removeListener("keypress", onKeypress);
       if (process.stdin.isTTY) {
-        try { process.stdin.setRawMode(false); } catch {}
+        try {
+          process.stdin.setRawMode(false);
+        } catch {}
       }
     };
 
@@ -1257,7 +937,9 @@ async function selectPrompt(message: string, options: string[], defaultIndex = 0
       if (key.name === "return" || key.name === "enter") {
         cleanup();
         clearScreenLines();
-        process.stdout.write(`\x1b[32m✔\x1b[0m \x1b[1m${message}\x1b[0m \x1b[36m${options[selected]}\x1b[0m\n`);
+        process.stdout.write(
+          `\x1b[32m✔\x1b[0m \x1b[1m${message}\x1b[0m \x1b[36m${options[selected]}\x1b[0m\n`
+        );
         resolve(options[selected]);
         return;
       }
@@ -1288,7 +970,7 @@ async function selectPrompt(message: string, options: string[], defaultIndex = 0
   });
 }
 
-async function confirmPrompt(query: string, defaultYes = true): Promise<boolean> {
+export async function confirmPrompt(query: string, defaultYes = true): Promise<boolean> {
   if (!isRawTTY()) {
     const answer = prompt(`${query} (Y/n)`);
     if (answer === null) return defaultYes;
@@ -1304,7 +986,9 @@ async function confirmPrompt(query: string, defaultYes = true): Promise<boolean>
 
     readline.emitKeypressEvents(process.stdin);
     if (process.stdin.isTTY) {
-      try { process.stdin.setRawMode(true); } catch {}
+      try {
+        process.stdin.setRawMode(true);
+      } catch {}
     }
     process.stdin.resume();
     process.stdout.write("\x1b[?25l");
@@ -1313,7 +997,9 @@ async function confirmPrompt(query: string, defaultYes = true): Promise<boolean>
       process.stdout.write("\x1b[?25h");
       process.stdin.removeListener("keypress", onKeypress);
       if (process.stdin.isTTY) {
-        try { process.stdin.setRawMode(false); } catch {}
+        try {
+          process.stdin.setRawMode(false);
+        } catch {}
       }
     };
 
@@ -1368,12 +1054,21 @@ async function confirmPrompt(query: string, defaultYes = true): Promise<boolean>
       if (key.name === "return" || key.name === "enter") {
         cleanup();
         clearScreenLines();
-        process.stdout.write(`\x1b[32m✔\x1b[0m \x1b[1m${query}\x1b[0m \x1b[36m${options[selected]}\x1b[0m\n`);
+        process.stdout.write(
+          `\x1b[32m✔\x1b[0m \x1b[1m${query}\x1b[0m \x1b[36m${options[selected]}\x1b[0m\n`
+        );
         resolve(selected === 0);
         return;
       }
 
-      if (key.name === "left" || key.name === "right" || key.name === "up" || key.name === "down" || key.name === "space" || key.name === "tab") {
+      if (
+        key.name === "left" ||
+        key.name === "right" ||
+        key.name === "up" ||
+        key.name === "down" ||
+        key.name === "space" ||
+        key.name === "tab"
+      ) {
         selected = selected === 0 ? 1 : 0;
         render();
       }
@@ -1387,8 +1082,9 @@ async function confirmPrompt(query: string, defaultYes = true): Promise<boolean>
 export async function runInteractiveInstall(
   workspacePath?: string,
   editor?: string,
-  scope?: "global" | "project" | "both",
+  scope?: "global" | "project" | "both"
 ): Promise<void> {
+  const wsRoot = workspacePath ? path.resolve(workspacePath) : process.cwd();
   try {
     const action = await selectPrompt("What would you like to do?", ["Install", "Uninstall"], 0);
 
@@ -1397,69 +1093,67 @@ export async function runInteractiveInstall(
       return;
     }
 
-    const editorChoice = editor
+    const detected = detectInstalledEditors(wsRoot);
+    const editorChoices: string[] = [];
+    for (const d of detected) {
+      editorChoices.push(`${d} (detected)`);
+    }
+    for (const t of EDITOR_REGISTRY) {
+      if (!detected.includes(t.id)) {
+        editorChoices.push(t.id);
+      }
+    }
+    editorChoices.push("all");
+
+    let defaultIdx = 0;
+    if (editor) {
+      const matchIdx = editorChoices.findIndex(
+        (c) => c === editor || c.startsWith(`${editor} `)
+      );
+      if (matchIdx !== -1) defaultIdx = matchIdx;
+    }
+
+    const editorChoiceRaw = editor
       ? editor
-      : await selectPrompt(
-          "Which editor/config should ARIVE target?",
-          [
-            "all",
-            "cursor",
-            "cline",
-            "roo",
-            "windsurf",
-            "opencode",
-            "kilocode",
-            "claude",
-            "claudecode",
-            "antigravity",
-            "omp",
-          ],
-          0,
-        );
+      : await selectPrompt("Which editor/config should ARIVE target?", editorChoices, defaultIdx);
+
+    const editorChoice = editorChoiceRaw.replace(/\s*\(detected\)$/, "");
 
     const scopeChoice = scope
       ? scope
-      : await selectPrompt("Installation scope?", ["global", "project", "both"], 2);
+      : ((await selectPrompt(
+          "Installation scope?",
+          ["both", "project", "global"],
+          0
+        )) as "global" | "project" | "both");
 
-    const outsideWorkspace = await confirmPrompt(
-      `Some editors store files outside this workspace.\nProceed anyway?`,
-      true,
-    );
-    if (!outsideWorkspace) {
-      console.log("Aborted.");
-      return;
-    }
-
-    const handleConflict = await selectPrompt(
+    const handleConflict = (await selectPrompt(
       "If rule files already exist, should ARIVE overwrite, append, or skip?",
-      ["overwrite", "append", "skip"],
-      1,
-    );
+      ["append", "overwrite", "skip"],
+      0
+    )) as "overwrite" | "append" | "skip";
 
     const gitignoreChoice = await confirmPrompt(
       "Update .gitignore with ARIVE artifacts?",
-      true,
+      true
     );
 
-    const installHook = await confirmPrompt(
-      "Install lifecycle hook samples?",
-      true,
-    );
+    const installHook = await confirmPrompt("Install lifecycle hook samples?", true);
 
     const confirm = await confirmPrompt(
       `Proceed with installation to ${editorChoice === "all" ? "all editors" : editorChoice} (${scopeChoice})?`,
-      true,
+      true
     );
     if (!confirm) {
       console.log("Aborted.");
       return;
     }
 
-    executeInstallation(workspacePath ? workspacePath : process.cwd(), {
+    executeInstallation(wsRoot, {
       target: editorChoice === "all" ? undefined : editorChoice,
       updateGitignore: gitignoreChoice,
-      ruleConflictAction: handleConflict as "overwrite" | "append" | "skip",
-      scope: scopeChoice as "global" | "project" | "both",
+      ruleConflictAction: handleConflict,
+      scope: scopeChoice,
       installHooks: installHook,
     });
   } catch (e) {
@@ -1474,52 +1168,67 @@ export async function runInteractiveInstall(
 async function runInteractiveUninstall(
   workspacePath?: string,
   editor?: string,
-  scope?: "global" | "project" | "both",
+  scope?: "global" | "project" | "both"
 ): Promise<void> {
+  const wsRoot = workspacePath ? path.resolve(workspacePath) : process.cwd();
   try {
-    const editorChoice = editor
+    const detected = detectInstalledEditors(wsRoot);
+    const editorChoices: string[] = [];
+    for (const d of detected) {
+      editorChoices.push(`${d} (detected)`);
+    }
+    for (const t of EDITOR_REGISTRY) {
+      if (!detected.includes(t.id)) {
+        editorChoices.push(t.id);
+      }
+    }
+    editorChoices.push("all");
+
+    let defaultIdx = 0;
+    if (editor) {
+      const matchIdx = editorChoices.findIndex(
+        (c) => c === editor || c.startsWith(`${editor} `)
+      );
+      if (matchIdx !== -1) defaultIdx = matchIdx;
+    }
+
+    const editorChoiceRaw = editor
       ? editor
       : await selectPrompt(
           "Which editor/config should ARIVE uninstall from?",
-          [
-            "all",
-            "cursor",
-            "cline",
-            "roo",
-            "windsurf",
-            "opencode",
-            "kilocode",
-            "claude",
-            "claudecode",
-            "antigravity",
-            "omp",
-          ],
-          0,
+          editorChoices,
+          defaultIdx
         );
+
+    const editorChoice = editorChoiceRaw.replace(/\s*\(detected\)$/, "");
 
     const scopeChoice = scope
       ? scope
-      : await selectPrompt("Uninstallation scope?", ["global", "project", "both"], 2);
+      : ((await selectPrompt(
+          "Uninstallation scope?",
+          ["both", "project", "global"],
+          0
+        )) as "global" | "project" | "both");
 
     const gitignoreChoice = await confirmPrompt(
       "Remove ARIVE entries from .gitignore?",
-      true,
+      true
     );
 
     const confirm = await confirmPrompt(
       `Proceed with uninstallation from ${editorChoice === "all" ? "all editors" : editorChoice} (${scopeChoice})?`,
-      true,
+      true
     );
     if (!confirm) {
       console.log("Aborted.");
       return;
     }
 
-    executeUninstallation(workspacePath ? workspacePath : process.cwd(), {
+    executeUninstallation(wsRoot, {
       target: editorChoice === "all" ? undefined : editorChoice,
       updateGitignore: gitignoreChoice,
       ruleConflictAction: "skip",
-      scope: scopeChoice as "global" | "project" | "both",
+      scope: scopeChoice,
     });
   } catch (e) {
     if (e instanceof Error && e.message === "Selection cancelled") {
@@ -1534,11 +1243,11 @@ export async function installAllAsync(
   workspacePath?: string,
   editor?: string,
   scope?: "global" | "project" | "both",
-  uninstall?: boolean,
+  uninstall?: boolean
 ): Promise<void> {
   const wsRoot = workspacePath ? path.resolve(workspacePath) : process.cwd();
   console.log(
-    `Starting ARIVE installer for workspace: ${wsRoot}${editor ? ` (Target: ${editor})` : ""}${scope ? ` (Scope: ${scope})` : ""}`,
+    `Starting ARIVE installer for workspace: ${wsRoot}${editor ? ` (Target: ${editor})` : ""}${scope ? ` (Scope: ${scope})` : ""}`
   );
 
   if (isInteractive()) {
@@ -1558,7 +1267,7 @@ export function installAll(
   workspacePath?: string,
   editor?: string,
   scope?: "global" | "project" | "both",
-  uninstall?: boolean,
+  uninstall?: boolean
 ): void {
   if (isInteractive()) {
     installAllAsync(workspacePath, editor, scope, uninstall).catch((e) => {
@@ -1573,7 +1282,7 @@ export function installAll(
 
 export async function installAllLegacy(
   workspacePath?: string,
-  editor?: string,
+  editor?: string
 ): Promise<void> {
   return installAllAsync(workspacePath, editor, undefined, false);
 }
@@ -1581,7 +1290,7 @@ export async function installAllLegacy(
 export async function uninstallAllAsync(
   workspacePath?: string,
   editor?: string,
-  scope?: "global" | "project" | "both",
+  scope?: "global" | "project" | "both"
 ): Promise<void> {
   return installAllAsync(workspacePath, editor, scope, true);
 }
