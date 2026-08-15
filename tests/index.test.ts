@@ -116,6 +116,30 @@ describe("MCP Entrypoint Shell Run Tests", () => {
     proc.kill();
   });
 
+  test("Spawns MCP Server with --server flag and processes JSON-RPC requests on stdio", async () => {
+    const proc = spawn("bun", ["src/index.ts", "--server", "--verbose"]);
+
+    // Wait for the server to signal readiness on stderr — event-driven, no sleep.
+    const { promise: ready, resolve: readyResolve } =
+      Promise.withResolvers<void>();
+    const onStderr = (chunk: Buffer) => {
+      if (chunk.toString().includes("[arive] ready after")) {
+        proc.stderr!.off("data", onStderr);
+        readyResolve();
+      }
+    };
+    proc.stderr!.on("data", onStderr);
+    await ready;
+
+    // 1. tools/list — verify arive_memory_bank is advertised.
+    const listLine = await rpc(proc, 1, "tools/list", {});
+    expect(listLine).toContain("arive_memory_bank");
+    expect(listLine).toContain("remember");
+
+    proc.kill();
+  });
+
+
   test("Running with 'prompt' argument prints advanced prompt", () => {
     const output = execSync("bun run src/index.ts prompt", { encoding: "utf-8" });
     expect(output).toContain("ARIVE ADVANCED FRONTIER MODEL ORCHESTRATION PROMPT");

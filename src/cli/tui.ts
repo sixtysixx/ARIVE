@@ -63,6 +63,8 @@ export async function runTui(): Promise<void> {
       output += `Use ↑/↓ to navigate rows.\n`;
       output += `Use ←/→ (or Space) to cycle values on the selected option.\n`;
       output += `Press Enter on [ RUN EXECUTION ] to apply changes.\n\n`;
+      output += `Run 'bunx ... ARIVE server' to start the MCP server directly.\n\n`;
+
 
       const drawRow = (rowIdx: number, label: string, value: string) => {
         if (rowIdx === activeRow) {

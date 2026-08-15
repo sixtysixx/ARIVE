@@ -808,6 +808,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 });
 
+// Check if running in server mode
+if (process.argv.includes("server") || process.argv.includes("--server")) {
+  // Skip installer/TUI/prompt branches and fall through to stdio transport startup
+}
+
 // Check if running in install CLI mode
 if (process.argv.includes("install") || process.argv.includes("installer") || process.argv.includes("--install")) {
   await runInstallerCli();
