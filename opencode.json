@@ -4,14 +4,12 @@
   ],
   "mcp": {
     "arive": {
-      "type": "local",
       "command": [
         "bun",
         "x",
         "--silent",
         "github:sixtysixx/ARIVE"
-      ],
-      "enabled": true
+      ]
     }
   }
 }

@@ -6,3 +6,13 @@ Scan the repository for 'fade:' comments and group them into a debt ledger.
 Output:
 <file>:<line>, <what was simplified>. ceiling: <limit>. upgrade: <trigger>.
 End with: <N> markers.
+
+---
+description: Fade fade-debt command
+---
+<!-- arive:fade-rules -->
+Scan the repository for 'fade:' comments and group them into a debt ledger.
+
+Output:
+<file>:<line>, <what was simplified>. ceiling: <limit>. upgrade: <trigger>.
+End with: <N> markers.

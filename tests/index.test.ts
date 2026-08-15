@@ -135,4 +135,14 @@ describe("MCP Entrypoint Shell Run Tests", () => {
     expect(output).toContain("Usage:");
     expect(output).toContain("--editor, -e <name>");
   });
+
+  test("Running with '--install --help' argument prints installer help", () => {
+    const output = execSync("bun run src/index.ts --install --help", { encoding: "utf-8" });
+    expect(output).toContain("ARIVE MCP Installer/Uninstaller CLI");
+    expect(output).toContain("--editor, -e <name>");
+  });
+  test("Running with '--install' argument starts installer flow", () => {
+    const output = execSync("bun run src/index.ts --install --non-interactive", { encoding: "utf-8" });
+    expect(output).toContain("ARIVE MCP installation completed successfully!");
+  });
 });

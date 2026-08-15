@@ -809,7 +809,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 });
 
 // Check if running in install CLI mode
-if (process.argv.includes("install") || process.argv.includes("installer")) {
+if (process.argv.includes("install") || process.argv.includes("installer") || process.argv.includes("--install")) {
   await runInstallerCli();
   process.exit(0);
 }
