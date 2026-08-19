@@ -7,6 +7,11 @@ docs
 .arive/*.db-wal
 .arive/workspaces/
 .arive/logs/
+.arive/codemap.json
+*.sample
+.openclaw/skills/
+.opencode/command/
+.opencode/plugins/
 
 # Promptfoo cache and generated prompt
 .promptfoo/

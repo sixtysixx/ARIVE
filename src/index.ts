@@ -207,6 +207,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           );
         }
 
+        const definedDone = args?.definedDone ? String(args.definedDone) : undefined;
+        const askShape = args?.askShape ? String(args.askShape) : undefined;
+        const claims = Array.isArray(args?.claims) ? args.claims.map(String) : undefined;
+        const observations = Array.isArray(args?.observations) ? (args.observations as any[]) : undefined;
+
         const hookContext = {
           thought,
           thoughtNumber: tNum,
@@ -216,6 +221,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           revisesThoughtNum: revNum,
           branchToThoughtNum: branchNum,
           sessionId,
+          definedDone,
+          askShape,
+          claims,
+          observations,
         };
 
         const preHook = HookManager.runHook(
@@ -227,7 +236,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           throw new Error(`[Hook Blocked] pre-reason: ${preHook.error}`);
         }
 
-        const res = getEngine().addThought(
+        const engine = getEngine();
+        if (definedDone) {
+          engine.defineDone(definedDone, sessionId);
+        }
+        if (askShape) {
+          engine.setAskShape(askShape as any, sessionId);
+        }
+        if (claims && claims.length > 0) {
+          engine.runFableJudge(claims, observations || [], sessionId);
+        }
+
+        const res = engine.addThought(
           thought,
           tNum,
           total,
@@ -445,7 +465,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "arive_codemap":
       case "arive_codetree": {
-        const action = String(args?.action || "tree");
+        const action = String(args?.action || (name === "arive_codemap" ? "codemap" : "tree"));
         const rawDir = String(args?.dir || ".");
         const excludes = Array.isArray(args?.excludes)
           ? args.excludes.map(String)
@@ -479,6 +499,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         let isCodemapAction = false;
         let needsCommentsResult: any[] = [];
+        let treeOutput = "";
 
         if (action === "tree") {
           resultText = scanner.scanTree(dir, excludes);
@@ -498,9 +519,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           resultText = scanner.getGitDiff(targetBranch);
         } else if (action === "codemap") {
           isCodemapAction = true;
-          const { needsComments } = scanner.scanCodemap(dir, excludes);
+          treeOutput = scanner.scanTree(dir, excludes);
+          const { codemap, needsComments } = scanner.scanCodemap(dir, excludes);
           needsCommentsResult = needsComments;
-          resultText = "codemap generated";
+          resultText = JSON.stringify({ tree: treeOutput, codemap, needsComments }, null, 2);
         } else {
           throw new Error(`Unknown codetree action: ${action}`);
         }
@@ -539,11 +561,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           responsePayload = {
             file_path: path.join(dir, ".arive", "codemap.json"),
             needs_comments: needsCommentsResult,
+            tree: treeOutput,
+            ref: responseRef,
           };
         }
 
         return {
-          content: [{ type: "text", text: JSON.stringify(responsePayload) }],
+          content: [{ type: "text", text: JSON.stringify(responsePayload, null, 2) }],
         };
       }
 

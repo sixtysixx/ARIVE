@@ -1,0 +1,1184 @@
+{
+  "src/integrate/workspace.ts": {
+    "imports": [
+      "fs",
+      "path"
+    ],
+    "exports": {
+      "classes": [
+        {
+          "name": "WorkspaceManager",
+          "methods": [
+            {
+              "name": "validateTaskId",
+              "signature": "public static validateTaskId(taskId: string): void",
+              "description": "",
+              "usage": ""
+            },
+            {
+              "name": "getTaskPath",
+              "signature": "public static getTaskPath(taskId: string): string",
+              "description": "",
+              "usage": ""
+            },
+            {
+              "name": "create",
+              "signature": "public static create(taskId: string, options?: { ignore?: Iterable<string>; }): string",
+              "description": "",
+              "usage": ""
+            },
+            {
+              "name": "list",
+              "signature": "public static list(): WorkspaceInfo[]",
+              "description": "",
+              "usage": ""
+            },
+            {
+              "name": "cleanup",
+              "signature": "public static cleanup(taskId: string): void",
+              "description": "",
+              "usage": ""
+            }
+          ]
+        }
+      ],
+      "functions": [],
+      "interfaces": [
+        "WorkspaceInfo"
+      ]
+    }
+  },
+  "src/integrate/hook_manager.ts": {
+    "imports": [
+      "fs",
+      "path",
+      "child_process"
+    ],
+    "exports": {
+      "classes": [
+        {
+          "name": "HookManager",
+          "methods": [
+            {
+              "name": "runHook",
+              "signature": "public static runHook(hookName: string, phase: string, context: unknown, result?: unknown): { success: boolean; error?: string; }",
+              "description": "",
+              "usage": ""
+            }
+          ]
+        }
+      ],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "src/analyze/ast_compressor.ts": {
+    "imports": [
+      "typescript"
+    ],
+    "exports": {
+      "classes": [
+        {
+          "name": "ASTCompressor",
+          "methods": [
+            {
+              "name": "compress",
+              "signature": "public static compress(code: string): string",
+              "description": "",
+              "usage": ""
+            },
+            {
+              "name": "compressMultiLanguage",
+              "signature": "public static compressMultiLanguage(code: string, language: string): string",
+              "description": "",
+              "usage": ""
+            }
+          ]
+        }
+      ],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "src/analyze/cache_aligner.ts": {
+    "imports": [],
+    "exports": {
+      "classes": [
+        {
+          "name": "CacheAligner",
+          "methods": [
+            {
+              "name": "align",
+              "signature": "public static align(content: string): string",
+              "description": "",
+              "usage": ""
+            }
+          ]
+        }
+      ],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "src/analyze/content_router.ts": {
+    "imports": [],
+    "exports": {
+      "classes": [
+        {
+          "name": "ContentRouter",
+          "methods": [
+            {
+              "name": "classify",
+              "signature": "public static classify(content: string): \"json\" | \"code\" | \"logs\" | \"prose\"",
+              "description": "",
+              "usage": ""
+            }
+          ]
+        }
+      ],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "src/analyze/codetree.ts": {
+    "imports": [
+      "fs",
+      "path",
+      "child_process",
+      "typescript"
+    ],
+    "exports": {
+      "classes": [
+        {
+          "name": "CodeTreeScanner",
+          "methods": [
+            {
+              "name": "scanTree",
+              "signature": "public scanTree(dir: string, excludes: string[] = []): string",
+              "description": "",
+              "usage": ""
+            },
+            {
+              "name": "parseFileMetadata",
+              "signature": "public parseFileMetadata(code: string): FileMeta",
+              "description": "",
+              "usage": ""
+            },
+            {
+              "name": "getGitDiff",
+              "signature": "public getGitDiff(targetBranch = \"master\"): string",
+              "description": "",
+              "usage": ""
+            },
+            {
+              "name": "scanCodemap",
+              "signature": "public scanCodemap(dir: string, excludes: string[] = []): { codemap: Record<string, FileMeta>; needsComments: { file: string; name: string; }[]; }",
+              "description": "",
+              "usage": ""
+            },
+            {
+              "name": "scanDependencies",
+              "signature": "public scanDependencies(dir: string, excludes: string[] = []): Record<string, FileMeta>",
+              "description": "",
+              "usage": ""
+            },
+            {
+              "name": "writeCodeIndex",
+              "signature": "public writeCodeIndex(dir: string, excludes: string[] = [], outputPath: string): void",
+              "description": "",
+              "usage": ""
+            }
+          ]
+        }
+      ],
+      "functions": [],
+      "interfaces": [
+        "FunctionMeta",
+        "ClassMeta",
+        "FileMeta"
+      ]
+    }
+  },
+  "src/analyze/smart_crusher.ts": {
+    "imports": [],
+    "exports": {
+      "classes": [
+        {
+          "name": "SmartCrusher",
+          "methods": [
+            {
+              "name": "crush",
+              "signature": "public static crush(content: string): string",
+              "description": "",
+              "usage": ""
+            }
+          ]
+        }
+      ],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "src/analyze/ccr_registry.ts": {
+    "imports": [
+      "bun:sqlite",
+      "crypto",
+      "fs",
+      "path"
+    ],
+    "exports": {
+      "classes": [
+        {
+          "name": "CCRRegistry",
+          "methods": [
+            {
+              "name": "store",
+              "signature": "public store(content: string, contentType: string = \"unknown\"): string",
+              "description": "",
+              "usage": ""
+            },
+            {
+              "name": "retrieve",
+              "signature": "public retrieve(hash: string): string | null",
+              "description": "",
+              "usage": ""
+            },
+            {
+              "name": "prune",
+              "signature": "public prune(maxItems: number): void",
+              "description": "",
+              "usage": ""
+            },
+            {
+              "name": "close",
+              "signature": "public close(): void",
+              "description": "",
+              "usage": ""
+            }
+          ]
+        }
+      ],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "src/index.ts": {
+    "imports": [
+      "@modelcontextprotocol/sdk/server/index.js",
+      "@modelcontextprotocol/sdk/server/stdio.js",
+      "@modelcontextprotocol/sdk/types.js",
+      "./lifecycle.js",
+      "./mcp/tools/index.js",
+      "./analyze/content_router.js",
+      "./analyze/smart_crusher.js",
+      "./analyze/ast_compressor.js",
+      "./analyze/cache_aligner.js",
+      "./analyze/ccr_registry.js",
+      "./analyze/codetree.js",
+      "./reason/sequential_engine.js",
+      "./reason/memory_bank.js",
+      "./integrate/workspace.js",
+      "./integrate/hook_manager.js",
+      "./verify/tdd_runner.js",
+      "./verify/validator.js",
+      "./explain/fade_formatter.js",
+      "./mcp/compact.js",
+      "fs",
+      "path",
+      "./cli/installer.js",
+      "./cli/tui.js",
+      "./cli/prompt_generator.js"
+    ],
+    "exports": {
+      "classes": [],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "src/explain/fade_formatter.ts": {
+    "imports": [],
+    "exports": {
+      "classes": [
+        {
+          "name": "FadeFormatter",
+          "methods": [
+            {
+              "name": "getInstructions",
+              "signature": "public static getInstructions(brevity: \"lite\" | \"full\" | \"ultra\" | \"normal\" = \"full\"): string",
+              "description": "",
+              "usage": ""
+            },
+            {
+              "name": "format",
+              "signature": "public static format(message: string, brevity: \"lite\" | \"full\" | \"ultra\" | \"normal\" = \"full\"): string",
+              "description": "",
+              "usage": ""
+            },
+            {
+              "name": "getSavings",
+              "signature": "public static getSavings(original: string, formatted: string): string",
+              "description": "",
+              "usage": ""
+            }
+          ]
+        }
+      ],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "src/mcp/tools/arive_uninstall.ts": {
+    "imports": [
+      "./types.js"
+    ],
+    "exports": {
+      "classes": [],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "src/mcp/tools/arive_codetree.ts": {
+    "imports": [
+      "./types.js"
+    ],
+    "exports": {
+      "classes": [],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "src/mcp/tools/arive_memory_bank.ts": {
+    "imports": [
+      "./types.js"
+    ],
+    "exports": {
+      "classes": [],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "src/mcp/tools/arive_integrate.ts": {
+    "imports": [
+      "./types.js"
+    ],
+    "exports": {
+      "classes": [],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "src/mcp/tools/arive_compress.ts": {
+    "imports": [
+      "./types.js"
+    ],
+    "exports": {
+      "classes": [],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "src/mcp/tools/index.ts": {
+    "imports": [
+      "./types.js",
+      "./arive_compress.js",
+      "./arive_decompress.js",
+      "./arive_think.js",
+      "./arive_integrate.js",
+      "./arive_workspace_list.js",
+      "./arive_verify.js",
+      "./arive_explain.js",
+      "./arive_codetree.js",
+      "./arive_memory_bank.js",
+      "./arive_install.js",
+      "./arive_uninstall.js"
+    ],
+    "exports": {
+      "classes": [],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "src/mcp/tools/arive_install.ts": {
+    "imports": [
+      "./types.js"
+    ],
+    "exports": {
+      "classes": [],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "src/mcp/tools/arive_explain.ts": {
+    "imports": [
+      "./types.js"
+    ],
+    "exports": {
+      "classes": [],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "src/mcp/tools/arive_think.ts": {
+    "imports": [
+      "./types.js"
+    ],
+    "exports": {
+      "classes": [],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "src/mcp/tools/arive_decompress.ts": {
+    "imports": [
+      "./types.js"
+    ],
+    "exports": {
+      "classes": [],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "src/mcp/tools/types.ts": {
+    "imports": [],
+    "exports": {
+      "classes": [],
+      "functions": [],
+      "interfaces": [
+        "ToolDef"
+      ]
+    }
+  },
+  "src/mcp/tools/arive_workspace_list.ts": {
+    "imports": [
+      "./types.js"
+    ],
+    "exports": {
+      "classes": [],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "src/mcp/tools/arive_verify.ts": {
+    "imports": [
+      "./types.js"
+    ],
+    "exports": {
+      "classes": [],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "src/mcp/compact.ts": {
+    "imports": [
+      "../integrate/hook_manager.js",
+      "../analyze/ccr_registry.js"
+    ],
+    "exports": {
+      "classes": [],
+      "functions": [
+        {
+          "name": "createCompactHelpers",
+          "signature": "function createCompactHelpers(ccr: CCRRegistry): CompactHelpers",
+          "description": "",
+          "usage": ""
+        }
+      ],
+      "interfaces": [
+        "CompactResult",
+        "CompactText",
+        "CompactObject",
+        "CompactHelpers"
+      ]
+    }
+  },
+  "src/cli/installer.ts": {
+    "imports": [
+      "fs",
+      "path",
+      "os",
+      "readline"
+    ],
+    "exports": {
+      "classes": [],
+      "functions": [
+        {
+          "name": "writeRuleFileWithConflict",
+          "signature": "function writeRuleFileWithConflict(filePath: string, content: string, action: \"overwrite\" | \"append\" | \"skip\"): void",
+          "description": "",
+          "usage": ""
+        },
+        {
+          "name": "detectInstalledEditors",
+          "signature": "function detectInstalledEditors(wsRoot: string): string[]",
+          "description": "",
+          "usage": ""
+        },
+        {
+          "name": "executeInstallation",
+          "signature": "function executeInstallation(wsRoot: string, options: { target?: string; updateGitignore: boolean; ruleConflictAction: \"overwrite\" | \"append\" | \"skip\"; scope: \"global\" | \"project\" | \"both\"; installHooks?: boolean; }): void",
+          "description": "",
+          "usage": ""
+        },
+        {
+          "name": "executeUninstallation",
+          "signature": "function executeUninstallation(wsRoot: string, options: { target?: string; updateGitignore: boolean; ruleConflictAction: \"overwrite\" | \"append\" | \"skip\"; scope: \"global\" | \"project\" | \"both\"; }): void",
+          "description": "",
+          "usage": ""
+        },
+        {
+          "name": "isRawTTY",
+          "signature": "function isRawTTY(): boolean",
+          "description": "",
+          "usage": ""
+        },
+        {
+          "name": "isInteractive",
+          "signature": "function isInteractive(): boolean",
+          "description": "",
+          "usage": ""
+        },
+        {
+          "name": "selectPrompt",
+          "signature": "async function selectPrompt(message: string, options: string[], defaultIndex = 0): Promise<string>",
+          "description": "",
+          "usage": ""
+        },
+        {
+          "name": "confirmPrompt",
+          "signature": "async function confirmPrompt(query: string, defaultYes = true): Promise<boolean>",
+          "description": "",
+          "usage": ""
+        },
+        {
+          "name": "runInteractiveInstall",
+          "signature": "async function runInteractiveInstall(workspacePath?: string, editor?: string, scope?: \"global\" | \"project\" | \"both\"): Promise<void>",
+          "description": "",
+          "usage": ""
+        },
+        {
+          "name": "installAllAsync",
+          "signature": "async function installAllAsync(workspacePath?: string, editor?: string, scope?: \"global\" | \"project\" | \"both\", uninstall?: boolean): Promise<void>",
+          "description": "",
+          "usage": ""
+        },
+        {
+          "name": "installAll",
+          "signature": "function installAll(workspacePath?: string, editor?: string, scope?: \"global\" | \"project\" | \"both\", uninstall?: boolean): void",
+          "description": "",
+          "usage": ""
+        },
+        {
+          "name": "installAllLegacy",
+          "signature": "async function installAllLegacy(workspacePath?: string, editor?: string): Promise<void>",
+          "description": "",
+          "usage": ""
+        },
+        {
+          "name": "uninstallAllAsync",
+          "signature": "async function uninstallAllAsync(workspacePath?: string, editor?: string, scope?: \"global\" | \"project\" | \"both\"): Promise<void>",
+          "description": "",
+          "usage": ""
+        },
+        {
+          "name": "runInstallerCli",
+          "signature": "async function runInstallerCli(): Promise<void>",
+          "description": "",
+          "usage": ""
+        }
+      ],
+      "interfaces": []
+    }
+  },
+  "src/cli/init_hooks.ts": {
+    "imports": [
+      "fs",
+      "path",
+      "readline"
+    ],
+    "exports": {
+      "classes": [],
+      "functions": [
+        {
+          "name": "writeHookFileWithConflict",
+          "signature": "function writeHookFileWithConflict(hookFile: string, action: \"overwrite\" | \"append\" | \"skip\"): void",
+          "description": "Helper to write a hook file and handle conflicts (overwrite, append, skip).",
+          "usage": "Refer to description and signature."
+        },
+        {
+          "name": "installPreCommitHookSync",
+          "signature": "function installPreCommitHookSync(workspacePath?: string): void",
+          "description": "Synchronous pre-commit hook installation for non-interactive/test environments.",
+          "usage": "Refer to description and signature."
+        },
+        {
+          "name": "installPreCommitHook",
+          "signature": "async function installPreCommitHook(workspacePath?: string): Promise<void>",
+          "description": "Asynchronous pre-commit hook installation that prompts the user if interactive.",
+          "usage": "Refer to description and signature."
+        }
+      ],
+      "interfaces": []
+    }
+  },
+  "src/cli/tui.ts": {
+    "imports": [
+      "readline",
+      "./installer.js"
+    ],
+    "exports": {
+      "classes": [],
+      "functions": [
+        {
+          "name": "runTui",
+          "signature": "async function runTui(): Promise<void>",
+          "description": "",
+          "usage": ""
+        }
+      ],
+      "interfaces": []
+    }
+  },
+  "src/cli/prompt_generator.ts": {
+    "imports": [
+      "fs",
+      "path"
+    ],
+    "exports": {
+      "classes": [],
+      "functions": [
+        {
+          "name": "outputAdvancedPrompt",
+          "signature": "function outputAdvancedPrompt(userQuery?: string): void",
+          "description": "Outputs a tailored prompt to stdin/stdout based on the target codebase context.",
+          "usage": "Refer to description and signature."
+        }
+      ],
+      "interfaces": []
+    }
+  },
+  "src/verify/validator.ts": {
+    "imports": [
+      "../reason/sequential_engine.js",
+      "crypto"
+    ],
+    "exports": {
+      "classes": [
+        {
+          "name": "Validator",
+          "methods": [
+            {
+              "name": "backpropagate",
+              "signature": "public static backpropagate(engine: SequentialEngine, failures: string[]): void",
+              "description": "",
+              "usage": ""
+            },
+            {
+              "name": "verifyHash",
+              "signature": "public static verifyHash(content: string, expectedHash: string): boolean",
+              "description": "",
+              "usage": ""
+            }
+          ]
+        }
+      ],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "src/verify/tdd_runner.ts": {
+    "imports": [
+      "child_process",
+      "fs"
+    ],
+    "exports": {
+      "classes": [
+        {
+          "name": "TDDRunner",
+          "methods": [
+            {
+              "name": "run",
+              "signature": "public static run(cwd: string, testCommand: string): { success: boolean; failures: string[]; exitCode: number; stdout: string; stderr: string; }",
+              "description": "",
+              "usage": ""
+            }
+          ]
+        }
+      ],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "src/reason/sequential_engine.ts": {
+    "imports": [
+      "bun:sqlite",
+      "fs",
+      "path"
+    ],
+    "exports": {
+      "classes": [
+        {
+          "name": "SequentialEngine",
+          "methods": [
+            {
+              "name": "addThought",
+              "signature": "public addThought(thought: string, thoughtNumber: number, totalThoughts: number, nextThoughtNeeded: boolean, isRevision?: boolean, revisesThoughtNum?: number, branchToThoughtNum?: number, sessionId: string = \"default\"): EngineState",
+              "description": "",
+              "usage": ""
+            },
+            {
+              "name": "classifyAsk",
+              "signature": "public classifyAsk(ask: string): AskShape",
+              "description": "",
+              "usage": ""
+            },
+            {
+              "name": "parseIntentGate",
+              "signature": "public parseIntentGate(text: string): IntentRecord | null",
+              "description": "",
+              "usage": ""
+            },
+            {
+              "name": "setAskShape",
+              "signature": "public setAskShape(askShape: AskShape, sessionId: string = \"default\")",
+              "description": "",
+              "usage": ""
+            },
+            {
+              "name": "defineDone",
+              "signature": "public defineDone(verificationCheckName: string, sessionId: string = \"default\")",
+              "description": "",
+              "usage": ""
+            },
+            {
+              "name": "recordIntent",
+              "signature": "public recordIntent(intent: IntentRecord, sessionId: string = \"default\")",
+              "description": "",
+              "usage": ""
+            },
+            {
+              "name": "runFableJudge",
+              "signature": "public runFableJudge(claims: string[], observations: { check: string; status: \"passed\" | \"failed\" | \"unobserved\"; details?: string; }[], sessionId: string = \"default\"): FableJudgeVerdict",
+              "description": "",
+              "usage": ""
+            },
+            {
+              "name": "setErrors",
+              "signature": "public setErrors(errors: string[], sessionId: string = \"default\")",
+              "description": "",
+              "usage": ""
+            },
+            {
+              "name": "getState",
+              "signature": "public getState(sessionId: string = \"default\"): EngineState",
+              "description": "",
+              "usage": ""
+            },
+            {
+              "name": "close",
+              "signature": "public close()",
+              "description": "",
+              "usage": ""
+            },
+            {
+              "name": "evaluateConsensus",
+              "signature": "public evaluateConsensus(sessionId: string = \"default\"): ConsensusReport",
+              "description": "",
+              "usage": ""
+            }
+          ]
+        }
+      ],
+      "functions": [],
+      "interfaces": [
+        "Thought",
+        "IntentRecord",
+        "FableJudgeVerdict",
+        "EngineState",
+        "PersonaAudit",
+        "ConsensusReport"
+      ]
+    }
+  },
+  "src/reason/memory_bank.ts": {
+    "imports": [
+      "bun:sqlite",
+      "crypto",
+      "fs",
+      "path"
+    ],
+    "exports": {
+      "classes": [
+        {
+          "name": "MemoryBank",
+          "methods": [
+            {
+              "name": "write",
+              "signature": "write(args: { wing: string; room: string; hall: string; drawer?: string; content: string; tags?: string[]; metadata?: Record<string, unknown>; }): MemoryEntry",
+              "description": "",
+              "usage": ""
+            },
+            {
+              "name": "read",
+              "signature": "read(drawerId: string, bumpAccess = true): MemoryEntry",
+              "description": "",
+              "usage": ""
+            },
+            {
+              "name": "forget",
+              "signature": "forget(drawerId: string): { removed: boolean; }",
+              "description": "",
+              "usage": ""
+            },
+            {
+              "name": "list",
+              "signature": "list(wing: string, room: string, hall: string, limit = 50): MemoryEntry[]",
+              "description": "",
+              "usage": ""
+            },
+            {
+              "name": "recall",
+              "signature": "recall(query: string, limit = 50): MemoryEntry[]",
+              "description": "",
+              "usage": ""
+            },
+            {
+              "name": "stats",
+              "signature": "stats(): { totalDrawers: number; wings: number; rooms: number; halls: number; }",
+              "description": "",
+              "usage": ""
+            },
+            {
+              "name": "close",
+              "signature": "close(): void",
+              "description": "",
+              "usage": ""
+            }
+          ]
+        }
+      ],
+      "functions": [
+        {
+          "name": "parseRememberIntent",
+          "signature": "function parseRememberIntent(input: string): RememberIntent | null",
+          "description": "Parses natural-language memory triggers into a structured RememberIntent.\n\nTrigger phrases recognised (case-insensitive):\n  \"remember to/that …\"\n  \"please remember …\"\n  \"don't forget to/that …\"\n  \"keep in mind that …\"\n  \"make a note that/of …\"\n  \"note: …\" / \"note that …\"\n  \"save this: …\"\n  \"store this: …\"\n\nReturns null when none of the patterns match or the extracted content is\ntoo short to be meaningful (< 4 chars).",
+          "usage": "Refer to description and signature."
+        }
+      ],
+      "interfaces": [
+        "MemoryEntry",
+        "RememberIntent"
+      ]
+    }
+  },
+  "src/lifecycle.ts": {
+    "imports": [
+      "./analyze/ccr_registry.js",
+      "./reason/sequential_engine.js",
+      "./reason/memory_bank.js",
+      "./mcp/compact.js"
+    ],
+    "exports": {
+      "classes": [
+        {
+          "name": "EngineLifecycle",
+          "methods": [
+            {
+              "name": "getCCR",
+              "signature": "public getCCR(): CCRRegistry",
+              "description": "",
+              "usage": ""
+            },
+            {
+              "name": "getEngine",
+              "signature": "public getEngine(): SequentialEngine",
+              "description": "",
+              "usage": ""
+            },
+            {
+              "name": "getMemoryBank",
+              "signature": "public getMemoryBank(): MemoryBank",
+              "description": "",
+              "usage": ""
+            },
+            {
+              "name": "getCompactHelpers",
+              "signature": "public getCompactHelpers(): { compactText: CompactText; compactObject: CompactObject; }",
+              "description": "",
+              "usage": ""
+            },
+            {
+              "name": "close",
+              "signature": "public close(): void",
+              "description": "",
+              "usage": ""
+            }
+          ]
+        }
+      ],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "scripts/prepare_prompt.ts": {
+    "imports": [
+      "child_process",
+      "fs",
+      "path"
+    ],
+    "exports": {
+      "classes": [],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "scripts/mock_provider.js": {
+    "imports": [],
+    "exports": {
+      "classes": [],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "scripts/benchmark_arive_toolset.ts": {
+    "imports": [
+      "fs",
+      "path",
+      "../src/analyze/ccr_registry.js",
+      "../src/analyze/content_router.js",
+      "../src/analyze/smart_crusher.js",
+      "../src/analyze/ast_compressor.js",
+      "../src/analyze/cache_aligner.js",
+      "../src/reason/sequential_engine.js",
+      "../src/integrate/workspace.js"
+    ],
+    "exports": {
+      "classes": [],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "scripts/benchmark_arive_prompts_multi.ts": {
+    "imports": [
+      "fs",
+      "path"
+    ],
+    "exports": {
+      "classes": [],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "tests/ccr_registry.test.ts": {
+    "imports": [
+      "bun:test",
+      "../src/analyze/ccr_registry.js",
+      "fs"
+    ],
+    "exports": {
+      "classes": [],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "tests/init.test.ts": {
+    "imports": [
+      "bun:test",
+      "path",
+      "os",
+      "../src/cli/init_hooks.js",
+      "fs"
+    ],
+    "exports": {
+      "classes": [],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "tests/fade_formatter.test.ts": {
+    "imports": [
+      "bun:test",
+      "../src/explain/fade_formatter.js"
+    ],
+    "exports": {
+      "classes": [],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "tests/integrate.test.ts": {
+    "imports": [
+      "bun:test",
+      "../src/integrate/workspace.js",
+      "fs",
+      "path",
+      "os"
+    ],
+    "exports": {
+      "classes": [],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "tests/verify.test.ts": {
+    "imports": [
+      "bun:test",
+      "../src/verify/tdd_runner.js",
+      "../src/verify/validator.js",
+      "../src/reason/sequential_engine.js",
+      "fs"
+    ],
+    "exports": {
+      "classes": [],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "tests/installer.test.ts": {
+    "imports": [
+      "bun:test",
+      "fs",
+      "os",
+      "path",
+      "../src/cli/installer.js"
+    ],
+    "exports": {
+      "classes": [],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "tests/codetree.test.ts": {
+    "imports": [
+      "fs",
+      "path",
+      "os",
+      "bun:test",
+      "../src/analyze/codetree.js"
+    ],
+    "exports": {
+      "classes": [],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "tests/sequential_engine_sqlite.test.ts": {
+    "imports": [
+      "bun:test",
+      "../src/reason/sequential_engine.js",
+      "fs",
+      "path"
+    ],
+    "exports": {
+      "classes": [],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "tests/index.test.ts": {
+    "imports": [
+      "bun:test",
+      "child_process"
+    ],
+    "exports": {
+      "classes": [],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "tests/fable_integration.test.ts": {
+    "imports": [
+      "bun:test",
+      "../src/analyze/codetree.js",
+      "../src/reason/sequential_engine.js",
+      "../src/integrate/hook_manager.js",
+      "fs",
+      "path"
+    ],
+    "exports": {
+      "classes": [],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "tests/memory_bank.test.ts": {
+    "imports": [
+      "bun:test",
+      "../src/reason/memory_bank.js",
+      "fs",
+      "os",
+      "path"
+    ],
+    "exports": {
+      "classes": [],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "tests/sequential_engine.test.ts": {
+    "imports": [
+      "bun:test",
+      "../src/reason/sequential_engine.js",
+      "fs",
+      "path"
+    ],
+    "exports": {
+      "classes": [],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "tests/analyze_pipeline.test.ts": {
+    "imports": [
+      "bun:test",
+      "../src/analyze/content_router.js",
+      "../src/analyze/smart_crusher.js",
+      "../src/analyze/ast_compressor.js",
+      "../src/analyze/cache_aligner.js"
+    ],
+    "exports": {
+      "classes": [],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "tests/codetree_hooks.test.ts": {
+    "imports": [
+      "bun:test",
+      "../src/integrate/hook_manager.js",
+      "../src/integrate/workspace.js",
+      "fs",
+      "path"
+    ],
+    "exports": {
+      "classes": [],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "tests/hook_manager.test.ts": {
+    "imports": [
+      "bun:test",
+      "../src/integrate/hook_manager.js",
+      "fs",
+      "path"
+    ],
+    "exports": {
+      "classes": [],
+      "functions": [],
+      "interfaces": []
+    }
+  },
+  "tests/compact.test.ts": {
+    "imports": [
+      "bun:test",
+      "../src/analyze/ccr_registry.js",
+      "../src/mcp/compact.js",
+      "fs"
+    ],
+    "exports": {
+      "classes": [],
+      "functions": [],
+      "interfaces": []
+    }
+  }
+}
