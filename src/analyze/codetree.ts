@@ -306,7 +306,7 @@ export class CodeTreeScanner {
 
       visit(sourceFile);
     } catch (e: unknown) {
-      console.warn("TypeScript metadata parsing error:", e);
+      console.error("[arive_codetree] TypeScript metadata parsing error:", e);
     }
 
     return { imports, exports: { classes, functions, interfaces } };
@@ -466,10 +466,10 @@ export class CodeTreeScanner {
         fs.mkdirSync(dirPath, { recursive: true });
       }
       fs.writeFileSync(outputPath, lines.join("\n"), "utf-8");
-      console.log(`✓ Wrote code index → ${outputPath}`);
+      console.error(`[arive_codetree] Wrote code index → ${outputPath}`);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      console.warn(`! Failed to write code index: ${msg}`);
+      console.error(`[arive_codetree] Failed to write code index: ${msg}`);
     }
   }
 

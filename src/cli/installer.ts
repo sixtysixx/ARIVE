@@ -98,6 +98,32 @@ export default async ({ client } = {}) => {
   };
 };`;
 
+const fableRules = `# The Fable Method (Think, Act, Prove, Grow)
+
+0. Classify the Ask:
+   - Trivial (<10 lines, 1 file, no search): Do it, run check, report in 2 sentences.
+   - Question: Gather primary evidence, ONE recommendation, no code edits.
+   - Task: Define done, gather evidence, surgical edits, verify by observation.
+   - Plan-First: Ambiguous or irreversible. Write plan artifact, stop for approval.
+
+1. Define Done:
+   - Name exact verification check BEFORE editing.
+
+2. Gather Evidence & Intent Gate:
+   - Mandatory check: 'INTENT: code does X / check expects Y / spec says Z' when code and test conflict.
+
+3. Decide:
+   - Commit to ONE recommendation.
+
+4. Act:
+   - Smallest correct change. Surgical edits.
+
+5. Verify:
+   - Verify by observation (max 3 retries).
+
+6. Report:
+   - Outcome first, honest caveats.`;
+
 const clawSkills = [
   { name: "fade", content: fadeRules },
   { name: "fade-review", content: fadeReview },
@@ -105,6 +131,11 @@ const clawSkills = [
   { name: "fade-debt", content: fadeDebt },
   { name: "fade-gain", content: fadeGain },
   { name: "fade-help", content: fadeHelp },
+  { name: "fable", content: fableRules },
+  { name: "fable-method", content: fableRules },
+  { name: "fable-loop", content: "Orchestrated fable loop: classify ask, define done, gather evidence, surgical act, verify, fable-judge." },
+  { name: "fable-judge", content: "Adversarial verification of finished work: re-runs checks, diffs changes, detects false claims." },
+  { name: "fable-domain", content: "Generates domain adapter bundles with evidence sets and trap fixtures." },
 ];
 
 function getAppDataPath(): string {
@@ -343,16 +374,23 @@ function removeFromGitignore(wsRoot: string): void {
 function writeHookSamples(hooksDir: string): void {
   try {
     fs.mkdirSync(hooksDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(hooksDir, "pre-integrate.sample"),
-      `#!/bin/sh\n# ARIVE pre-integrate hook sample\n# This hook runs before a task workspace is created, command is executed, or cleaned up.\nexit 0\n`,
-      { encoding: "utf-8", mode: 0o755 }
-    );
-    fs.writeFileSync(
-      path.join(hooksDir, "post-verify.sample"),
-      `#!/bin/sh\n# ARIVE post-verify hook sample\n# This hook runs after the verify tests run.\nexit 0\n`,
-      { encoding: "utf-8", mode: 0o755 }
-    );
+    const sampleHooks = [
+      "pre-analyze", "post-analyze",
+      "pre-reason", "post-reason",
+      "pre-integrate", "post-integrate",
+      "pre-verify", "post-verify",
+      "pre-explain", "post-explain",
+    ];
+    for (const hookName of sampleHooks) {
+      const hookPath = path.join(hooksDir, `${hookName}.sample`);
+      if (!fs.existsSync(hookPath)) {
+        fs.writeFileSync(
+          hookPath,
+          `#!/bin/sh\n# ARIVE ${hookName} hook sample (Fable workflow)\nexit 0\n`,
+          { encoding: "utf-8", mode: 0o755 }
+        );
+      }
+    }
   } catch {
     // Ignore
   }

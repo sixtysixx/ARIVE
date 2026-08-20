@@ -65,7 +65,38 @@ describe("Sequential Engine Tests", () => {
     const report = engine.evaluateConsensus();
 
     expect(report.averageScore).toBeGreaterThan(60);
-    expect(report.personas.length).toBe(3);
+    expect(report.personas.length).toBe(4);
     expect(report.personas[0].role).toBe("Developer");
+    expect(report.personas[3].role).toBe("FableJudge");
+  });
+
+  test("Fable Method extensions: classifyAsk, parseIntentGate, defineDone, runFableJudge", () => {
+    expect(engine.classifyAsk("Please provide a plan to refactor database")).toBe("plan-first");
+    expect(engine.classifyAsk("Why is the transport closing?")).toBe("question");
+    expect(engine.classifyAsk("Fix typo in README")).toBe("trivial");
+    expect(engine.classifyAsk("Implement new authentication endpoint")).toBe("task");
+
+    const intent = engine.parseIntentGate("INTENT: code does X / check expects Y / spec says Z");
+    expect(intent).not.toBeNull();
+    expect(intent?.code).toBe("X");
+    expect(intent?.check).toBe("Y");
+    expect(intent?.spec).toBe("Z");
+
+    engine.defineDone("bun test");
+    engine.addThought("INTENT: code does old logic / check expects new return / spec says new behavior", 1, 1, false);
+
+    let state = engine.getState();
+    expect(state.definedDone).toBe("bun test");
+    expect(state.intents?.length).toBe(1);
+
+    const judgeVerdict = engine.runFableJudge(
+      ["All unit tests pass"],
+      [{ check: "All unit tests pass", status: "passed" }]
+    );
+    expect(judgeVerdict.verdict).toBe("VERIFIED");
+    expect(judgeVerdict.score).toBe(100);
+
+    const report = engine.evaluateConsensus();
+    expect(report.fableVerdict?.verdict).toBe("VERIFIED");
   });
 });
