@@ -120,6 +120,21 @@ export class SequentialEngine {
         judge_verdict TEXT
       );
     `);
+
+    // Migrate existing engine_state tables by adding new columns if missing
+    const newCols = [
+      "ask_shape TEXT",
+      "defined_done TEXT",
+      "intents TEXT",
+      "judge_verdict TEXT",
+    ];
+    for (const colDef of newCols) {
+      try {
+        this.db.run(`ALTER TABLE engine_state ADD COLUMN ${colDef};`);
+      } catch {
+        // Column already exists, safe to ignore
+      }
+    }
   }
 
   public addThought(
@@ -199,6 +214,13 @@ export class SequentialEngine {
   public classifyAsk(ask: string): AskShape {
     const text = ask.toLowerCase().trim();
     if (
+      text.length < 100 &&
+      !text.includes("\n") &&
+      (text.startsWith("fix typo") || text.startsWith("rename") || text.includes("trivial"))
+    ) {
+      return "trivial";
+    }
+    if (
       text.includes("plan") ||
       text.includes("proposal") ||
       text.includes("architect") ||
@@ -215,13 +237,6 @@ export class SequentialEngine {
       text.includes("assess")
     ) {
       return "question";
-    }
-    if (
-      text.length < 100 &&
-      !text.includes("\n") &&
-      (text.startsWith("fix typo") || text.startsWith("rename") || text.includes("trivial"))
-    ) {
-      return "trivial";
     }
     return "task";
   }
@@ -280,7 +295,21 @@ export class SequentialEngine {
 
     for (let i = 0; i < claims.length; i++) {
       const claim = claims[i];
-      const obs = observations[i] || observations.find((o) => o.check.toLowerCase().includes(claim.toLowerCase().slice(0, 15)));
+      const claimNorm = claim.toLowerCase().trim();
+
+      // Look for explicit observation matching this claim
+      let obs = observations.find((o) => {
+        const checkNorm = o.check.toLowerCase().trim();
+        return checkNorm === claimNorm || checkNorm.includes(claimNorm) || claimNorm.includes(checkNorm);
+      });
+
+      // Fall back to index i if check is relevant
+      if (!obs && observations[i]) {
+        const indexCheck = observations[i].check.toLowerCase().trim();
+        if (indexCheck === claimNorm || (claimNorm.length >= 5 && indexCheck.includes(claimNorm.slice(0, 10)))) {
+          obs = observations[i];
+        }
+      }
 
       if (!obs || obs.status === "unobserved") {
         caveats.push(`Claim "${claim}" was not directly observed or re-verified.`);
@@ -324,6 +353,15 @@ export class SequentialEngine {
     }));
   }
 
+  private safeJsonParse<T>(raw: string | null, fallback: T): T {
+    if (!raw) return fallback;
+    try {
+      return JSON.parse(raw) as T;
+    } catch {
+      return fallback;
+    }
+  }
+
   private getInternalState(sessionId: string): {
     activePlan: string;
     errors: string[];
@@ -340,11 +378,11 @@ export class SequentialEngine {
     if (row) {
       return {
         activePlan: row.active_plan ?? "",
-        errors: JSON.parse(row.errors ?? "[]") as string[],
+        errors: this.safeJsonParse<string[]>(row.errors, []),
         askShape: (row.ask_shape as AskShape) || undefined,
         definedDone: row.defined_done ?? undefined,
-        intents: row.intents ? (JSON.parse(row.intents) as IntentRecord[]) : undefined,
-        judgeVerdict: row.judge_verdict ? (JSON.parse(row.judge_verdict) as FableJudgeVerdict) : undefined,
+        intents: row.intents ? this.safeJsonParse<IntentRecord[] | undefined>(row.intents, undefined) : undefined,
+        judgeVerdict: row.judge_verdict ? this.safeJsonParse<FableJudgeVerdict | undefined>(row.judge_verdict, undefined) : undefined,
       };
     }
     return { activePlan: "", errors: [] };

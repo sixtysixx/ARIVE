@@ -208,9 +208,35 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
 
         const definedDone = args?.definedDone ? String(args.definedDone) : undefined;
-        const askShape = args?.askShape ? String(args.askShape) : undefined;
+        const askShapeRaw = args?.askShape ? String(args.askShape) : undefined;
+        const ALLOWED_ASK_SHAPES = ["trivial", "question", "task", "plan-first"];
+        if (askShapeRaw && !ALLOWED_ASK_SHAPES.includes(askShapeRaw)) {
+          throw new Error(`Invalid parameter 'askShape': "${askShapeRaw}". Allowed values: ${ALLOWED_ASK_SHAPES.join(", ")}`);
+        }
+        const askShape = askShapeRaw as "trivial" | "question" | "task" | "plan-first" | undefined;
+
         const claims = Array.isArray(args?.claims) ? args.claims.map(String) : undefined;
-        const observations = Array.isArray(args?.observations) ? (args.observations as any[]) : undefined;
+
+        const observations = Array.isArray(args?.observations)
+          ? args.observations.map((item: unknown) => {
+              if (typeof item !== "object" || item === null) {
+                throw new Error("Invalid observation item: must be an object with 'check' and 'status'.");
+              }
+              const obj = item as Record<string, unknown>;
+              if (!obj.check || typeof obj.check !== "string") {
+                throw new Error("Invalid observation item: 'check' must be a string.");
+              }
+              const status = String(obj.status || "unobserved");
+              if (!["passed", "failed", "unobserved"].includes(status)) {
+                throw new Error(`Invalid observation status "${status}". Allowed values: passed, failed, unobserved.`);
+              }
+              return {
+                check: obj.check,
+                status: status as "passed" | "failed" | "unobserved",
+                details: obj.details ? String(obj.details) : undefined,
+              };
+            })
+          : undefined;
 
         const hookContext = {
           thought,
@@ -519,10 +545,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           resultText = scanner.getGitDiff(targetBranch);
         } else if (action === "codemap") {
           isCodemapAction = true;
-          treeOutput = scanner.scanTree(dir, excludes);
           const { codemap, needsComments } = scanner.scanCodemap(dir, excludes);
           needsCommentsResult = needsComments;
-          resultText = JSON.stringify({ tree: treeOutput, codemap, needsComments }, null, 2);
+          resultText = JSON.stringify({ codemap, needsComments }, null, 2);
         } else {
           throw new Error(`Unknown codetree action: ${action}`);
         }
@@ -561,7 +586,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           responsePayload = {
             file_path: path.join(dir, ".arive", "codemap.json"),
             needs_comments: needsCommentsResult,
-            tree: treeOutput,
             ref: responseRef,
           };
         }
