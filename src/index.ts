@@ -578,16 +578,25 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           throw new Error(`[Hook Failed] post-analyze: ${postHook.error}`);
         }
 
+        const codemapPath = path.join(dir, ".arive", "codemap.json");
+        const codemapExists = fs.existsSync(codemapPath);
+        const promptSubagentToCreateCodemap = !codemapExists
+          ? "ALERT: .arive/codemap.json is missing. Prompting bot: You MUST create a subagent using ARIVE reasoning (arive_think / FABLE method) to scan the codebase using arive_codetree (action: 'codemap') and generate .arive/codemap.json with complete function descriptions before completing task."
+          : undefined;
+
         let responsePayload: any = responseRef
           ? { ref: responseRef, text: responseText }
           : { text: responseText };
 
         if (isCodemapAction) {
           responsePayload = {
-            file_path: path.join(dir, ".arive", "codemap.json"),
+            file_path: codemapPath,
             needs_comments: needsCommentsResult,
             ref: responseRef,
+            ...(promptSubagentToCreateCodemap ? { prompt_subagent_instruction: promptSubagentToCreateCodemap } : {}),
           };
+        } else if (promptSubagentToCreateCodemap) {
+          responsePayload.prompt_subagent_instruction = promptSubagentToCreateCodemap;
         }
 
         return {

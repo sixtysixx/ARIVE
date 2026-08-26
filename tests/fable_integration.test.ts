@@ -32,6 +32,10 @@ describe("Fable Method & Codemap Integration Tests", () => {
     const { codemap, needsComments } = scanner.scanCodemap(".", ["node_modules", ".git"]);
     expect(codemap).toBeDefined();
     expect(Array.isArray(needsComments)).toBe(true);
+    expect(fs.existsSync(path.join(".arive", "codemap.json"))).toBe(true);
+    const writtenCodemap = JSON.parse(fs.readFileSync(path.join(".arive", "codemap.json"), "utf-8"));
+    expect(writtenCodemap["src/analyze/codetree.ts"]).toBeDefined();
+    expect(writtenCodemap["src/analyze/codetree.ts"].exports.classes[0].name).toBe("CodeTreeScanner");
   });
 
   test("SequentialEngine supports Fable ask classification and intent gate parsing", () => {

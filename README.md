@@ -222,17 +222,23 @@ Transforms conversational messages into telegraphic token-saving fade styles, or
 | `message` | string | Yes      |         | The natural language text to compress, or get instructions for.      |
 | `brevity` | enum   | No       | `full`  | The level of brevity/laziness: `lite`, `full`, `ultra`, or `normal`. |
 
-### `arive_codeatlas`
+### `arive_codetree` / `arive_codeatlas`
 
-Scans folder structure tree, maps imports/exports, or runs git diff checks.
+Scans folder structure tree, maps imports/exports, generates code maps, or runs git diff checks.
 
-| Parameter      | Type    | Required | Default  | Description                                               |
-| :------------- | :------ | :------- | :------- | :-------------------------------------------------------- |
-| `action`       | enum    | Yes      |          | The codeatlas operation: `tree`, `dependencies`, or `diff`. |
-| `dir`          | string  | No       | `.`      | The directory to scan for tree or dependencies.           |
-| `excludes`     | array   | No       | `[]`     | List of directories or files to exclude.                  |
-| `maxDepth`     | integer | No       | `10`     | Max depth to scan for directory tree.                     |
-| `targetBranch` | string  | No       | `master` | Target branch for git diff comparison.                    |
+| Parameter      | Type    | Required | Default  | Description                                                         |
+| :------------- | :------ | :------- | :------- | :------------------------------------------------------------------ |
+| `action`       | enum    | Yes      |          | The codetree operation: `tree`, `dependencies`, `diff`, `codemap`. |
+| `dir`          | string  | No       | `.`      | The directory to scan for tree, dependencies, or codemap.           |
+| `excludes`     | array   | No       | `[]`     | List of directories or files to exclude.                            |
+| `maxDepth`     | integer | No       | `10`     | Max depth to scan for directory tree.                               |
+| `targetBranch` | string  | No       | `master` | Target branch for git diff comparison.                              |
+
+#### Code Map Generation & Subagent Reasoning
+
+Running `arive_codetree` with `action: "codemap"` scans exported functions and class methods along with their JSDoc descriptions/signatures and writes `.arive/codemap.json`.
+
+If `.arive/codemap.json` is missing, ARIVE tools prompt the LLM to spawn a subagent utilizing ARIVE reasoning (`arive_think` with the **FABLE method**) to scan the codebase and populate `.arive/codemap.json`.
 
 ### `arive_install`
 
