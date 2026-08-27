@@ -9,7 +9,7 @@ export const toolDef: ToolDef = {
           properties: {
             action: {
               type: "string",
-              enum: ["tree", "dependencies", "diff"],
+              enum: ["tree", "dependencies", "diff", "codemap"],
               description: "The codetree operation to perform",
             },
             dir: {
