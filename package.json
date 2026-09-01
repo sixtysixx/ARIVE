@@ -13,7 +13,6 @@
   "scripts": {
     "start": "bun run src/index.ts",
     "test": "bun test",
-    "prompt": "bun run src/index.ts prompt",
     "benchmark": "bun run scripts/prepare_prompt.ts && bunx promptfoo eval",
     "benchmark:toolset": "bun run scripts/benchmark_arive_toolset.ts",
     "benchmark:prompts": "bun run scripts/benchmark_arive_prompts_multi.ts"

@@ -284,6 +284,14 @@ export class SequentialEngine {
     }));
   }
 
+  public runAriveJudge(
+    claims: string[],
+    observations: { check: string; status: "passed" | "failed" | "unobserved"; details?: string }[],
+    sessionId: string = "default"
+  ): FableJudgeVerdict {
+    return this.runFableJudge(claims, observations, sessionId);
+  }
+
   public runFableJudge(
     claims: string[],
     observations: { check: string; status: "passed" | "failed" | "unobserved"; details?: string }[],

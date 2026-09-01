@@ -1,11 +1,9 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { CodeTreeScanner } from "../src/analyze/codetree.js";
 import { SequentialEngine } from "../src/reason/sequential_engine.js";
 import { HookManager } from "../src/integrate/hook_manager.js";
 import * as fs from "fs";
-import * as path from "path";
 
-describe("Fable Method & Codemap Integration Tests", () => {
+describe("Fable Method Integration Tests", () => {
   const testDbPath = ".arive/test_fable_integration.db";
   let engine: SequentialEngine;
 
@@ -21,21 +19,6 @@ describe("Fable Method & Codemap Integration Tests", () => {
     if (fs.existsSync(testDbPath)) {
       try { fs.unlinkSync(testDbPath); } catch {}
     }
-  });
-
-  test("CodeTreeScanner scanCodemap and scanTree return directory tree and metadata", () => {
-    const scanner = new CodeTreeScanner();
-    const tree = scanner.scanTree(".", ["node_modules", ".git"]);
-    expect(tree).toContain("src/");
-    expect(tree).toContain("package.json");
-
-    const { codemap, needsComments } = scanner.scanCodemap(".", ["node_modules", ".git"]);
-    expect(codemap).toBeDefined();
-    expect(Array.isArray(needsComments)).toBe(true);
-    expect(fs.existsSync(path.join(".arive", "codemap.json"))).toBe(true);
-    const writtenCodemap = JSON.parse(fs.readFileSync(path.join(".arive", "codemap.json"), "utf-8"));
-    expect(writtenCodemap["src/analyze/codetree.ts"]).toBeDefined();
-    expect(writtenCodemap["src/analyze/codetree.ts"].exports.classes[0].name).toBe("CodeTreeScanner");
   });
 
   test("SequentialEngine supports Fable ask classification and intent gate parsing", () => {

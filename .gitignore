@@ -7,7 +7,6 @@ docs
 .arive/*.db-wal
 .arive/workspaces/
 .arive/logs/
-.arive/codemap.json
 *.sample
 .openclaw/skills/
 .opencode/command/
