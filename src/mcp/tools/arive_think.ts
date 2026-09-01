@@ -21,17 +21,17 @@ export const toolDef: ToolDef = {
             },
             definedDone: {
               type: "string",
-              description: "Fable Method: Named verification check that defines completion",
+              description: "ARIVE Protocol: Named verification check that defines completion",
             },
             askShape: {
               type: "string",
               enum: ["trivial", "question", "task", "plan-first"],
-              description: "Fable Method: Category of incoming ask",
+              description: "ARIVE Protocol: Category of incoming ask",
             },
             claims: {
               type: "array",
               items: { type: "string" },
-              description: "Fable Judge: List of claims to adversarially verify",
+              description: "ARIVE Judge: List of claims to adversarially verify",
             },
             observations: {
               type: "array",
@@ -44,7 +44,7 @@ export const toolDef: ToolDef = {
                 },
                 required: ["check", "status"],
               },
-              description: "Fable Judge: Observed test results matching claims",
+              description: "ARIVE Judge: Observed test results matching claims",
             },
           },
           required: [

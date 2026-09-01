@@ -12,7 +12,6 @@ import { SmartCrusher } from "./analyze/smart_crusher.js";
 import { ASTCompressor } from "./analyze/ast_compressor.js";
 import { CacheAligner } from "./analyze/cache_aligner.js";
 import { CCRRegistry } from "./analyze/ccr_registry.js";
-import { CodeTreeScanner } from "./analyze/codetree.js";
 import { SequentialEngine } from "./reason/sequential_engine.js";
 import {
   MemoryBank,
@@ -31,9 +30,6 @@ import {
 } from "./mcp/compact.js";
 import * as fs from "fs";
 import * as path from "path";
-import { runInteractiveInstall, runInstallerCli, isInteractive } from "./cli/installer.js";
-import { runTui } from "./cli/tui.js";
-import { outputAdvancedPrompt } from "./cli/prompt_generator.js";
 // Setup server instance
 const server = new Server(
   {
@@ -270,7 +266,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           engine.setAskShape(askShape as any, sessionId);
         }
         if (claims && claims.length > 0) {
-          engine.runFableJudge(claims, observations || [], sessionId);
+          engine.runAriveJudge(claims, observations || [], sessionId);
         }
 
         const res = engine.addThought(
@@ -489,120 +485,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
-      case "arive_codemap":
-      case "arive_codetree": {
-        const action = String(args?.action || (name === "arive_codemap" ? "codemap" : "tree"));
-        const rawDir = String(args?.dir || ".");
-        const excludes = Array.isArray(args?.excludes)
-          ? args.excludes.map(String)
-          : [];
-        const targetBranch = String(args?.targetBranch || "master");
-        // Anchor dir to workspace root — prevents directory traversal (e.g. dir: "../../../")
-        const workspaceRoot = path.resolve(process.cwd());
-        const resolvedDir = path.resolve(rawDir);
-        if (
-          resolvedDir !== workspaceRoot &&
-          !resolvedDir.startsWith(workspaceRoot + path.sep)
-        ) {
-          throw new Error(
-            `Security: dir "${rawDir}" resolves outside the workspace root.`,
-          );
-        }
-        const dir = resolvedDir;
-
-        const hookContext = { action, dir, excludes, targetBranch };
-        const preHook = HookManager.runHook(
-          "pre-analyze",
-          "analyze",
-          hookContext,
-        );
-        if (!preHook.success) {
-          throw new Error(`[Hook Blocked] pre-analyze: ${preHook.error}`);
-        }
-
-        const scanner = new CodeTreeScanner();
-        let resultText = "";
-
-        let isCodemapAction = false;
-        let needsCommentsResult: any[] = [];
-        let treeOutput = "";
-
-        if (action === "tree") {
-          resultText = scanner.scanTree(dir, excludes);
-          try {
-            const indexPath = path.join(dir, ".arive", "CODE_INDEX.md");
-            scanner.writeCodeIndex(dir, excludes, indexPath);
-          } catch {
-            // Ignore: code index cache is optional
-          }
-        } else if (action === "dependencies") {
-          resultText = JSON.stringify(
-            scanner.scanDependencies(dir, excludes),
-            null,
-            2,
-          );
-        } else if (action === "diff") {
-          resultText = scanner.getGitDiff(targetBranch);
-        } else if (action === "codemap") {
-          isCodemapAction = true;
-          const { codemap, needsComments } = scanner.scanCodemap(dir, excludes);
-          needsCommentsResult = needsComments;
-          resultText = JSON.stringify({ codemap, needsComments }, null, 2);
-        } else {
-          throw new Error(`Unknown codetree action: ${action}`);
-        }
-
-        let responseText = resultText;
-        let responseRef = "";
-        if (resultText.length > 0) {
-          responseRef = getCCR().store(resultText, "codetree");
-          HookManager.runHook(
-            "post-compact",
-            "analyze",
-            { action, dir },
-            {
-              ref: responseRef,
-              type: "codetree",
-              originalLength: resultText.length,
-            },
-          );
-        }
-
-        const postHook = HookManager.runHook(
-          "post-analyze",
-          "analyze",
-          hookContext,
-          { result: responseText, ref: responseRef },
-        );
-        if (!postHook.success) {
-          throw new Error(`[Hook Failed] post-analyze: ${postHook.error}`);
-        }
-
-        const codemapPath = path.join(dir, ".arive", "codemap.json");
-        const codemapExists = fs.existsSync(codemapPath);
-        const promptSubagentToCreateCodemap = !codemapExists
-          ? "ALERT: .arive/codemap.json is missing. Prompting bot: You MUST create a subagent using ARIVE reasoning (arive_think / FABLE method) to scan the codebase using arive_codetree (action: 'codemap') and generate .arive/codemap.json with complete function descriptions before completing task."
-          : undefined;
-
-        let responsePayload: any = responseRef
-          ? { ref: responseRef, text: responseText }
-          : { text: responseText };
-
-        if (isCodemapAction) {
-          responsePayload = {
-            file_path: codemapPath,
-            needs_comments: needsCommentsResult,
-            ref: responseRef,
-            ...(promptSubagentToCreateCodemap ? { prompt_subagent_instruction: promptSubagentToCreateCodemap } : {}),
-          };
-        } else if (promptSubagentToCreateCodemap) {
-          responsePayload.prompt_subagent_instruction = promptSubagentToCreateCodemap;
-        }
-
-        return {
-          content: [{ type: "text", text: JSON.stringify(responsePayload, null, 2) }],
-        };
-      }
 
       case "arive_memory_bank": {
         const action = (args?.action || "recall") as MemoryVerb;
@@ -797,61 +679,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
-      case "arive_install": {
-        const workspacePath = args?.workspacePath
-          ? String(args.workspacePath)
-          : undefined;
-        const editor = args?.editor ? String(args.editor) : undefined;
-        const scopeVal = args?.scope ? String(args.scope) : undefined;
-        let scope: "global" | "project" | "both" | undefined = undefined;
-        if (scopeVal === "global" || scopeVal === "project" || scopeVal === "both") {
-          scope = scopeVal;
-        }
-        const { installAllAsync } = await import("./cli/installer.js");
-        // Start async installation, return immediately
-        installAllAsync(workspacePath, editor, scope).catch((err) => {
-          console.error("[arive_install] async install failed:", err);
-        });
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify({
-                status: "started",
-                message: `ARIVE installation started in background${editor ? ` for ${editor}` : ""}${scope ? ` (Scope: ${scope})` : ""}. Check logs for progress.`,
-              }),
-            },
-          ],
-        };
-      }
-
-      case "arive_uninstall": {
-        const workspacePath = args?.workspacePath
-          ? String(args.workspacePath)
-          : undefined;
-        const editor = args?.editor ? String(args.editor) : undefined;
-        const scopeVal = args?.scope ? String(args.scope) : undefined;
-        let scope: "global" | "project" | "both" | undefined = undefined;
-        if (scopeVal === "global" || scopeVal === "project" || scopeVal === "both") {
-          scope = scopeVal;
-        }
-        // Lazy import: installer module heavy and only needed on uninstall
-        const { uninstallAllAsync } = await import("./cli/installer.js");
-        uninstallAllAsync(workspacePath, editor, scope).catch((err) => {
-          console.error("[arive_uninstall] async uninstall failed:", err);
-        });
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify({
-                status: "started",
-                message: `ARIVE uninstall started in background${editor ? ` for ${editor}` : ""}${scope ? ` (Scope: ${scope})` : ""}. Check logs for progress.`,
-              }),
-            },
-          ],
-        };
-      }
 
       default:
         throw new Error(`Unknown tool name: ${name}`);
@@ -865,58 +692,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 });
 
-// Check if running in server mode
-if (process.argv.includes("server") || process.argv.includes("--server")) {
-  // Skip installer/TUI/prompt branches and fall through to stdio transport startup
-}
-
-// Check if running in install CLI mode
-if (process.argv.includes("install") || process.argv.includes("installer") || process.argv.includes("--install")) {
-  await runInstallerCli();
-  process.exit(0);
-}
-
-if (process.argv.includes("tui")) {
-  await runTui();
-  process.exit(0);
-}
-
-// Check if running in prompt/generate-prompt mode
-if (process.argv.includes("prompt") || process.argv.includes("generate-prompt")) {
-  const index = process.argv.indexOf("prompt") !== -1
-    ? process.argv.indexOf("prompt")
-    : process.argv.indexOf("generate-prompt");
-  
-  let userQuery = "";
-  if (index !== -1 && index + 1 < process.argv.length) {
-    userQuery = process.argv.slice(index + 1).join(" ");
-  } else if (!process.stdin.isTTY) {
-    // Read from stdin asynchronously
-    userQuery = await new Promise<string>((resolve) => {
-      let data = "";
-      process.stdin.on("data", (chunk: Buffer) => {
-        data += chunk.toString();
-      });
-      process.stdin.on("end", () => {
-        resolve(data.trim());
-      });
-      // Set a short timeout in case nothing is written
-      setTimeout(() => resolve(""), 300);
-    });
-  }
-
-  outputAdvancedPrompt(userQuery);
-  process.exit(0);
-}
-
-if (process.argv.length <= 2) {
-  if (isInteractive()) {
-    await runTui();
-  } else {
-    await runInstallerCli();
-  }
-  process.exit(0);
-}
 
 // Start Std Listener
 const isVerbose =

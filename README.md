@@ -11,77 +11,6 @@ ARIVE merges local context compression, step-by-step backtracking reasoning grap
 
 ---
 
-## Quick Start & Interactive Setup (Recommended)
-
-The easiest and **highly recommended** way to get started with ARIVE is to use our **Interactive Setup Wizard**. It automatically registers the ARIVE MCP server in your preferred AI clients, handles configurations, and installs Git hooks, plugins, rules, and skills.
-
-### Running the Setup Wizard
-
-To install and configure ARIVE interactively using the TUI, simply run the entrypoint directly with no arguments:
-
-```bash
-bun run start
-```
-
-Or run it universally without local setup:
-
-```bash
-bunx github:sixtysixx/ARIVE
-```
-
-Both launch the configurator TUI to easily select and apply options.
-### Selectable Agents & Editors
-During installation, you can target specific AI agents/editors to automatically configure them, including:
-- **Cursor**
-- **Cline** / **Roo Code**
-- **Windsurf**
-- **OpenCode** / **KiloCode**
-- **Claude Desktop** / **Claude Code**
-- **Google Antigravity** / **omp (oh-my-pi)**
-- Or select **all** to configure all detected installations.
-
-### Installation Scopes
-You can customize where the configuration and rules are applied:
-- **`global`**: Registers the MCP server globally in the editor's system-wide configuration directories.
-- **`project`**: Adds rule files (like `.clinerules`), pre-commit hooks, and a `.gitignore` update to your current project/workspace.
-- **`both`** (Default): Configures both global configurations and local project rules.
-
-### Customizing via CLI Options
-
-If you prefer a non-interactive installation, or want to bypass the prompts, you can pass explicit options:
-
-```bash
-# Non-interactive CLI targeting Cursor for a specific project
-bun run start install --agent cursor --scope project
-
-# Non-interactive CLI targeting OpenCode globally
-bun run start install -e opencode -s global
-```
-
-For more options, run `bun run start install --help`.
-
-### Uninstalling
-
-To remove ARIVE MCP configurations, rules, and hooks:
-
-```bash
-# Interactive uninstall wizard (starts via TUI by default)
-bun run start
-
-# Non-interactive: remove all Cursor project config
-bun run start install --uninstall --agent cursor --scope project
-
-# Non-interactive: remove global OpenCode config
-bun run start install -u -e opencode -s global
-```
-
-#### What the Installer Does
-1. **Interactive Questions & Conflict Detection**: If the setup wizard encounters existing configuration files (such as `.clinerules` or pre-existing `.git/hooks/pre-commit`), it will prompt you to choose whether to **overwrite**, **append** (safely inject ARIVE rules/scripts), or **skip**.
-2. **Git pre-commit Hook Configuration**: Installs/appends compilation checks (`tsc --noEmit`) and test suites (`bun test`) to ensure code verification before git commits.
-3. **.gitignore Management**: Automatically updates the repository's `.gitignore` file to ignore the ARIVE run-time databases and isolated workspace directories (`.arive/`).
-4. **Editor Configuration**: Automatically updates configuration files to register the ARIVE MCP server inside supported editors.
-
----
 
 ## Benchmark Results: With vs. Without ARIVE MCP
 
@@ -121,7 +50,6 @@ graph TD
     subgraph Analyze Phase
         ContentRouter --> SmartCrusher
         ContentRouter --> ASTCompressor
-        ContentRouter --> CodeTreeScanner
         ASTCompressor --> CcrRegistry
     end
 ```
@@ -133,7 +61,6 @@ graph TD
 - **AST Code Compressor**: Discards comments, JSDocs, whitespace runs, and formatting details using the TypeScript Compiler API.
 - **Cache Aligner**: Normalizes spacing and carriage returns to ensure maximum KV cache hit rates on providers like Anthropic or Gemini.
 - **CCR Registry**: A hash-based Content-Compressed Retrieval store (`ccr:sha256_hash`). Allows referencing large payloads using 68-character hashes.
-- **CodeTree Scanner**: Recursively scans folders to generate directory trees, maps TypeScript export/import dependency flows, and queries Git branch statistics.
 
 ### R - Reason (Step-by-Step Logic Sequences)
 
@@ -222,40 +149,12 @@ Transforms conversational messages into telegraphic token-saving fade styles, or
 | `message` | string | Yes      |         | The natural language text to compress, or get instructions for.      |
 | `brevity` | enum   | No       | `full`  | The level of brevity/laziness: `lite`, `full`, `ultra`, or `normal`. |
 
-### `arive_codetree` / `arive_codeatlas`
-
-Scans folder structure tree, maps imports/exports, generates code maps, or runs git diff checks.
-
-| Parameter      | Type    | Required | Default  | Description                                                         |
-| :------------- | :------ | :------- | :------- | :------------------------------------------------------------------ |
-| `action`       | enum    | Yes      |          | The codetree operation: `tree`, `dependencies`, `diff`, `codemap`. |
-| `dir`          | string  | No       | `.`      | The directory to scan for tree, dependencies, or codemap.           |
-| `excludes`     | array   | No       | `[]`     | List of directories or files to exclude.                            |
-| `maxDepth`     | integer | No       | `10`     | Max depth to scan for directory tree.                               |
-| `targetBranch` | string  | No       | `master` | Target branch for git diff comparison.                              |
-
-#### Code Map Generation & Subagent Reasoning
-
-Running `arive_codetree` with `action: "codemap"` scans exported functions and class methods along with their JSDoc descriptions/signatures and writes `.arive/codemap.json`.
-
-If `.arive/codemap.json` is missing, ARIVE tools prompt the LLM to spawn a subagent utilizing ARIVE reasoning (`arive_think` with the **FABLE method**) to scan the codebase and populate `.arive/codemap.json`.
-
-### `arive_install`
-
-Automatically registers the ARIVE MCP server in all detected AI clients and installs Git pre-commit hooks, ARIVE protocol lifecycle hooks, fade rules/skills, and plugins.
-
-| Parameter       | Type   | Required | Default | Description                                                                                         |
-| :-------------- | :----- | :------- | :------ | :-------------------------------------------------------------------------------------------------- |
-| `workspacePath` | string | No       |         | Optional path to the project/workspace root directory to install rules, skills, plugins, and hooks. |
-| `editor`        | string | No       |         | Optional name of the specific AI editor to target (e.g. `cursor`, `cline`, `roo`, `windsurf`).      |
-
----
 
 ## ARIVE Protocol Lifecycle Hooks
 
 The ARIVE framework supports executing custom pre- and post-hook scripts at different stages of tool executions. If the `.arive/hooks` directory exists, the server will check for files matching specific hook names:
 
-- `pre-analyze` / `post-analyze` (run by `arive_compress` & `arive_codeatlas`)
+- `pre-analyze` / `post-analyze` (run by `arive_compress`)
 - `pre-reason` / `post-reason` (run by `arive_think`)
 - `pre-integrate` / `post-integrate` (run by `arive_integrate`)
 - `pre-verify` / `post-verify` (run by `arive_verify`)
@@ -290,18 +189,6 @@ cd ARIVE
 # Install dependencies
 bun install
 ```
-
-### Generating Advanced Prompt for Frontier Models
-
-To easily update or refactor the repository using a frontier model, you can output a high-fidelity orchestration prompt incorporating a 5-phase sequential reasoning protocol (Scope, Evidence, Challenge, Verify, Report).
-
-Run the prompt generator using:
-
-```bash
-bun run prompt
-```
-
-This will print the full formatted prompt to standard output, which you can copy and feed directly into any frontier LLM.
 
 ### Running Tests
 
@@ -484,5 +371,4 @@ ARIVE integrates ideas and pipelines from the following core development paradig
 - **headroom** (`headroomlabs-ai/headroom`): Local, reversible context compression.
 - **sequentialthinking** (`modelcontextprotocol/servers/sequentialthinking`): Step-by-step reasoning with reflective backtracking.
 - **ponytail** (`DietrichGebert/ponytail`): Lazy senior dev mode rulesets, skills, and plugins.
-- **codemap** (`JordanCoin/codemap`): Compact structural file tree and dependency flow mapping.
 - **mempalace** (`MemPalace/mempalace`): Memory palace-inspired knowledge retention and recall patterns.
