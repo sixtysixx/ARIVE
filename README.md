@@ -275,7 +275,8 @@ Alternatively, register the MCP server manually in `%USERPROFILE%\.gemini\antigr
 {
   "mcpServers": {
     "arive": {
-      "command": "github:sixtysixx/ARIVE"
+      "command": "bun",
+      "args": ["x", "--silent", "github:sixtysixx/ARIVE"]
     }
   }
 }
@@ -289,7 +290,8 @@ Add this configuration to your user-level config at `~/.omp/agent/mcp.json` or y
 {
   "mcpServers": {
     "arive": {
-      "command": "github:sixtysixx/ARIVE"
+      "command": "bun",
+      "args": ["x", "--silent", "github:sixtysixx/ARIVE"]
     }
   }
 }
@@ -303,7 +305,8 @@ Add this to your configuration (e.g., `%APPDATA%\EasyCode\claude_desktop_config.
 {
   "mcpServers": {
     "arive": {
-      "command": "github:sixtysixx/ARIVE"
+      "command": "bun",
+      "args": ["x", "--silent", "github:sixtysixx/ARIVE"]
     }
   }
 }
@@ -326,7 +329,7 @@ Alternatively, register the MCP server manually:
   "mcp": {
     "arive": {
       "type": "local",
-      "command": ["bun", "run", "src/index.ts"],
+      "command": ["bun", "x", "--silent", "github:sixtysixx/ARIVE"],
       "enabled": true
     }
   }
