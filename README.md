@@ -168,6 +168,40 @@ ARIVE ships default post-hook scripts in `.arive/hooks/` to preserve context ins
 - `post-analyze.js` — writes compact guidance to `.arive/compact_guidance.json` and reminds follow-up prompts to use `arive fade`, `arive reasoning`, and `arive mindvault`.
 - `post-compact.js` — reminds the conversation to reference stored `ccr:` hashes instead of re-emitting raw expanded content.
 
+### Global Hook Installation Across Code Editors & Assistants
+
+To install active ARIVE lifecycle hooks globally across your code editor integrations, copy the non-sample TypeScript hook files from `.arive/hooks/` into the target client's global hooks directory:
+
+| Code Editor / Client | Global Hooks Directory |
+| :--- | :--- |
+| **Universal / ARIVE Core** | `~/.arive/hooks/` |
+| **omp (oh-my-pi)** | `~/.omp/hooks/` |
+| **Gemini CLI (antigravity-cli)** | `~/.gemini/antigravity-cli/hooks/` |
+| **Claude Desktop / Claude Code** | `~/.claude/hooks/` or `~/.claudecode/hooks/` |
+| **OpenCode / KiloCode** | `~/.config/opencode/hooks/` or `~/.kilocode/hooks/` |
+| **VS Code (Cline / Roo Code)** | `~/.cline/hooks/` or `~/.roo/hooks/` |
+| **Cursor** | `~/.cursor/hooks/` |
+
+#### Installation Command
+
+Run the following command to copy all active lifecycle hooks (excluding `.sample` template files) to your desired global hook location (replace `~/.omp/hooks` with your target client directory, e.g., `~/.claude/hooks`, `~/.cursor/hooks`, etc.):
+
+```bash
+# Set target global hooks directory (e.g. ~/.omp/hooks, ~/.claude/hooks, ~/.cursor/hooks)
+TARGET_DIR=~/.omp/hooks
+
+# Create target directory
+mkdir -p "$TARGET_DIR"
+
+# Copy active ARIVE lifecycle hooks
+cp .arive/hooks/pre-reason.ts "$TARGET_DIR"/
+cp .arive/hooks/post-reason.ts "$TARGET_DIR"/
+cp .arive/hooks/pre-verify.ts "$TARGET_DIR"/
+cp .arive/hooks/post-verify.ts "$TARGET_DIR"/
+cp .arive/hooks/pre-integrate.ts "$TARGET_DIR"/
+cp .arive/hooks/post-integrate.ts "$TARGET_DIR"/
+```
+
 ### Environment Variables
 
 ---
@@ -262,23 +296,6 @@ Add this configuration to your user-level config at `~/.omp/agent/mcp.json` or y
     }
   }
 }
-```
-
-#### Global Hook Installation
-
-To globally install ARIVE lifecycle hooks into OMP, manually copy active TypeScript hook files (excluding `.sample` template files) from `.arive/hooks/` to `~/.omp/hooks/`:
-
-```bash
-# Create global OMP hooks directory
-mkdir -p ~/.omp/hooks
-
-# Copy active ARIVE lifecycle hooks globally
-cp .arive/hooks/pre-reason.ts ~/.omp/hooks/
-cp .arive/hooks/post-reason.ts ~/.omp/hooks/
-cp .arive/hooks/pre-verify.ts ~/.omp/hooks/
-cp .arive/hooks/post-verify.ts ~/.omp/hooks/
-cp .arive/hooks/pre-integrate.ts ~/.omp/hooks/
-cp .arive/hooks/post-integrate.ts ~/.omp/hooks/
 ```
 
 ### Claude Desktop
