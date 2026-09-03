@@ -264,6 +264,23 @@ Add this configuration to your user-level config at `~/.omp/agent/mcp.json` or y
 }
 ```
 
+#### Global Hook Installation
+
+To globally install ARIVE lifecycle hooks into OMP, manually copy active TypeScript hook files (excluding `.sample` template files) from `.arive/hooks/` to `~/.omp/hooks/`:
+
+```bash
+# Create global OMP hooks directory
+mkdir -p ~/.omp/hooks
+
+# Copy active ARIVE lifecycle hooks globally
+cp .arive/hooks/pre-reason.ts ~/.omp/hooks/
+cp .arive/hooks/post-reason.ts ~/.omp/hooks/
+cp .arive/hooks/pre-verify.ts ~/.omp/hooks/
+cp .arive/hooks/post-verify.ts ~/.omp/hooks/
+cp .arive/hooks/pre-integrate.ts ~/.omp/hooks/
+cp .arive/hooks/post-integrate.ts ~/.omp/hooks/
+```
+
 ### Claude Desktop
 
 Add this to your configuration (e.g., `%APPDATA%\EasyCode\claude_desktop_config.json` or standard `claude_desktop_config.json` configuration path):
