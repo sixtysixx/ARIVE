@@ -183,20 +183,20 @@ To install active ARIVE lifecycle hooks globally across your code editor integra
 
 #### Installation Command
 
-Run the following command to copy all active lifecycle hooks (excluding `.sample` template files) to your desired global hook location (replace `~/.omp/hooks` with your target client directory, e.g., `~/.claude/hooks`, `~/.cursor/hooks`, etc.):
+Run the following command from the root of the ARIVE repository to copy all active lifecycle hooks to your desired global hook location (replace `~/.omp/hooks` with your target client directory, e.g., `~/.claude/hooks`, `~/.cursor/hooks`, etc.):
 
 ```bash
+# Ensure you are at the root of the ARIVE repository
+cd /path/to/ARIVE
+
 # Set target global hooks directory (e.g. ~/.omp/hooks, ~/.claude/hooks, ~/.cursor/hooks)
 TARGET_DIR=~/.omp/hooks
 
 # Create target directory
 mkdir -p "$TARGET_DIR"
 
-# Copy active ARIVE lifecycle hooks
-cp .arive/hooks/pre-reason.ts "$TARGET_DIR"/
-cp .arive/hooks/post-reason.ts "$TARGET_DIR"/
-cp .arive/hooks/pre-verify.ts "$TARGET_DIR"/
-cp .arive/hooks/post-verify.ts "$TARGET_DIR"/
+# Dynamically copy all active ARIVE lifecycle hooks without overwriting customized hooks (-n)
+cp -n .arive/hooks/*.ts "$TARGET_DIR"/
 ```
 
 ### Environment Variables
