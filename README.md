@@ -156,7 +156,6 @@ The ARIVE framework supports executing custom pre- and post-hook scripts at diff
 
 - `pre-analyze` / `post-analyze` (run by `arive_compress`)
 - `pre-reason` / `post-reason` (run by `arive_think`)
-- `pre-integrate` / `post-integrate` (run by `arive_integrate`)
 - `pre-verify` / `post-verify` (run by `arive_verify`)
 - `pre-explain` / `post-explain` (run by `arive_explain`)
 - `pre-compact` / `post-compact` (run when compact references replace large tool outputs)
@@ -167,6 +166,38 @@ ARIVE ships default post-hook scripts in `.arive/hooks/` to preserve context ins
 
 - `post-analyze.js` — writes compact guidance to `.arive/compact_guidance.json` and reminds follow-up prompts to use `arive fade`, `arive reasoning`, and `arive mindvault`.
 - `post-compact.js` — reminds the conversation to reference stored `ccr:` hashes instead of re-emitting raw expanded content.
+
+### Global Hook Installation Across Code Editors & Assistants
+
+To install active ARIVE lifecycle hooks globally across your code editor integrations, copy the non-sample TypeScript hook files from `.arive/hooks/` into the target client's global hooks directory:
+
+| Code Editor / Client | Global Hooks Directory |
+| :--- | :--- |
+| **Universal / ARIVE Core** | `~/.arive/hooks/` |
+| **omp (oh-my-pi)** | `~/.omp/hooks/` |
+| **Gemini CLI (antigravity-cli)** | `~/.gemini/antigravity-cli/hooks/` |
+| **Claude Desktop / Claude Code** | `~/.claude/hooks/` or `~/.claudecode/hooks/` |
+| **OpenCode / KiloCode** | `~/.config/opencode/hooks/` or `~/.kilocode/hooks/` |
+| **VS Code (Cline / Roo Code)** | `~/.cline/hooks/` or `~/.roo/hooks/` |
+| **Cursor** | `~/.cursor/hooks/` |
+
+#### Installation Command
+
+Run the following command from the root of the ARIVE repository to copy all active lifecycle hooks to your desired global hook location (replace `~/.omp/hooks` with your target client directory, e.g., `~/.claude/hooks`, `~/.cursor/hooks`, etc.):
+
+```bash
+# Ensure you are at the root of the ARIVE repository
+cd /path/to/ARIVE
+
+# Set target global hooks directory (e.g. ~/.omp/hooks, ~/.claude/hooks, ~/.cursor/hooks)
+TARGET_DIR=~/.omp/hooks
+
+# Create target directory
+mkdir -p "$TARGET_DIR"
+
+# Dynamically copy all active ARIVE lifecycle hooks without overwriting customized hooks (-n)
+cp -n .arive/hooks/*.ts "$TARGET_DIR"/
+```
 
 ### Environment Variables
 
