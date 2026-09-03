@@ -128,7 +128,7 @@ KiloCode supports MCP servers via its global or project-level config.
    }
    ```
 
-2. Open the workspace in KiloCode. The ARIVE tools (`arive_compress`, `arive_think`, `arive_integrate`, `arive_verify`, `arive_explain`) are now available to the agent.
+2. Open the workspace in KiloCode. The ARIVE tools (`arive_compress`, `arive_think`, `arive_verify`, `arive_explain`) are now available to the agent.
 3. Paste the task above and observe:
    - Does the agent call `arive_compress` before pasting large files into context?
    - Does it use `arive_think` to structure its reasoning steps?

@@ -156,7 +156,6 @@ The ARIVE framework supports executing custom pre- and post-hook scripts at diff
 
 - `pre-analyze` / `post-analyze` (run by `arive_compress`)
 - `pre-reason` / `post-reason` (run by `arive_think`)
-- `pre-integrate` / `post-integrate` (run by `arive_integrate`)
 - `pre-verify` / `post-verify` (run by `arive_verify`)
 - `pre-explain` / `post-explain` (run by `arive_explain`)
 - `pre-compact` / `post-compact` (run when compact references replace large tool outputs)
@@ -198,8 +197,6 @@ cp .arive/hooks/pre-reason.ts "$TARGET_DIR"/
 cp .arive/hooks/post-reason.ts "$TARGET_DIR"/
 cp .arive/hooks/pre-verify.ts "$TARGET_DIR"/
 cp .arive/hooks/post-verify.ts "$TARGET_DIR"/
-cp .arive/hooks/pre-integrate.ts "$TARGET_DIR"/
-cp .arive/hooks/post-integrate.ts "$TARGET_DIR"/
 ```
 
 ### Environment Variables
