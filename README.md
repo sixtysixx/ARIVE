@@ -275,7 +275,8 @@ Alternatively, register the MCP server manually in `%USERPROFILE%\.gemini\antigr
 {
   "mcpServers": {
     "arive": {
-      "command": "github:sixtysixx/ARIVE"
+      "command": "bun",
+      "args": ["x", "--silent", "github:sixtysixx/ARIVE"]
     }
   }
 }
@@ -283,13 +284,24 @@ Alternatively, register the MCP server manually in `%USERPROFILE%\.gemini\antigr
 
 ### omp (oh-my-pi)
 
-Add this configuration to your user-level config at `~/.omp/agent/mcp.json` or your project-level config at `.omp/mcp.json`:
+ARIVE supports OMP's native plugin capability (compatible with OMP/Claude-Code plugin architecture). Install the repository (MCP tools, Fade rules, skills, and hooks) as a plugin in one command:
+
+```bash
+# Global plugin installation
+omp install github:sixtysixx/ARIVE
+
+# Local / Project-scoped plugin installation
+omp install -l github:sixtysixx/ARIVE
+```
+
+Alternatively, register the MCP server manually in your user-level config at `~/.omp/agent/mcp.json` or project-level config at `.omp/mcp.json`:
 
 ```json
 {
   "mcpServers": {
     "arive": {
-      "command": "github:sixtysixx/ARIVE"
+      "command": "bun",
+      "args": ["x", "--silent", "github:sixtysixx/ARIVE"]
     }
   }
 }
@@ -303,7 +315,8 @@ Add this to your configuration (e.g., `%APPDATA%\EasyCode\claude_desktop_config.
 {
   "mcpServers": {
     "arive": {
-      "command": "github:sixtysixx/ARIVE"
+      "command": "bun",
+      "args": ["x", "--silent", "github:sixtysixx/ARIVE"]
     }
   }
 }
@@ -326,7 +339,7 @@ Alternatively, register the MCP server manually:
   "mcp": {
     "arive": {
       "type": "local",
-      "command": ["bun", "run", "src/index.ts"],
+      "command": ["bun", "x", "--silent", "github:sixtysixx/ARIVE"],
       "enabled": true
     }
   }
