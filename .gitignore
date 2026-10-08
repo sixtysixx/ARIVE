@@ -7,6 +7,8 @@ docs
 .arive/*.db-wal
 .arive/workspaces/
 .arive/logs/
+# Written by the post-reason / post-verify hooks on every run; nothing reads them back.
+.arive/*_status.json
 *.sample
 .openclaw/skills/
 .opencode/command/

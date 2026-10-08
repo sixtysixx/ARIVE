@@ -1,7 +1,7 @@
-# Fade Skills
-
-## fade-review
-
+---
+name: fade-review
+description: Review a diff for unnecessary complexity, one one-liner per finding.
+---
 Review diffs for unnecessary complexity. One line per finding: location, what to cut, what replaces it. The diff's best outcome is getting shorter.
 
 Format:
@@ -17,15 +17,3 @@ Tags:
 
 Scoring:
 End with: net: -<N> lines possible.
-
----
-
-## fade-audit
-
-Audit the whole repo for over-engineering and complexity. Scan the whole tree. Rank findings biggest cut first.
-
-Tags: Same as fade-review (delete, stdlib, native, yagni, shrink).
-
-Output:
-One line per finding: <tag> <what to cut>. <replacement>. [path]
-End with: net: -<N> lines, -<M> deps possible.
