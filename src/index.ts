@@ -138,7 +138,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           responseObj,
         );
         if (!postHook.success) {
-          throw new Error(`[Hook Failed] post-analyze: ${postHook.error}`);
+          console.error(`[arive] post-analyze hook failed: ${postHook.error}`);
         }
 
         return {
@@ -287,7 +287,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           res,
         );
         if (!postHook.success) {
-          throw new Error(`[Hook Failed] post-reason: ${postHook.error}`);
+          console.error(`[arive] post-reason hook failed: ${postHook.error}`);
         }
 
         const responseText = getCompactHelpers().compactObject(
@@ -304,11 +304,57 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
 
-      case "arive_workspace_list": {
-        const list = WorkspaceManager.list();
-        return {
-          content: [{ type: "text", text: JSON.stringify(list, null, 2) }],
-        };
+      case "arive_workspace": {
+        const action = String(args?.action || "list");
+
+        if (action === "list") {
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(WorkspaceManager.list(), null, 2),
+              },
+            ],
+          };
+        }
+
+        const taskId = String(args?.taskId || "");
+        if (!taskId) {
+          throw new Error(`'taskId' is required for workspace action '${action}'.`);
+        }
+
+        if (action === "create") {
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    status: "created",
+                    taskId,
+                    path: WorkspaceManager.create(taskId),
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+          };
+        }
+
+        if (action === "cleanup") {
+          WorkspaceManager.cleanup(taskId);
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({ status: "cleaned", taskId }, null, 2),
+              },
+            ],
+          };
+        }
+
+        throw new Error(`Unknown workspace action: ${action}`);
       }
 
       case "arive_verify": {
@@ -330,7 +376,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const targetPath = WorkspaceManager.getTaskPath(taskId);
         if (!fs.existsSync(targetPath)) {
           throw new Error(
-            `Workspace path for ${taskId} does not exist. Call integrate create first.`,
+            `Workspace path for ${taskId} does not exist. Call arive_workspace with action "create" first.`,
           );
         }
 
@@ -346,7 +392,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           res,
         );
         if (!postHook.success) {
-          throw new Error(`[Hook Failed] post-verify: ${postHook.error}`);
+          console.error(`[arive] post-verify hook failed: ${postHook.error}`);
         }
 
         return {
@@ -398,7 +444,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           responseObj,
         );
         if (!postHook.success) {
-          throw new Error(`[Hook Failed] post-explain: ${postHook.error}`);
+          console.error(`[arive] post-explain hook failed: ${postHook.error}`);
         }
 
         return {
@@ -589,7 +635,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           resultObj,
         );
         if (!postHook.success) {
-          throw new Error(`[Hook Failed] post-memory: ${postHook.error}`);
+          console.error(`[arive] post-memory hook failed: ${postHook.error}`);
         }
 
         const responseText = getCompactHelpers().compactObject(

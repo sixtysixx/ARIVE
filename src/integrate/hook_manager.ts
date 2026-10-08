@@ -1,12 +1,46 @@
 import * as fs from "fs";
 import * as path from "path";
+import * as os from "os";
 import { spawnSync } from "child_process";
 
+interface HookCacheEntry {
+  present: boolean;
+  dirsSignature: string;
+  command: string;
+  args: string[];
+  mtime: number;
+  path: string;
+}
+
 export class HookManager {
-  private static hookCache = new Map<
-    string,
-    { command: string; args: string[]; mtime: number; path: string } | null
-  >();
+  private static hookCache = new Map<string, HookCacheEntry>();
+
+  /**
+   * Hook directories, in priority order. The first directory containing a
+   * matching `<hookName>.<ext>` file wins; later directories are ignored for
+   * that hook.
+   *
+   *   1. $ARIVE_HOOKS_DIR    — explicit override
+   *   2. <cwd>/.arive/hooks  — project-local
+   *   3. ~/.arive/hooks      — user-global
+   */
+  public static resolveHookDirs(): string[] {
+    const dirs: string[] = [];
+
+    const override = process.env.ARIVE_HOOKS_DIR?.trim();
+    if (override) {
+      dirs.push(path.resolve(override));
+    }
+
+    dirs.push(path.resolve(".arive", "hooks"));
+
+    const home = os.homedir();
+    if (home) {
+      dirs.push(path.join(home, ".arive", "hooks"));
+    }
+
+    return [...new Set(dirs)];
+  }
 
   public static runHook(
     hookName: string,
@@ -14,54 +48,89 @@ export class HookManager {
     context: unknown,
     result?: unknown,
   ): { success: boolean; error?: string } {
-    const hooksDir = path.resolve(".arive", "hooks");
-    if (!fs.existsSync(hooksDir)) {
+    const hooksDirs = HookManager.resolveHookDirs().filter((dir) => {
+      try {
+        return fs.statSync(dir).isDirectory();
+      } catch {
+        return false;
+      }
+    });
+    if (hooksDirs.length === 0) {
       return { success: true };
     }
 
-    // Resolve hook file (cached)
+    const dirsSignature = hooksDirs.join(path.delimiter);
     let cached = HookManager.hookCache.get(hookName);
-    const hooksDirExists = fs.existsSync(hooksDir);
     let hookFile: string | undefined;
 
     if (cached) {
-      // Validate cache: file exists and mtime unchanged
-      try {
-        const stat = fs.statSync(cached.path);
-        if (stat.isFile() && stat.mtimeMs === cached.mtime) {
-          hookFile = path.basename(cached.path);
-        } else {
-          HookManager.hookCache.delete(hookName);
-          cached = null;
-        }
-      } catch {
+      if (cached.dirsSignature !== dirsSignature) {
+        // Hook directories appeared or vanished since this entry was cached.
         HookManager.hookCache.delete(hookName);
-        cached = null;
+        cached = undefined;
+      } else if (!cached.present) {
+        return { success: true };
+      } else {
+        // Validate cache: file exists and mtime unchanged
+        try {
+          const stat = fs.statSync(cached.path);
+          if (stat.isFile() && stat.mtimeMs === cached.mtime) {
+            hookFile = path.basename(cached.path);
+          } else {
+            HookManager.hookCache.delete(hookName);
+            cached = undefined;
+          }
+        } catch {
+          HookManager.hookCache.delete(hookName);
+          cached = undefined;
+        }
       }
     }
 
     if (!cached) {
-      if (!hooksDirExists) {
+      let absoluteHookPath: string | undefined;
+
+      for (const hooksDir of hooksDirs) {
+        let entries: string[];
+        try {
+          entries = fs.readdirSync(hooksDir);
+        } catch {
+          continue;
+        }
+
+        const found = entries.find((entry) => {
+          const ext = path.extname(entry);
+          return path.basename(entry, ext) === hookName && !entry.endsWith(".sample");
+        });
+        if (!found) {
+          continue;
+        }
+
+        const candidate = path.resolve(hooksDir, found);
+        try {
+          if (fs.statSync(candidate).isFile()) {
+            absoluteHookPath = candidate;
+            break;
+          }
+        } catch {
+          // Unreadable candidate; fall through to the next hooks directory.
+        }
+      }
+
+      if (!absoluteHookPath) {
+        HookManager.hookCache.set(hookName, {
+          present: false,
+          dirsSignature,
+          command: "",
+          args: [],
+          mtime: 0,
+          path: "",
+        });
         return { success: true };
       }
-      const entries = fs.readdirSync(hooksDir);
-      hookFile = entries.find((entry) => {
-        const ext = path.extname(entry);
-        const base = path.basename(entry, ext);
-        return base === hookName && !entry.endsWith(".sample");
-      });
 
-      if (!hookFile) {
-        HookManager.hookCache.set(hookName, null);
-        return { success: true };
-      }
-
-      const absoluteHookPath = path.resolve(hooksDir, hookFile);
       const stat = fs.statSync(absoluteHookPath);
-      if (!stat.isFile()) {
-        HookManager.hookCache.set(hookName, null);
-        return { success: true };
-      }
+      hookFile = path.basename(absoluteHookPath);
 
       const ext = path.extname(hookFile).toLowerCase();
       let command = "";
@@ -93,7 +162,6 @@ export class HookManager {
         if (isWindows) {
           command = absoluteHookPath;
         } else {
-          HookManager.hookCache.set(hookName, null);
           return {
             success: false,
             error: `Cannot execute Windows batch file ${hookFile} on non-Windows platform.`,
@@ -108,7 +176,14 @@ export class HookManager {
         }
       }
 
-      cached = { command, args, mtime: stat.mtimeMs, path: absoluteHookPath };
+      cached = {
+        present: true,
+        dirsSignature,
+        command,
+        args,
+        mtime: stat.mtimeMs,
+        path: absoluteHookPath,
+      };
       HookManager.hookCache.set(hookName, cached);
     }
 
