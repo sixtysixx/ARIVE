@@ -1,19 +1,10 @@
 node_modules
 docs
 
-# ARIVE run-time and database files
-.arive/*.db
-.arive/*.db-shm
-.arive/*.db-wal
-.arive/workspaces/
-.arive/logs/
-# Written by the post-reason / post-verify hooks on every run; nothing reads them back.
-.arive/*_status.json
-*.sample
-.openclaw/skills/
-.opencode/command/
-.opencode/plugins/
+# Gateway runtime state: memory DB and compression spill
+.arive/
 
 # Promptfoo cache and generated prompt
 .promptfoo/
 prompt.txt
+*.sample

@@ -5,691 +5,161 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { EngineLifecycle } from "./lifecycle.js";
-import { TOOL_REGISTRY } from "./mcp/tools/index.js";
-import { ContentRouter } from "./analyze/content_router.js";
-import { SmartCrusher } from "./analyze/smart_crusher.js";
-import { ASTCompressor } from "./analyze/ast_compressor.js";
-import { CacheAligner } from "./analyze/cache_aligner.js";
-import { CCRRegistry } from "./analyze/ccr_registry.js";
-import { SequentialEngine } from "./reason/sequential_engine.js";
-import {
-  MemoryBank,
-  MemoryVerb,
-  parseRememberIntent,
-} from "./reason/memory_bank.js";
-import { WorkspaceManager } from "./integrate/workspace.js";
-import { HookManager } from "./integrate/hook_manager.js";
-import { TDDRunner } from "./verify/tdd_runner.js";
-import { Validator } from "./verify/validator.js";
-import { FadeFormatter } from "./explain/fade_formatter.js";
-import {
-  createCompactHelpers,
-  CompactObject,
-  CompactText,
-} from "./mcp/compact.js";
-import * as fs from "fs";
-import * as path from "path";
-// Setup server instance
-const server = new Server(
-  {
-    name: "arive",
-    version: "1.0.0",
-  },
-  {
-    capabilities: {
-      tools: {},
-    },
-  },
-);
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { ContextCompressor } from "./core/compressor.js";
+import { loadConfig, NAMESPACES, type Namespace } from "./core/config.js";
+import { errorMessage, log } from "./core/log.js";
+import { DownstreamClient } from "./core/mcp-client.js";
+import { ToolRegistry } from "./core/registry.js";
+import { asObject, errorResult, textResult, type LocalTool } from "./core/results.js";
+import { createLocalTools } from "./local/index.js";
+import { MemoryStore } from "./local/memory.js";
+import { createPipelineTools } from "./pipelines/index.js";
 
-// Registries and Engine State — explicit lifecycle
-const lifecycle = new EngineLifecycle();
+const VERSION = "1.0.0";
 
-function getCCR() { return lifecycle.getCCR(); }
-function getEngine() { return lifecycle.getEngine(); }
-function getMemoryBank() { return lifecycle.getMemoryBank(); }
-function getCompactHelpers() { return lifecycle.getCompactHelpers(); }
-
-process.on("exit", () => {
-  lifecycle.close();
-});
-
-process.on("SIGINT", () => {
-  lifecycle.close();
-  process.exit(0);
-});
-
-process.on("SIGTERM", () => {
-  lifecycle.close();
-  process.exit(0);
-});
-
-
-// Register List Tools handler
-server.setRequestHandler(ListToolsRequestSchema, async () => {
-  return {
-    tools: Object.values(TOOL_REGISTRY),
-  };
-});
-
-// Tool routing execution
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name, arguments: args } = request.params;
-
-  try {
-    switch (name) {
-      case "arive_compress": {
-        const content = String(args?.content || "");
-        const forceCcr = Boolean(args?.forceCcr);
-        const userType = String(args?.contentType || "auto");
-        const threshold =
-          args?.ccrThreshold !== undefined ? Number(args.ccrThreshold) : 1000;
-
-        const preHook = HookManager.runHook("pre-analyze", "analyze", {
-          content,
-          contentType: userType,
-          forceCcr,
-          ccrThreshold: threshold,
-        });
-        if (!preHook.success) {
-          throw new Error(`[Hook Blocked] pre-analyze: ${preHook.error}`);
-        }
-
-        const detectedType =
-          userType === "auto" ? ContentRouter.classify(content) : userType;
-        let compressed = content;
-
-        if (detectedType === "json") {
-          compressed = SmartCrusher.crush(content);
-        } else if (detectedType === "code") {
-          compressed = ASTCompressor.compress(content);
-        } else if (detectedType === "prose") {
-          compressed = CacheAligner.align(content);
-        }
-
-        // Always store in CCR if > threshold or forced
-        const useCcr = forceCcr || content.length > threshold;
-        let resultHash = "";
-        let responseObj;
-
-        if (useCcr) {
-          resultHash = getCCR().store(content, detectedType);
-          responseObj = {
-            compressed: resultHash,
-            hash: resultHash,
-            wasStoredInCcr: true,
-            type: detectedType,
-          };
-        } else {
-          const rawHash = getCCR().store(content, detectedType);
-          responseObj = {
-            compressed,
-            hash: rawHash,
-            wasStoredInCcr: false,
-            type: detectedType,
-          };
-        }
-
-        const postHook = HookManager.runHook(
-          "post-analyze",
-          "analyze",
-          { content, contentType: userType, forceCcr, ccrThreshold: threshold },
-          responseObj,
-        );
-        if (!postHook.success) {
-          console.error(`[arive] post-analyze hook failed: ${postHook.error}`);
-        }
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(responseObj, null, 2),
-            },
-          ],
-        };
-      }
-
-      case "arive_decompress": {
-        const hash = String(args?.hash || "");
-        const original = getCCR().retrieve(hash);
-        if (!original) {
-          throw new Error(`CCR Key ${hash} not found in database registry.`);
-        }
-        return {
-          content: [
-            { type: "text", text: JSON.stringify({ content: original }) },
-          ],
-        };
-      }
-
-      case "arive_think": {
-        const thought = String(args?.thought || "");
-        const tNum = Number(args?.thoughtNumber);
-        const total = Number(args?.totalThoughts);
-        const nextNeeded = Boolean(args?.nextThoughtNeeded);
-        const isRev =
-          args?.isRevision !== undefined ? Boolean(args.isRevision) : undefined;
-        const revNum =
-          args?.revisesThoughtNum !== undefined
-            ? Number(args.revisesThoughtNum)
-            : undefined;
-        const branchNum =
-          args?.branchToThoughtNum !== undefined
-            ? Number(args.branchToThoughtNum)
-            : undefined;
-        const sessionId =
-          args?.sessionId !== undefined ? String(args.sessionId) : "default";
-
-        if (args?.thoughtNumber === undefined || Number.isNaN(tNum)) {
-          throw new Error(
-            "Invalid parameter: 'thoughtNumber' must be a valid number",
-          );
-        }
-        if (args?.totalThoughts === undefined || Number.isNaN(total)) {
-          throw new Error(
-            "Invalid parameter: 'totalThoughts' must be a valid number",
-          );
-        }
-        if (revNum !== undefined && Number.isNaN(revNum)) {
-          throw new Error(
-            "Invalid parameter: 'revisesThoughtNum' must be a valid number",
-          );
-        }
-        if (branchNum !== undefined && Number.isNaN(branchNum)) {
-          throw new Error(
-            "Invalid parameter: 'branchToThoughtNum' must be a valid number",
-          );
-        }
-
-        const definedDone = args?.definedDone ? String(args.definedDone) : undefined;
-        const askShapeRaw = args?.askShape ? String(args.askShape) : undefined;
-        const ALLOWED_ASK_SHAPES = ["trivial", "question", "task", "plan-first"];
-        if (askShapeRaw && !ALLOWED_ASK_SHAPES.includes(askShapeRaw)) {
-          throw new Error(`Invalid parameter 'askShape': "${askShapeRaw}". Allowed values: ${ALLOWED_ASK_SHAPES.join(", ")}`);
-        }
-        const askShape = askShapeRaw as "trivial" | "question" | "task" | "plan-first" | undefined;
-
-        const claims = Array.isArray(args?.claims) ? args.claims.map(String) : undefined;
-
-        const observations = Array.isArray(args?.observations)
-          ? args.observations.map((item: unknown) => {
-              if (typeof item !== "object" || item === null) {
-                throw new Error("Invalid observation item: must be an object with 'check' and 'status'.");
-              }
-              const obj = item as Record<string, unknown>;
-              if (!obj.check || typeof obj.check !== "string") {
-                throw new Error("Invalid observation item: 'check' must be a string.");
-              }
-              const status = String(obj.status || "unobserved");
-              if (!["passed", "failed", "unobserved"].includes(status)) {
-                throw new Error(`Invalid observation status "${status}". Allowed values: passed, failed, unobserved.`);
-              }
-              return {
-                check: obj.check,
-                status: status as "passed" | "failed" | "unobserved",
-                details: obj.details ? String(obj.details) : undefined,
-              };
-            })
-          : undefined;
-
-        const hookContext = {
-          thought,
-          thoughtNumber: tNum,
-          totalThoughts: total,
-          nextThoughtNeeded: nextNeeded,
-          isRevision: isRev,
-          revisesThoughtNum: revNum,
-          branchToThoughtNum: branchNum,
-          sessionId,
-          definedDone,
-          askShape,
-          claims,
-          observations,
-        };
-
-        const preHook = HookManager.runHook(
-          "pre-reason",
-          "reason",
-          hookContext,
-        );
-        if (!preHook.success) {
-          throw new Error(`[Hook Blocked] pre-reason: ${preHook.error}`);
-        }
-
-        const engine = getEngine();
-        if (definedDone) {
-          engine.defineDone(definedDone, sessionId);
-        }
-        if (askShape) {
-          engine.setAskShape(askShape as any, sessionId);
-        }
-        if (claims && claims.length > 0) {
-          engine.runAriveJudge(claims, observations || [], sessionId);
-        }
-
-        const res = engine.addThought(
-          thought,
-          tNum,
-          total,
-          nextNeeded,
-          isRev,
-          revNum,
-          branchNum,
-          sessionId,
-        );
-
-        const postHook = HookManager.runHook(
-          "post-reason",
-          "reason",
-          hookContext,
-          res,
-        );
-        if (!postHook.success) {
-          console.error(`[arive] post-reason hook failed: ${postHook.error}`);
-        }
-
-        const responseText = getCompactHelpers().compactObject(
-          res,
-          "reason",
-          {},
-        ).value as unknown as Record<string, unknown>;
-
-        return {
-          content: [
-            { type: "text", text: JSON.stringify(responseText, null, 2) },
-          ],
-        };
-      }
-
-
-      case "arive_workspace": {
-        const action = String(args?.action || "list");
-
-        if (action === "list") {
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify(WorkspaceManager.list(), null, 2),
-              },
-            ],
-          };
-        }
-
-        const taskId = String(args?.taskId || "");
-        if (!taskId) {
-          throw new Error(`'taskId' is required for workspace action '${action}'.`);
-        }
-
-        if (action === "create") {
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify(
-                  {
-                    status: "created",
-                    taskId,
-                    path: WorkspaceManager.create(taskId),
-                  },
-                  null,
-                  2,
-                ),
-              },
-            ],
-          };
-        }
-
-        if (action === "cleanup") {
-          WorkspaceManager.cleanup(taskId);
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify({ status: "cleaned", taskId }, null, 2),
-              },
-            ],
-          };
-        }
-
-        throw new Error(`Unknown workspace action: ${action}`);
-      }
-
-      case "arive_verify": {
-        const taskId = String(args?.taskId || "");
-        const testCmd = String(args?.testCommand || "bun test");
-
-        WorkspaceManager.validateTaskId(taskId);
-
-        const hookContext = { taskId, testCommand: testCmd };
-        const preHook = HookManager.runHook(
-          "pre-verify",
-          "verify",
-          hookContext,
-        );
-        if (!preHook.success) {
-          throw new Error(`[Hook Blocked] pre-verify: ${preHook.error}`);
-        }
-
-        const targetPath = WorkspaceManager.getTaskPath(taskId);
-        if (!fs.existsSync(targetPath)) {
-          throw new Error(
-            `Workspace path for ${taskId} does not exist. Call arive_workspace with action "create" first.`,
-          );
-        }
-
-        const res = TDDRunner.run(targetPath, testCmd);
-        if (!res.success) {
-          Validator.backpropagate(getEngine(), res.failures);
-        }
-
-        const postHook = HookManager.runHook(
-          "post-verify",
-          "verify",
-          hookContext,
-          res,
-        );
-        if (!postHook.success) {
-          console.error(`[arive] post-verify hook failed: ${postHook.error}`);
-        }
-
-        return {
-          content: [{ type: "text", text: JSON.stringify(res, null, 2) }],
-        };
-      }
-
-      case "arive_explain": {
-        const message = String(args?.message || "");
-        const brevity = (args?.brevity || "full") as
-          "lite" | "full" | "ultra" | "normal";
-
-        const hookContext = { message, brevity };
-        const preHook = HookManager.runHook(
-          "pre-explain",
-          "explain",
-          hookContext,
-        );
-        if (!preHook.success) {
-          throw new Error(`[Hook Blocked] pre-explain: ${preHook.error}`);
-        }
-
-        const formatted = FadeFormatter.format(message, brevity);
-        const savingsText = FadeFormatter.getSavings(message, formatted);
-        const charSavings = message.length - formatted.length;
-        const charPercentage =
-          message.length > 0
-            ? Math.round((charSavings / message.length) * 100)
-            : 0;
-        const instructions = FadeFormatter.getInstructions(brevity);
-
-        const responseObj = {
-          explanation: {
-            formatted,
-            brevity,
-            savings: {
-              summary: savingsText,
-              characterSavings: charSavings,
-              characterPercentage: `${charPercentage}%`,
-            },
-            instructions,
-          },
-        };
-
-        const postHook = HookManager.runHook(
-          "post-explain",
-          "explain",
-          hookContext,
-          responseObj,
-        );
-        if (!postHook.success) {
-          console.error(`[arive] post-explain hook failed: ${postHook.error}`);
-        }
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(responseObj, null, 2),
-            },
-          ],
-        };
-      }
-
-
-      case "arive_memory_bank": {
-        const action = (args?.action || "recall") as MemoryVerb;
-        const wing = String(args?.wing || "user-memories");
-        const room = String(args?.room || "conversational");
-        const hall = String(args?.hall || "general");
-        const drawer = args?.drawer !== undefined ? String(args.drawer) : "";
-        const content = String(args?.content || "");
-        const tags = Array.isArray(args?.tags) ? (args.tags as string[]) : [];
-        const metadata =
-          typeof args?.metadata === "object" && args.metadata !== null
-            ? (args.metadata as Record<string, unknown>)
-            : undefined;
-        const drawerId = String(args?.drawerId || "");
-        const query = String(args?.query || "");
-        const limit =
-          args?.limit !== undefined ? Math.max(1, Number(args.limit)) : 50;
-
-        const hookContext = {
-          action,
-          wing,
-          room,
-          hall,
-          drawer,
-          drawerId,
-          query,
-          limit,
-          hasContent: Boolean(content),
-        };
-        const preHook = HookManager.runHook(
-          "pre-memory",
-          "memory",
-          hookContext,
-        );
-        if (!preHook.success) {
-          throw new Error(`[Hook Blocked] pre-memory: ${preHook.error}`);
-        }
-
-        let resultObj: unknown;
-
-        switch (action) {
-          case "remember": {
-            // PRIMARY path: parse the user's natural-language phrase from `content`.
-            // e.g. content = "remember to buy oat milk" → extracted content = "buy oat milk"
-            if (!content.trim()) {
-              throw new Error(
-                "content is required for the 'remember' verb (pass the full user phrase).",
-              );
-            }
-            const intent = parseRememberIntent(content);
-            if (intent) {
-              // Intent matched — use inferred hierarchy + importance metadata.
-              const entry = getMemoryBank().write({
-                wing: intent.wing,
-                room: intent.room,
-                hall: intent.hall,
-                drawer: intent.drawer,
-                content: intent.content,
-                tags: intent.tags,
-                metadata: {
-                  importance: intent.importance,
-                  source: "remember-intent",
-                },
-              });
-              resultObj = {
-                status: "remembered",
-                drawerId: entry.drawerId,
-                wing: entry.wing,
-                room: entry.room,
-                hall: entry.hall,
-                tags: entry.tags,
-                importance: intent.importance,
-                extractedContent: intent.content,
-                createdAt: entry.createdAt,
-              };
-            } else {
-              // No trigger phrase matched — store the content verbatim under provided hierarchy.
-              const entry = getMemoryBank().write({
-                wing,
-                room,
-                hall,
-                drawer,
-                content,
-                tags: tags.length ? tags : ["user-memory"],
-                metadata,
-              });
-              resultObj = {
-                status: "written",
-                note: "No 'remember to/that' trigger detected; stored verbatim.",
-                drawerId: entry.drawerId,
-                wing: entry.wing,
-                room: entry.room,
-                hall: entry.hall,
-                tags: entry.tags,
-                createdAt: entry.createdAt,
-              };
-            }
-            break;
-          }
-          case "drawer_write": {
-            if (!content.trim()) {
-              throw new Error("content is required for drawer_write");
-            }
-            const entry = getMemoryBank().write({
-              wing,
-              room,
-              hall,
-              drawer,
-              content,
-              tags,
-              metadata,
-            });
-            resultObj = {
-              status: "written",
-              drawerId: entry.drawerId,
-              wing: entry.wing,
-              room: entry.room,
-              hall: entry.hall,
-              createdAt: entry.createdAt,
-              tags: entry.tags,
-            };
-            break;
-          }
-          case "drawer_read": {
-            if (!drawerId.trim())
-              throw new Error("drawerId is required for drawer_read");
-            resultObj = getMemoryBank().read(drawerId);
-            break;
-          }
-          case "drawer_list": {
-            resultObj = {
-              wing,
-              room,
-              hall,
-              entries: getMemoryBank().list(wing, room, hall, limit),
-            };
-            break;
-          }
-          case "search":
-          case "recall": {
-            if (!query.trim())
-              throw new Error("query is required for search/recall");
-            resultObj = {
-              query,
-              results: getMemoryBank().recall(query, limit),
-            };
-            break;
-          }
-          case "forget": {
-            if (!drawerId.trim())
-              throw new Error("drawerId is required for forget");
-            resultObj = getMemoryBank().forget(drawerId);
-            break;
-          }
-          case "stats": {
-            resultObj = getMemoryBank().stats();
-            break;
-          }
-          case "wing_create":
-          case "room_create":
-          case "hall_create": {
-            resultObj = {
-              status: "ok",
-              note: "Hierarchy nodes are created lazily on first write. Use drawer_write with the desired wing/room/hall to materialise them.",
-            };
-            break;
-          }
-          default:
-            throw new Error(`Unknown memory action: ${action}`);
-        }
-
-        const postHook = HookManager.runHook(
-          "post-memory",
-          "memory",
-          hookContext,
-          resultObj,
-        );
-        if (!postHook.success) {
-          console.error(`[arive] post-memory hook failed: ${postHook.error}`);
-        }
-
-        const responseText = getCompactHelpers().compactObject(
-          resultObj,
-          "memory",
-          hookContext,
-        ).value as unknown as Record<string, unknown>;
-
-        return {
-          content: [
-            { type: "text", text: JSON.stringify(responseText, null, 2) },
-          ],
-        };
-      }
-
-
-      default:
-        throw new Error(`Unknown tool name: ${name}`);
+function readArgs(argv: string[]): { configPath?: string; verbose: boolean } {
+  let configPath: string | undefined;
+  let verbose = false;
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === "--config" || arg === "-c") {
+      configPath = argv[i + 1];
+      i += 1;
+    } else if (arg === "--verbose" || arg === "-v") {
+      verbose = true;
     }
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
-    return {
-      isError: true,
-      content: [{ type: "text", text: JSON.stringify({ error: message }) }],
-    };
   }
-});
-
-
-// Start Std Listener
-const isVerbose =
-  process.argv.includes("--verbose") ||
-  process.argv.includes("-v") ||
-  process.argv.includes("--debug") ||
-  process.env.ARIVE_VERBOSE === "true" ||
-  process.env.ARIVE_DEBUG === "true" ||
-  (process.env.DEBUG !== undefined && process.env.DEBUG.includes("arive"));
-
-if (isVerbose) {
-  console.error("[arive] start: initializing MCP stdio transport");
+  return { configPath, verbose };
 }
-try {
-  const before = Date.now();
-  const transport = new StdioServerTransport();
-  if (isVerbose) {
-    console.error(
-      `[arive] transport created after ${Date.now() - before}ms, connecting...`,
-    );
+
+const parsed = readArgs(process.argv.slice(2));
+if (parsed.verbose) process.env.ARIVE_LOG = "debug";
+
+function main(): Promise<void> {
+  const config = loadConfig(parsed.configPath);
+
+  const compressor = new ContextCompressor(config.compression);
+  const memory = new MemoryStore(config.memory);
+  const clients = config.downstreams.map((entry) => new DownstreamClient(entry));
+
+  const localTools = createLocalTools({ config, compressor, memory });
+
+  let registry: ToolRegistry;
+
+  const pipelines = createPipelineTools({
+    call: (name, args) => registry.callTool(name, args),
+    find: (namespace, candidates) => registry.findTool(namespace, candidates),
+    refresh: () => registry.refresh(),
+  });
+
+  const statusTool: LocalTool = {
+    name: "arive_status",
+    description:
+      "[ARIVE] Gateway health: per-namespace tool counts, downstream connection state, and compression store usage.",
+    inputSchema: { type: "object", properties: {} },
+    handler: () =>
+      textResult({
+        server: { name: config.server.name, version: VERSION },
+        namespaces: registry.namespaceSummary(),
+        downstreams: clients.map((client) => client.status()),
+        compression: compressor.stats(),
+        local: {
+          memoryDb: config.memory.dbPath,
+        },
+        note: "Namespaces with a local adapter (context, search, mem) stay available even when no downstream server is configured.",
+      }),
+  };
+
+  registry = new ToolRegistry(clients, [...localTools, ...pipelines, statusTool]);
+
+  const server = new Server(
+    { name: config.server.name, version: VERSION },
+    {
+      capabilities: { tools: {} },
+      instructions:
+        "ARIVE gateway. Every tool is namespaced: think_* (sequential thinking), lsp_*, dap_*, search_* (ripgrep), mem_* (spatial memory), context_* (reversible compression). " +
+        "Oversized outputs are replaced by an envelope containing a ctx: reference; call context_retrieve with that ref to recover the original losslessly. " +
+        "Use arive_reasoned_debug for reflection plus debugger inspection. " +
+        "Call arive_status to see which namespaces are live before relying on a downstream tool.",
+    },
+  );
+
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
+    const tools = await registry.listTools();
+    log("debug", `tools/list -> ${tools.length} tools`);
+    return { tools };
+  });
+
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const name = request.params.name;
+    const args = asObject(request.params.arguments);
+
+    try {
+      const result = await registry.callTool(name, args);
+      return applyCompression(name, result);
+    } catch (error) {
+      log("error", `tool ${name} failed`, { error: errorMessage(error) });
+      return errorResult(errorMessage(error), { tool: name });
+    }
+  });
+
+  function namespaceOfTool(name: string): Namespace | undefined {
+    const prefix = name.split("_")[0];
+    return (NAMESPACES as readonly string[]).includes(prefix)
+      ? (prefix as Namespace)
+      : undefined;
   }
-  await server.connect(transport);
-  if (isVerbose) {
-    console.error(`[arive] ready after ${Date.now() - before}ms`);
+
+  function applyCompression(name: string, result: CallToolResult): CallToolResult {
+    // The retrieval path must never compress its own payload, and context
+    // envelopes are already compressed by definition.
+    if (!config.compression.enabled || name === "context_retrieve") return result;
+    const namespace = namespaceOfTool(name);
+    if (!namespace || namespace === "context") return result;
+
+    const downstream = clients.find((client) => client.namespace === namespace);
+    if (downstream?.enabled && !downstream.compress) return result;
+
+    return compressor.apply(result, namespace);
   }
-} catch (error: unknown) {
-  console.error("[arive] fatal: failed to connect to stdio transport:", error);
+
+  let shuttingDown = false;
+  const shutdown = async (reason: string): Promise<void> => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    log("info", `shutting down (${reason})`);
+    await Promise.allSettled(clients.map((client) => client.close()));
+    try {
+      memory.close();
+    } catch (error) {
+      log("warn", `memory close failed: ${errorMessage(error)}`);
+    }
+  };
+
+  process.on("SIGINT", () => {
+    void shutdown("SIGINT").then(() => process.exit(0));
+  });
+  process.on("SIGTERM", () => {
+    void shutdown("SIGTERM").then(() => process.exit(0));
+  });
+  process.on("unhandledRejection", (reason) => {
+    log("error", "unhandled rejection", { reason: errorMessage(reason) });
+  });
+
+  return (async () => {
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+    log("info", `${config.server.name} ${VERSION} ready`, {
+      downstreams: clients.filter((client) => client.enabled).map((client) => client.namespace),
+      compression: config.compression.enabled
+        ? `${config.compression.thresholdTokens} tokens`
+        : "disabled",
+    });
+  })();
+}
+
+main().catch((error: unknown) => {
+  process.stderr.write(`[arive] fatal: ${errorMessage(error)}\n`);
   process.exit(1);
-}
+});

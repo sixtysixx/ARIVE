@@ -1,0 +1,66 @@
+{
+  "server": {
+    "name": "arive",
+    "version": "1.0.0"
+  },
+  "compression": {
+    "enabled": true,
+    "thresholdTokens": 2000,
+    "maxEntries": 500,
+    "previewChars": 600
+  },
+  "memory": {
+    "dbPath": ".arive/memory.db",
+    "maxItems": 50000
+  },
+  "search": {
+    "maxResults": 50
+  },
+  "downstreams": [
+    {
+      "namespace": "think",
+      "enabled": true,
+      "command": "bun",
+      "args": ["x", "--silent", "@modelcontextprotocol/server-sequential-thinking"],
+      "connectTimeoutMs": 20000,
+      "callTimeoutMs": 60000,
+      "compress": true
+    },
+    {
+      "namespace": "lsp",
+      "enabled": true,
+      "command": "bun",
+      "args": ["x", "--silent", "agent-lsp"],
+      "connectTimeoutMs": 20000,
+      "callTimeoutMs": 120000,
+      "compress": true
+    },
+    {
+      "namespace": "dap",
+      "enabled": true,
+      "command": "bun",
+      "args": ["x", "--silent", "dap-mcp"],
+      "connectTimeoutMs": 20000,
+      "callTimeoutMs": 120000,
+      "compress": true
+    },
+    {
+      "namespace": "search",
+      "enabled": false,
+      "command": "bun",
+      "args": ["x", "--silent", "mcp-ripgrep"]
+    },
+    {
+      "namespace": "context",
+      "enabled": false,
+      "command": "bun",
+      "args": ["x", "--silent", "github:headroomlabs-ai/headroom"]
+    },
+    {
+      "namespace": "mem",
+      "enabled": false,
+      "command": "bun",
+      "args": ["x", "--silent", "github:MemPalace/mempalace"]
+    }
+  ]
+}

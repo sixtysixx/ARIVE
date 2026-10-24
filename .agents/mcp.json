@@ -2,11 +2,10 @@
   "mcpServers": {
     "arive": {
       "command": "bun",
-      "args": [
-        "x",
-        "--silent",
-        "github:sixtysixx/ARIVE"
-      ]
+      "args": ["x", "--silent", "github:sixtysixx/ARIVE"],
+      "env": {
+        "ARIVE_LOG": "info"
+      }
     }
   }
 }
