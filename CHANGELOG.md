@@ -30,15 +30,15 @@ Retroactive record for commit `5575c50`, which landed on `master` with an empty 
 
 The Phase A/R/I/V/E implementations were deleted and are not stubs or placeholders:
 
-| Removed | Was |
-| --- | --- |
-| `src/analyze/{content_router,smart_crusher,ast_compressor,cache_aligner,ccr_registry}.ts` | Content classification, JSON crushing, AST trimming, cache alignment, `ccr:` store |
-| `src/reason/{sequential_engine,memory_bank}.ts` | Graph-based backtracking reasoning, hash-chained memory bank |
-| `src/integrate/{workspace,hook_manager}.ts` | `.arive-tasks/` worktrees, `pre-*`/`post-*` hooks |
-| `src/verify/{tdd_runner,validator}.ts` | TDD loop with failure backpropagation |
-| `src/explain/fade_formatter.ts` | `lite`/`full`/`ultra` telegraphic text formatter |
-| `src/mcp/{compact.ts,tools/*}` | `arive_compress`, `arive_decompress`, `arive_explain`, `arive_memory_bank`, `arive_think`, `arive_verify`, `arive_workspace` |
-| `src/lifecycle.ts` | Server lifecycle wiring for the above |
+| Removed                                                                                   | Was                                                                                                                          |
+| ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `src/analyze/{content_router,smart_crusher,ast_compressor,cache_aligner,ccr_registry}.ts` | Content classification, JSON crushing, AST trimming, cache alignment, `ccr:` store                                           |
+| `src/reason/{sequential_engine,memory_bank}.ts`                                           | Graph-based backtracking reasoning, hash-chained memory bank                                                                 |
+| `src/integrate/{workspace,hook_manager}.ts`                                               | `.arive-tasks/` worktrees, `pre-*`/`post-*` hooks                                                                            |
+| `src/verify/{tdd_runner,validator}.ts`                                                    | TDD loop with failure backpropagation                                                                                        |
+| `src/explain/fade_formatter.ts`                                                           | `lite`/`full`/`ultra` telegraphic text formatter                                                                             |
+| `src/mcp/{compact.ts,tools/*}`                                                            | `arive_compress`, `arive_decompress`, `arive_explain`, `arive_memory_bank`, `arive_think`, `arive_verify`, `arive_workspace` |
+| `src/lifecycle.ts`                                                                        | Server lifecycle wiring for the above                                                                                        |
 
 README states the exclusion explicitly: worktree automation, the persistent REPL kernel, and the Ponytail ruleset namespace are intentionally not part of this build. `arive_status` and `arive_reasoned_debug` are the only remaining `arive_*` tools.
 
