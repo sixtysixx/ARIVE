@@ -95,15 +95,15 @@ Copy [`arive.config.example.json`](arive.config.example.json) to `arive.config.j
 
 Environment variables:
 
-| Variable                         | Effect                                             |
-| -------------------------------- | -------------------------------------------------- |
-| `ARIVE_CONFIG`                   | Config file path.                                  |
-| `ARIVE_ENABLE` / `ARIVE_DISABLE` | Comma-separated namespace allow/deny lists.        |
-| `ARIVE_COMPRESS`                 | `0` disables compression entirely.                 |
-| `ARIVE_COMPRESS_THRESHOLD`       | Token threshold for compression.                   |
-| `ARIVE_MEMORY_DB`                | SQLite memory path (default `.arive/memory.db`).   |
-| `ARIVE_SEARCH_MAX_RESULTS`       | Default ripgrep result cap.                        |
-| `ARIVE_LOG`                      | `error`, `warn`, `info`, or `debug` (stderr only). |
+| Variable                         | Effect                                                   |
+| -------------------------------- | -------------------------------------------------------- |
+| `ARIVE_CONFIG`                   | Config file path.                                        |
+| `ARIVE_ENABLE` / `ARIVE_DISABLE` | Comma-separated namespace allow/deny lists.              |
+| `ARIVE_COMPRESS`                 | `0` disables compression entirely.                       |
+| `ARIVE_COMPRESS_THRESHOLD`       | Token threshold for compression.                         |
+| `ARIVE_MEMORY_DB`                | SQLite memory path (default `.arive/memory.db`).         |
+| `ARIVE_SEARCH_MAX_RESULTS`       | Default ripgrep result cap.                              |
+| `ARIVE_LOG`                      | `error`, `warn`, `info` (default), `debug`; stderr only. |
 
 Disable a downstream to use its local adapter:
 
