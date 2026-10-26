@@ -41,7 +41,8 @@ export function createContextTools(compressor: ContextCompressor): LocalTool[] {
             compressed: false,
             originalChars: content.length,
             thresholdTokens: compressor.stats().thresholdTokens,
-            reason: "Payload is under the configured threshold; pass force:true to store it anyway.",
+            reason:
+              "Payload is under the configured threshold; pass force:true to store it anyway.",
           });
         }
         return textResult({

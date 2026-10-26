@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { Namespace } from "../src/core/config.js";
 import type { JsonObject, LocalTool } from "../src/core/results.js";
-import { createPipelineTools, type PipelineDeps } from "../src/pipelines/index.js";
+import {
+  createPipelineTools,
+  type PipelineDeps,
+} from "../src/pipelines/index.js";
 
 function text(value: unknown): CallToolResult {
   return { content: [{ type: "text", text: JSON.stringify(value) }] };
@@ -63,7 +66,9 @@ function parse(result: CallToolResult): Record<string, unknown> {
 }
 
 const debug = (deps: PipelineDeps): LocalTool =>
-  createPipelineTools(deps).find((tool) => tool.name === "arive_reasoned_debug")!;
+  createPipelineTools(deps).find(
+    (tool) => tool.name === "arive_reasoned_debug",
+  )!;
 
 describe("reasoned debug pipeline", () => {
   test("degrades to skipped steps without think/dap", async () => {
@@ -112,9 +117,15 @@ describe("reasoned debug pipeline", () => {
 
   test("skips the debugger when no program is supplied", async () => {
     const result = parse(
-      await debug(makeDeps({ dap: true })).handler({ symptom: "silent failure" }),
+      await debug(makeDeps({ dap: true })).handler({
+        symptom: "silent failure",
+      }),
     );
-    const steps = result.steps as Array<{ step: string; status: string; detail?: string }>;
+    const steps = result.steps as Array<{
+      step: string;
+      status: string;
+      detail?: string;
+    }>;
     const launch = steps.find((s) => s.step === "dap_launch");
     expect(launch?.status).toBe("skipped");
     expect(launch?.detail).toContain("program");

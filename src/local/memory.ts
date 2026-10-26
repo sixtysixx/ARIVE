@@ -30,11 +30,13 @@ interface MemoryConfig {
 }
 
 function slug(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 48) || "general";
+  return (
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 48) || "general"
+  );
 }
 
 export class MemoryStore {
@@ -77,7 +79,8 @@ export class MemoryStore {
   }): JsonObject {
     const content = input.content.trim();
     if (!content) throw new Error("content must not be empty");
-    if (content.length > 100_000) throw new Error("content exceeds 100k characters");
+    if (content.length > 100_000)
+      throw new Error("content exceeds 100k characters");
 
     const digest = createHash("sha256")
       .update(`${input.wing}\x00${input.room}\x00${content}`)
@@ -111,7 +114,14 @@ export class MemoryStore {
       );
 
     this.prune();
-    return { status: "remembered", drawerId, wing: input.wing, room: input.room, hall: input.hall, importance };
+    return {
+      status: "remembered",
+      drawerId,
+      wing: input.wing,
+      room: input.room,
+      hall: input.hall,
+      importance,
+    };
   }
 
   recall(query: {
@@ -125,7 +135,9 @@ export class MemoryStore {
     const params: Array<string | number> = [];
 
     if (query.text) {
-      clauses.push("(content LIKE ? OR tags LIKE ? OR wing LIKE ? OR room LIKE ?)");
+      clauses.push(
+        "(content LIKE ? OR tags LIKE ? OR wing LIKE ? OR room LIKE ?)",
+      );
       const pattern = `%${query.text}%`;
       params.push(pattern, pattern, pattern, pattern);
     }
@@ -164,18 +176,36 @@ export class MemoryStore {
 
   stats(): JsonObject {
     const total = (
-      this.db.prepare("SELECT COUNT(*) AS c FROM drawers").get() as { c: number }
+      this.db.prepare("SELECT COUNT(*) AS c FROM drawers").get() as {
+        c: number;
+      }
     ).c;
     const wings = (
-      this.db.prepare("SELECT COUNT(DISTINCT wing) AS c FROM drawers").get() as { c: number }
+      this.db
+        .prepare("SELECT COUNT(DISTINCT wing) AS c FROM drawers")
+        .get() as { c: number }
     ).c;
     const rooms = (
-      this.db.prepare("SELECT COUNT(*) AS c FROM (SELECT DISTINCT wing, room FROM drawers)").get() as { c: number }
+      this.db
+        .prepare(
+          "SELECT COUNT(*) AS c FROM (SELECT DISTINCT wing, room FROM drawers)",
+        )
+        .get() as { c: number }
     ).c;
     const halls = (
-      this.db.prepare("SELECT COUNT(*) AS c FROM (SELECT DISTINCT wing, room, hall FROM drawers)").get() as { c: number }
+      this.db
+        .prepare(
+          "SELECT COUNT(*) AS c FROM (SELECT DISTINCT wing, room, hall FROM drawers)",
+        )
+        .get() as { c: number }
     ).c;
-    return { totalDrawers: total, wings, rooms, halls, maxItems: this.maxItems };
+    return {
+      totalDrawers: total,
+      wings,
+      rooms,
+      halls,
+      maxItems: this.maxItems,
+    };
   }
 
   close(): void {
@@ -205,7 +235,9 @@ export class MemoryStore {
 
   private prune(): void {
     const total = (
-      this.db.prepare("SELECT COUNT(*) AS c FROM drawers").get() as { c: number }
+      this.db.prepare("SELECT COUNT(*) AS c FROM drawers").get() as {
+        c: number;
+      }
     ).c;
     if (total <= this.maxItems) return;
     this.db
@@ -272,7 +304,10 @@ export function createMemoryTools(store: MemoryStore): LocalTool[] {
         },
       },
       handler: (args) => {
-        const limit = Math.min(100, Math.max(1, optionalNumber(args, "limit") ?? 20));
+        const limit = Math.min(
+          100,
+          Math.max(1, optionalNumber(args, "limit") ?? 20),
+        );
         const results = store.recall({
           text: optionalString(args, "query"),
           wing: optionalString(args, "wing"),

@@ -7,15 +7,23 @@ import * as path from "path";
 import { NAMESPACES } from "../src/core/config.js";
 
 const projectRoot = path.resolve(import.meta.dir, "..");
-const fakeDownstream = path.resolve(import.meta.dir, "fixtures/fake_downstream.ts");
+const fakeDownstream = path.resolve(
+  import.meta.dir,
+  "fixtures/fake_downstream.ts",
+);
 
 let client: Client;
 let transport: StdioClientTransport;
 let tempDir: string;
 
 function textOf(result: unknown): string {
-  const content = (result as { content: Array<{ type: string; text?: string }> }).content;
-  return content.filter((block) => block.type === "text").map((block) => block.text ?? "").join("\n");
+  const content = (
+    result as { content: Array<{ type: string; text?: string }> }
+  ).content;
+  return content
+    .filter((block) => block.type === "text")
+    .map((block) => block.text ?? "")
+    .join("\n");
 }
 
 beforeAll(async () => {
@@ -41,7 +49,10 @@ beforeAll(async () => {
     cwd: projectRoot,
     stderr: "pipe",
   });
-  client = new Client({ name: "arive-e2e", version: "1.0.0" }, { capabilities: {} });
+  client = new Client(
+    { name: "arive-e2e", version: "1.0.0" },
+    { capabilities: {} },
+  );
   await client.connect(transport);
 }, 30_000);
 
@@ -73,7 +84,10 @@ describe("gateway end to end", () => {
       name: "lsp_echo",
       arguments: { text: "through-the-gateway" },
     });
-    const payload = JSON.parse(textOf(result)) as { echo: string; from: string };
+    const payload = JSON.parse(textOf(result)) as {
+      echo: string;
+      from: string;
+    };
     expect(payload.echo).toBe("through-the-gateway");
     expect(payload.from).toBe("fake-downstream");
   }, 20_000);
@@ -122,19 +136,31 @@ describe("gateway end to end", () => {
   });
 
   test("reports namespace health", async () => {
-    const status = await client.callTool({ name: "arive_status", arguments: {} });
+    const status = await client.callTool({
+      name: "arive_status",
+      arguments: {},
+    });
     const payload = JSON.parse(textOf(status)) as {
       namespaces: Record<string, { tools: number }>;
       downstreams: Array<{ namespace: string; enabled: boolean }>;
     };
-    expect(Object.keys(payload.namespaces).sort()).toEqual([...NAMESPACES].sort());
+    expect(Object.keys(payload.namespaces).sort()).toEqual(
+      [...NAMESPACES].sort(),
+    );
     expect(payload.namespaces.context?.tools).toBeGreaterThanOrEqual(3);
-    expect(payload.downstreams.find((entry) => entry.namespace === "lsp")?.enabled).toBe(true);
-    expect(payload.downstreams.filter((entry) => entry.enabled)).toHaveLength(1);
+    expect(
+      payload.downstreams.find((entry) => entry.namespace === "lsp")?.enabled,
+    ).toBe(true);
+    expect(payload.downstreams.filter((entry) => entry.enabled)).toHaveLength(
+      1,
+    );
   });
 
   test("returns a structured error for unknown tools", async () => {
-    const result = await client.callTool({ name: "nope_missing", arguments: {} });
+    const result = await client.callTool({
+      name: "nope_missing",
+      arguments: {},
+    });
     expect((result as { isError?: boolean }).isError).toBe(true);
     expect(textOf(result)).toContain("Unknown tool");
   });

@@ -19,14 +19,14 @@ A unified MCP gateway that exposes six specialist namespaces (`think`, `mem`, `l
 
 Every exposed tool carries a strict prefix, so a server can never collide with another namespace.
 
-| Prefix | Backing implementation | Tools |
-| --- | --- | --- |
-| `think_*` | `@modelcontextprotocol/server-sequential-thinking`, spawned | dynamic (reasoning steps, backtracking) |
-| `lsp_*` | `agent-lsp`, spawned | dynamic (language-server diagnostics and speculation) |
-| `dap_*` | `dap-mcp`, spawned | dynamic (debugger operations) |
-| `search_*` | **in-process** ripgrep adapter | `search_query`, `search_files` |
-| `mem_*` | **in-process** SQLite spatial memory | `mem_remember`, `mem_recall`, `mem_forget`, `mem_stats` |
-| `context_*` | **in-process** reversible compressor | `context_compress`, `context_retrieve`, `context_stats` |
+| Prefix      | Backing implementation                                      | Tools                                                   |
+| ----------- | ----------------------------------------------------------- | ------------------------------------------------------- |
+| `think_*`   | `@modelcontextprotocol/server-sequential-thinking`, spawned | dynamic (reasoning steps, backtracking)                 |
+| `lsp_*`     | `agent-lsp`, spawned                                        | dynamic (language-server diagnostics and speculation)   |
+| `dap_*`     | `dap-mcp`, spawned                                          | dynamic (debugger operations)                           |
+| `search_*`  | **in-process** ripgrep adapter                              | `search_query`, `search_files`                          |
+| `mem_*`     | **in-process** SQLite spatial memory                        | `mem_remember`, `mem_recall`, `mem_forget`, `mem_stats` |
+| `context_*` | **in-process** reversible compressor                        | `context_compress`, `context_retrieve`, `context_stats` |
 
 Several upstream projects in this lineage are libraries or rulesets rather than installable MCP servers. Spawning a command that does not exist would be worse than useless, so those capabilities are implemented locally with the same semantics (reversible compression, ripgrep search, spatial memory). The three real MCP packages are spawned over stdio and their full tool surface is aggregated.
 
@@ -34,8 +34,8 @@ Local adapters win name collisions. Everything else from a downstream server is 
 
 ## Composite pipeline
 
-| Tool | What it does |
-| --- | --- |
+| Tool                   | What it does                                                                                                                                                                   |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `arive_reasoned_debug` | Runs sequential-thinking steps, then launches a DAP session with breakpoints, stack, and variables when a debugger and `program` are available, and stores findings in memory. |
 
 The composite returns a `steps` array with `ok`, `skipped`, or `failed` per step. A missing capability is reported as `skipped` with a reason — it is never silently fabricated.
@@ -95,15 +95,15 @@ Copy [`arive.config.example.json`](arive.config.example.json) to `arive.config.j
 
 Environment variables:
 
-| Variable | Effect |
-| --- | --- |
-| `ARIVE_CONFIG` | Config file path. |
-| `ARIVE_ENABLE` / `ARIVE_DISABLE` | Comma-separated namespace allow/deny lists. |
-| `ARIVE_COMPRESS` | `0` disables compression entirely. |
-| `ARIVE_COMPRESS_THRESHOLD` | Token threshold for compression. |
-| `ARIVE_MEMORY_DB` | SQLite memory path (default `.arive/memory.db`). |
-| `ARIVE_SEARCH_MAX_RESULTS` | Default ripgrep result cap. |
-| `ARIVE_LOG` | `error`, `warn`, `info`, or `debug` (stderr only). |
+| Variable                         | Effect                                             |
+| -------------------------------- | -------------------------------------------------- |
+| `ARIVE_CONFIG`                   | Config file path.                                  |
+| `ARIVE_ENABLE` / `ARIVE_DISABLE` | Comma-separated namespace allow/deny lists.        |
+| `ARIVE_COMPRESS`                 | `0` disables compression entirely.                 |
+| `ARIVE_COMPRESS_THRESHOLD`       | Token threshold for compression.                   |
+| `ARIVE_MEMORY_DB`                | SQLite memory path (default `.arive/memory.db`).   |
+| `ARIVE_SEARCH_MAX_RESULTS`       | Default ripgrep result cap.                        |
+| `ARIVE_LOG`                      | `error`, `warn`, `info`, or `debug` (stderr only). |
 
 Disable a downstream to use its local adapter:
 

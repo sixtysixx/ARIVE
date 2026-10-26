@@ -48,8 +48,14 @@ export function createSearchTools(defaultMaxResults: number): LocalTool[] {
         type: "object",
         properties: {
           pattern: { type: "string", description: "Ripgrep pattern." },
-          path: { type: "string", description: "File or directory to search. Defaults to cwd." },
-          glob: { type: "string", description: "Optional glob filter, e.g. '*.ts'." },
+          path: {
+            type: "string",
+            description: "File or directory to search. Defaults to cwd.",
+          },
+          glob: {
+            type: "string",
+            description: "Optional glob filter, e.g. '*.ts'.",
+          },
           caseSensitive: { type: "boolean", default: false },
           fixedStrings: {
             type: "boolean",
@@ -70,8 +76,10 @@ export function createSearchTools(defaultMaxResults: number): LocalTool[] {
         );
 
         const rgArgs = ["--json", "--no-heading", "--color", "never"];
-        if (!(optionalBoolean(args, "caseSensitive") ?? false)) rgArgs.push("--ignore-case");
-        if (optionalBoolean(args, "fixedStrings") ?? false) rgArgs.push("--fixed-strings");
+        if (!(optionalBoolean(args, "caseSensitive") ?? false))
+          rgArgs.push("--ignore-case");
+        if (optionalBoolean(args, "fixedStrings") ?? false)
+          rgArgs.push("--fixed-strings");
         if (glob) rgArgs.push("--glob", glob);
         rgArgs.push("--", pattern, target);
 
@@ -127,8 +135,14 @@ export function createSearchTools(defaultMaxResults: number): LocalTool[] {
       inputSchema: {
         type: "object",
         properties: {
-          path: { type: "string", description: "Directory to scan. Defaults to cwd." },
-          glob: { type: "string", description: "Optional glob filter, e.g. '*.ts'." },
+          path: {
+            type: "string",
+            description: "Directory to scan. Defaults to cwd.",
+          },
+          glob: {
+            type: "string",
+            description: "Optional glob filter, e.g. '*.ts'.",
+          },
           maxResults: { type: "integer", default: defaultMaxResults },
         },
       },

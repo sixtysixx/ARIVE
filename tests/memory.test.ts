@@ -18,7 +18,10 @@ let tools: Record<string, LocalTool>;
 
 beforeAll(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "arive-memory-"));
-  store = new MemoryStore({ dbPath: path.join(dir, "memory.db"), maxItems: 100 });
+  store = new MemoryStore({
+    dbPath: path.join(dir, "memory.db"),
+    maxItems: 100,
+  });
   tools = Object.fromEntries(
     createMemoryTools(store).map((tool) => [tool.name, tool]),
   );
@@ -27,7 +30,12 @@ beforeAll(() => {
 afterAll(() => {
   store.close();
   try {
-    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    fs.rmSync(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 100,
+    });
   } catch {
     // Windows may briefly hold the SQLite WAL handle; the temp dir is disposable.
   }
@@ -51,7 +59,10 @@ describe("memory adapter", () => {
     const recalled = jsonOf(
       await tools.mem_recall!.handler({ query: "compresses", limit: 10 }),
     );
-    const results = recalled.results as Array<{ content: string; importance: number }>;
+    const results = recalled.results as Array<{
+      content: string;
+      importance: number;
+    }>;
     expect(results).toHaveLength(1);
     expect(results[0]?.content).toContain("2000 tokens");
     expect(results[0]?.importance).toBe(7);
@@ -68,7 +79,9 @@ describe("memory adapter", () => {
     const second = jsonOf(await tools.mem_remember!.handler(args));
     expect(second.drawerId).toBe(first.drawerId);
 
-    const recalled = jsonOf(await tools.mem_recall!.handler({ query: "idempotent" }));
+    const recalled = jsonOf(
+      await tools.mem_recall!.handler({ query: "idempotent" }),
+    );
     expect((recalled.results as unknown[]).length).toBe(1);
   });
 
@@ -88,7 +101,10 @@ describe("memory adapter", () => {
 
   test("forgets a drawer and reports stats", async () => {
     const written = jsonOf(
-      await tools.mem_remember!.handler({ content: "temporary fact", hall: "facts" }),
+      await tools.mem_remember!.handler({
+        content: "temporary fact",
+        hall: "facts",
+      }),
     );
     const forgotten = jsonOf(
       await tools.mem_forget!.handler({ drawerId: written.drawerId }),

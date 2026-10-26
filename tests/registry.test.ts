@@ -26,7 +26,13 @@ function fakeClient(
     callTool: async (name: string) => ({
       content: [{ type: "text" as const, text: `remote:${namespace}/${name}` }],
     }),
-    status: () => ({ namespace, enabled, connected: true, toolCount: tools.length, command: "fake" }),
+    status: () => ({
+      namespace,
+      enabled,
+      connected: true,
+      toolCount: tools.length,
+      command: "fake",
+    }),
     close: async () => {},
   } as unknown as DownstreamClient;
 }
@@ -78,7 +84,10 @@ describe("ToolRegistry", () => {
   });
 
   test("returns an actionable error for unknown tools", async () => {
-    const registry = new ToolRegistry([fakeClient("think", [remoteTool("think")])], []);
+    const registry = new ToolRegistry(
+      [fakeClient("think", [remoteTool("think")])],
+      [],
+    );
     await registry.listTools();
     const result = await registry.callTool("think_missing", {});
     expect(result.isError).toBe(true);
@@ -89,12 +98,21 @@ describe("ToolRegistry", () => {
 
   test("discovers tools by candidate names and suffix", async () => {
     const registry = new ToolRegistry(
-      [fakeClient("lsp", [remoteTool("rust_analyzer_diagnostics"), remoteTool("speculative_edit")])],
+      [
+        fakeClient("lsp", [
+          remoteTool("rust_analyzer_diagnostics"),
+          remoteTool("speculative_edit"),
+        ]),
+      ],
       [],
     );
     await registry.listTools();
-    expect(registry.findTool("lsp", ["diagnostics"])).toBe("lsp_rust_analyzer_diagnostics");
-    expect(registry.findTool("lsp", ["speculative_edit"])).toBe("lsp_speculative_edit");
+    expect(registry.findTool("lsp", ["diagnostics"])).toBe(
+      "lsp_rust_analyzer_diagnostics",
+    );
+    expect(registry.findTool("lsp", ["speculative_edit"])).toBe(
+      "lsp_speculative_edit",
+    );
     expect(registry.findTool("lsp", ["nope"])).toBeUndefined();
   });
 

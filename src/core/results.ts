@@ -22,7 +22,10 @@ export function textResult(value: unknown): CallToolResult {
   return { content: [{ type: "text", text }] };
 }
 
-export function errorResult(message: string, extra?: JsonObject): CallToolResult {
+export function errorResult(
+  message: string,
+  extra?: JsonObject,
+): CallToolResult {
   return {
     isError: true,
     content: [
@@ -80,24 +83,35 @@ export function requireString(
 ): string {
   const value = args[key];
   if (typeof value !== "string" || value.trim() === "") {
-    throw new Error(`'${key}' is required for ${tool} and must be a non-empty string`);
+    throw new Error(
+      `'${key}' is required for ${tool} and must be a non-empty string`,
+    );
   }
   return value;
 }
 
-export function optionalString(args: JsonObject, key: string): string | undefined {
+export function optionalString(
+  args: JsonObject,
+  key: string,
+): string | undefined {
   const value = args[key];
   return typeof value === "string" && value !== "" ? value : undefined;
 }
 
-export function optionalNumber(args: JsonObject, key: string): number | undefined {
+export function optionalNumber(
+  args: JsonObject,
+  key: string,
+): number | undefined {
   const value = args[key];
   if (value === undefined || value === null || value === "") return undefined;
   const num = Number(value);
   return Number.isFinite(num) ? num : undefined;
 }
 
-export function optionalBoolean(args: JsonObject, key: string): boolean | undefined {
+export function optionalBoolean(
+  args: JsonObject,
+  key: string,
+): boolean | undefined {
   const value = args[key];
   return typeof value === "boolean" ? value : undefined;
 }

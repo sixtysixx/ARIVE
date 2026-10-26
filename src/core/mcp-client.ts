@@ -58,7 +58,9 @@ export class DownstreamClient {
 
   async listTools(force = false): Promise<Tool[]> {
     if (!this.config.enabled) {
-      throw new Error(`Namespace "${this.namespace}" is disabled in configuration.`);
+      throw new Error(
+        `Namespace "${this.namespace}" is disabled in configuration.`,
+      );
     }
     await this.connect();
     if (this.tools && !force) return this.tools;
@@ -100,7 +102,10 @@ export class DownstreamClient {
     }
   }
 
-  private async invoke(tool: string, args: JsonObject): Promise<CallToolResult> {
+  private async invoke(
+    tool: string,
+    args: JsonObject,
+  ): Promise<CallToolResult> {
     const client = this.requireClient();
     const result = await withTimeout(
       client.callTool({ name: tool, arguments: args }),
@@ -119,7 +124,9 @@ export class DownstreamClient {
 
   private async connect(): Promise<void> {
     if (!this.config.enabled) {
-      throw new Error(`Namespace "${this.namespace}" is disabled in configuration.`);
+      throw new Error(
+        `Namespace "${this.namespace}" is disabled in configuration.`,
+      );
     }
     if (this.client) return;
     if (this.connecting) return this.connecting;

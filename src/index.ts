@@ -11,7 +11,12 @@ import { loadConfig, NAMESPACES, type Namespace } from "./core/config.js";
 import { errorMessage, log } from "./core/log.js";
 import { DownstreamClient } from "./core/mcp-client.js";
 import { ToolRegistry } from "./core/registry.js";
-import { asObject, errorResult, textResult, type LocalTool } from "./core/results.js";
+import {
+  asObject,
+  errorResult,
+  textResult,
+  type LocalTool,
+} from "./core/results.js";
 import { createLocalTools } from "./local/index.js";
 import { MemoryStore } from "./local/memory.js";
 import { createPipelineTools } from "./pipelines/index.js";
@@ -41,7 +46,9 @@ function main(): Promise<void> {
 
   const compressor = new ContextCompressor(config.compression);
   const memory = new MemoryStore(config.memory);
-  const clients = config.downstreams.map((entry) => new DownstreamClient(entry));
+  const clients = config.downstreams.map(
+    (entry) => new DownstreamClient(entry),
+  );
 
   const localTools = createLocalTools({ config, compressor, memory });
 
@@ -71,7 +78,11 @@ function main(): Promise<void> {
       }),
   };
 
-  registry = new ToolRegistry(clients, [...localTools, ...pipelines, statusTool]);
+  registry = new ToolRegistry(clients, [
+    ...localTools,
+    ...pipelines,
+    statusTool,
+  ]);
 
   const server = new Server(
     { name: config.server.name, version: VERSION },
@@ -111,10 +122,14 @@ function main(): Promise<void> {
       : undefined;
   }
 
-  function applyCompression(name: string, result: CallToolResult): CallToolResult {
+  function applyCompression(
+    name: string,
+    result: CallToolResult,
+  ): CallToolResult {
     // The retrieval path must never compress its own payload, and context
     // envelopes are already compressed by definition.
-    if (!config.compression.enabled || name === "context_retrieve") return result;
+    if (!config.compression.enabled || name === "context_retrieve")
+      return result;
     const namespace = namespaceOfTool(name);
     if (!namespace || namespace === "context") return result;
 
@@ -151,7 +166,9 @@ function main(): Promise<void> {
     const transport = new StdioServerTransport();
     await server.connect(transport);
     log("info", `${config.server.name} ${VERSION} ready`, {
-      downstreams: clients.filter((client) => client.enabled).map((client) => client.namespace),
+      downstreams: clients
+        .filter((client) => client.enabled)
+        .map((client) => client.namespace),
       compression: config.compression.enabled
         ? `${config.compression.thresholdTokens} tokens`
         : "disabled",

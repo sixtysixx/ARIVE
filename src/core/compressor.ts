@@ -48,7 +48,10 @@ export class ContextCompressor {
       try {
         fs.mkdirSync(path.resolve(config.storeDir), { recursive: true });
       } catch (error) {
-        log("warn", `cannot create compression store dir: ${errorMessage(error)}`);
+        log(
+          "warn",
+          `cannot create compression store dir: ${errorMessage(error)}`,
+        );
       }
     }
   }
@@ -58,7 +61,10 @@ export class ContextCompressor {
   }
 
   get thresholdChars(): number {
-    return Math.max(1, Math.floor(this.config.thresholdTokens * CHARS_PER_TOKEN));
+    return Math.max(
+      1,
+      Math.floor(this.config.thresholdTokens * CHARS_PER_TOKEN),
+    );
   }
 
   store(text: string, namespace: string): string {
@@ -107,14 +113,20 @@ export class ContextCompressor {
           return text;
         }
       } catch (error) {
-        log("warn", `failed reading compressed payload: ${errorMessage(error)}`);
+        log(
+          "warn",
+          `failed reading compressed payload: ${errorMessage(error)}`,
+        );
       }
     }
     return null;
   }
 
   compressText(text: string, namespace: string, force = false): CompressedText {
-    if (!force && (!this.config.enabled || text.length <= this.thresholdChars)) {
+    if (
+      !force &&
+      (!this.config.enabled || text.length <= this.thresholdChars)
+    ) {
       return { text, compressed: false };
     }
 
@@ -184,7 +196,10 @@ export class ContextCompressor {
       );
       fs.writeFileSync(file, text, "utf8");
     } catch (error) {
-      log("warn", `failed persisting compressed payload: ${errorMessage(error)}`);
+      log(
+        "warn",
+        `failed persisting compressed payload: ${errorMessage(error)}`,
+      );
     }
   }
 

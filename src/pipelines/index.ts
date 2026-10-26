@@ -41,7 +41,10 @@ function record(
 }
 
 function textOf(result: CallToolResult): string {
-  const text = result.content.filter(isTextBlock).map((block) => block.text).join("\n");
+  const text = result.content
+    .filter(isTextBlock)
+    .map((block) => block.text)
+    .join("\n");
   return text || safeJson(result.content);
 }
 
@@ -68,8 +71,14 @@ export function createPipelineTools(deps: PipelineDeps): LocalTool[] {
       inputSchema: {
         type: "object",
         properties: {
-          symptom: { type: "string", description: "Observed failure or question." },
-          program: { type: "string", description: "Program to launch under the debugger." },
+          symptom: {
+            type: "string",
+            description: "Observed failure or question.",
+          },
+          program: {
+            type: "string",
+            description: "Program to launch under the debugger.",
+          },
           filePath: { type: "string", description: "File to break on." },
           breakpoints: {
             type: "array",
@@ -84,7 +93,10 @@ export function createPipelineTools(deps: PipelineDeps): LocalTool[] {
         await deps.refresh();
         const symptom = requireString(args, "symptom", "arive_reasoned_debug");
         const steps: PipelineStep[] = [];
-        const maxSteps = Math.min(6, Math.max(1, optionalNumber(args, "maxSteps") ?? 3));
+        const maxSteps = Math.min(
+          6,
+          Math.max(1, optionalNumber(args, "maxSteps") ?? 3),
+        );
         const thoughts: string[] = [];
 
         const thinkTool = deps.find("think", [
@@ -93,7 +105,12 @@ export function createPipelineTools(deps: PipelineDeps): LocalTool[] {
           "think",
         ]);
         if (!thinkTool) {
-          record(steps, "sequential_thinking", "skipped", "think namespace unavailable.");
+          record(
+            steps,
+            "sequential_thinking",
+            "skipped",
+            "think namespace unavailable.",
+          );
         } else {
           for (let i = 1; i <= maxSteps; i++) {
             const thought =
@@ -133,7 +150,12 @@ export function createPipelineTools(deps: PipelineDeps): LocalTool[] {
         ]);
 
         if (!program) {
-          record(steps, "dap_launch", "skipped", "program is required to launch a debug session.");
+          record(
+            steps,
+            "dap_launch",
+            "skipped",
+            "program is required to launch a debug session.",
+          );
         } else if (!launchTool) {
           record(steps, "dap_launch", "skipped", "DAP namespace unavailable.");
         } else {
@@ -174,27 +196,41 @@ export function createPipelineTools(deps: PipelineDeps): LocalTool[] {
           const continueTool = deps.find("dap", ["continue", "resume", "run"]);
           if (continueTool) {
             try {
-              observations.continued = parseJson(unwrap(await deps.call(continueTool, {})));
+              observations.continued = parseJson(
+                unwrap(await deps.call(continueTool, {})),
+              );
               record(steps, "dap_continue", "ok");
             } catch (error) {
               record(steps, "dap_continue", "failed", errorMessage(error));
             }
           }
 
-          const stackTool = deps.find("dap", ["stack_trace", "get_stack_trace", "stacktrace"]);
+          const stackTool = deps.find("dap", [
+            "stack_trace",
+            "get_stack_trace",
+            "stacktrace",
+          ]);
           if (stackTool) {
             try {
-              observations.stack = parseJson(unwrap(await deps.call(stackTool, {})));
+              observations.stack = parseJson(
+                unwrap(await deps.call(stackTool, {})),
+              );
               record(steps, "dap_stack", "ok");
             } catch (error) {
               record(steps, "dap_stack", "failed", errorMessage(error));
             }
           }
 
-          const variablesTool = deps.find("dap", ["variables", "get_variables", "scopes"]);
+          const variablesTool = deps.find("dap", [
+            "variables",
+            "get_variables",
+            "scopes",
+          ]);
           if (variablesTool) {
             try {
-              observations.variables = parseJson(unwrap(await deps.call(variablesTool, {})));
+              observations.variables = parseJson(
+                unwrap(await deps.call(variablesTool, {})),
+              );
               record(steps, "dap_variables", "ok");
             } catch (error) {
               record(steps, "dap_variables", "failed", errorMessage(error));
@@ -221,7 +257,12 @@ export function createPipelineTools(deps: PipelineDeps): LocalTool[] {
             record(steps, "mem_remember", "failed", errorMessage(error));
           }
         } else {
-          record(steps, "mem_remember", "skipped", "mem namespace unavailable.");
+          record(
+            steps,
+            "mem_remember",
+            "skipped",
+            "mem namespace unavailable.",
+          );
         }
 
         return textResult({

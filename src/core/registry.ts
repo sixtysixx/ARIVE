@@ -1,11 +1,7 @@
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { NAMESPACES, type Namespace } from "./config.js";
 import type { DownstreamClient } from "./mcp-client.js";
-import {
-  errorResult,
-  type JsonObject,
-  type LocalTool,
-} from "./results.js";
+import { errorResult, type JsonObject, type LocalTool } from "./results.js";
 import { errorMessage, log } from "./log.js";
 
 interface Route {
@@ -98,7 +94,8 @@ export class ToolRegistry {
         tools.push({
           name,
           description: route.local.description,
-          inputSchema: route.local.inputSchema as unknown as Tool["inputSchema"],
+          inputSchema: route.local
+            .inputSchema as unknown as Tool["inputSchema"],
         });
       }
     }
@@ -147,7 +144,8 @@ export class ToolRegistry {
     }
 
     if (route.kind === "local") {
-      if (!route.local) return errorResult(`Local tool "${name}" is not wired.`);
+      if (!route.local)
+        return errorResult(`Local tool "${name}" is not wired.`);
       return route.local.handler(args);
     }
 
@@ -198,7 +196,10 @@ export class ToolRegistry {
     let count = 0;
     for (const route of this.routes.values()) {
       if (route.namespace !== namespace) continue;
-      if (route.kind === "downstream" || route.local?.name.startsWith(`${namespace}_`)) {
+      if (
+        route.kind === "downstream" ||
+        route.local?.name.startsWith(`${namespace}_`)
+      ) {
         count += 1;
       }
     }

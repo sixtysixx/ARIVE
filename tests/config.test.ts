@@ -49,7 +49,12 @@ describe("config", () => {
   test("merges a downstream override without dropping the others", () => {
     const config = mergeConfig({
       downstreams: [
-        { namespace: "search", enabled: true, command: "custom-search", args: ["--stdio"] },
+        {
+          namespace: "search",
+          enabled: true,
+          command: "custom-search",
+          args: ["--stdio"],
+        },
       ],
     });
     expect(config.downstreams).toHaveLength(6);
@@ -81,7 +86,9 @@ describe("config", () => {
   test("ARIVE_DISABLE turns namespaces off", () => {
     process.env.ARIVE_DISABLE = "think,lsp";
     const config = loadConfig(writeConfig({}));
-    const enabled = config.downstreams.filter((d) => d.enabled).map((d) => d.namespace);
+    const enabled = config.downstreams
+      .filter((d) => d.enabled)
+      .map((d) => d.namespace);
     expect(enabled).not.toContain("think");
     expect(enabled).not.toContain("lsp");
     expect(enabled).toContain("dap");

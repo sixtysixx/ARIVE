@@ -21,7 +21,11 @@
       "namespace": "think",
       "enabled": true,
       "command": "bun",
-      "args": ["x", "--silent", "@modelcontextprotocol/server-sequential-thinking"],
+      "args": [
+        "x",
+        "--silent",
+        "@modelcontextprotocol/server-sequential-thinking"
+      ],
       "connectTimeoutMs": 20000,
       "callTimeoutMs": 60000,
       "compress": true

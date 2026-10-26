@@ -132,7 +132,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isNamespace(value: unknown): value is Namespace {
   return (
-    typeof value === "string" && (NAMESPACES as readonly string[]).includes(value)
+    typeof value === "string" &&
+    (NAMESPACES as readonly string[]).includes(value)
   );
 }
 
@@ -152,14 +153,16 @@ export function mergeConfig(raw: unknown): AriveConfig {
     if (typeof c.enabled === "boolean") base.compression.enabled = c.enabled;
     if (typeof c.thresholdTokens === "number")
       base.compression.thresholdTokens = c.thresholdTokens;
-    if (typeof c.maxEntries === "number") base.compression.maxEntries = c.maxEntries;
+    if (typeof c.maxEntries === "number")
+      base.compression.maxEntries = c.maxEntries;
     if (typeof c.previewChars === "number")
       base.compression.previewChars = c.previewChars;
     if (typeof c.storeDir === "string") base.compression.storeDir = c.storeDir;
   }
 
   if (isRecord(raw.memory)) {
-    if (typeof raw.memory.dbPath === "string") base.memory.dbPath = raw.memory.dbPath;
+    if (typeof raw.memory.dbPath === "string")
+      base.memory.dbPath = raw.memory.dbPath;
     if (typeof raw.memory.maxItems === "number")
       base.memory.maxItems = raw.memory.maxItems;
   }
@@ -184,7 +187,9 @@ export function mergeConfig(raw: unknown): AriveConfig {
       if (typeof item.enabled === "boolean") merged.enabled = item.enabled;
       if (typeof item.command === "string") merged.command = item.command;
       if (Array.isArray(item.args))
-        merged.args = item.args.filter((a): a is string => typeof a === "string");
+        merged.args = item.args.filter(
+          (a): a is string => typeof a === "string",
+        );
       if (isRecord(item.env)) {
         merged.env = Object.fromEntries(
           Object.entries(item.env).filter(
@@ -224,20 +229,26 @@ function applyEnvOverrides(config: AriveConfig): void {
   }
 
   const compress = process.env.ARIVE_COMPRESS;
-  if (compress === "0" || compress === "false") config.compression.enabled = false;
+  if (compress === "0" || compress === "false")
+    config.compression.enabled = false;
 
   const threshold = Number(process.env.ARIVE_COMPRESS_THRESHOLD);
   if (Number.isFinite(threshold) && threshold > 0) {
     config.compression.thresholdTokens = threshold;
   }
-  if (process.env.ARIVE_MEMORY_DB) config.memory.dbPath = process.env.ARIVE_MEMORY_DB;
+  if (process.env.ARIVE_MEMORY_DB)
+    config.memory.dbPath = process.env.ARIVE_MEMORY_DB;
 
   const searchMax = Number(process.env.ARIVE_SEARCH_MAX_RESULTS);
-  if (Number.isFinite(searchMax) && searchMax > 0) config.search.maxResults = searchMax;
+  if (Number.isFinite(searchMax) && searchMax > 0)
+    config.search.maxResults = searchMax;
 }
 
 function validate(config: AriveConfig): void {
-  if (!Number.isFinite(config.compression.thresholdTokens) || config.compression.thresholdTokens <= 0) {
+  if (
+    !Number.isFinite(config.compression.thresholdTokens) ||
+    config.compression.thresholdTokens <= 0
+  ) {
     throw new Error("compression.thresholdTokens must be a positive number");
   }
   const seen = new Set<Namespace>();
@@ -247,13 +258,22 @@ function validate(config: AriveConfig): void {
     }
     seen.add(entry.namespace);
     if (entry.enabled && !entry.command.trim()) {
-      throw new Error(`Downstream "${entry.namespace}" is enabled but has no command`);
+      throw new Error(
+        `Downstream "${entry.namespace}" is enabled but has no command`,
+      );
     }
-    if (!Number.isFinite(entry.connectTimeoutMs) || entry.connectTimeoutMs <= 0) {
-      throw new Error(`Downstream "${entry.namespace}" has an invalid connectTimeoutMs`);
+    if (
+      !Number.isFinite(entry.connectTimeoutMs) ||
+      entry.connectTimeoutMs <= 0
+    ) {
+      throw new Error(
+        `Downstream "${entry.namespace}" has an invalid connectTimeoutMs`,
+      );
     }
     if (!Number.isFinite(entry.callTimeoutMs) || entry.callTimeoutMs <= 0) {
-      throw new Error(`Downstream "${entry.namespace}" has an invalid callTimeoutMs`);
+      throw new Error(
+        `Downstream "${entry.namespace}" has an invalid callTimeoutMs`,
+      );
     }
   }
 }
@@ -267,7 +287,9 @@ export function loadConfig(explicitPath?: string): AriveConfig {
     explicitPath,
     process.env.ARIVE_CONFIG,
     path.resolve(process.cwd(), "arive.config.json"),
-  ].filter((value): value is string => typeof value === "string" && value !== "");
+  ].filter(
+    (value): value is string => typeof value === "string" && value !== "",
+  );
 
   let raw: unknown = {};
   for (const candidate of candidates) {

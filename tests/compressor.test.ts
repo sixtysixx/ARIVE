@@ -53,7 +53,10 @@ describe("ContextCompressor", () => {
     const text = compressed.content[1];
     expect(text.type).toBe("text");
     if (text.type !== "text") throw new Error("expected text block");
-    const envelope = JSON.parse(text.text) as { ref: string; _arive_compressed: boolean };
+    const envelope = JSON.parse(text.text) as {
+      ref: string;
+      _arive_compressed: boolean;
+    };
     expect(envelope._arive_compressed).toBe(true);
     expect(compressor.retrieve(envelope.ref)).toBe("y".repeat(200));
   });
