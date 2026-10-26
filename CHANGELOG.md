@@ -1,8 +1,21 @@
 # Changelog
 
+## 2.0.0 — 2026-10-26
+
+Version bump only; behavior is unchanged apart from one reporting fix. The tool surface made incompatible by `5575c50` is now reflected in the number clients see.
+
+### Changed
+
+- `version` raised from `1.0.0` to `2.0.0`. Seven `arive_*` tools (`arive_compress`, `arive_decompress`, `arive_explain`, `arive_memory_bank`, `arive_think`, `arive_verify`, `arive_workspace`) were removed in `5575c50` with no major bump, so a cached `1.0.0` and a current build answered `tools/list` differently under the same version.
+- The reported version now has one source, `src/core/version.ts`. Previously `src/index.ts` hard-coded `1.0.0` while `src/core/config.ts` defaulted separately, so the two could drift. `tests/version.test.ts` asserts that `VERSION`, `package.json`, the default config, and `arive.config.example.json` all agree.
+
+### Fixed
+
+- `server.version` from a config file or `ARIVE_CONFIG` was parsed and validated but never used: the MCP `initialize` handshake and the startup log both read the hard-coded constant. Both now read `config.server.version`, so a configured version is actually reported. Default output is unchanged: `arive 2.0.0 ready`.
+
 ## 1.0.0 — 2026-10-24
 
-Retroactive record for commit `5575c50`, which landed on `master` with an empty body. Everything below is reconstructed from that diff; it adds no behavior. The published tool surface changed incompatibly while `package.json` version stayed `1.0.0`.
+Retroactive record for commit `5575c50`, which landed on `master` with an empty body. Everything below is reconstructed from that diff; it adds no behavior. It shipped as `1.0.0`, and the published tool surface changed incompatibly under that number.
 
 ### Changed
 

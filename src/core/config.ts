@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { errorMessage, log } from "./log.js";
+import { VERSION } from "./version.js";
 
 export const NAMESPACES = [
   "think",
@@ -110,7 +111,7 @@ const DEFAULT_DOWNSTREAMS: DownstreamConfig[] = [
 ];
 
 const DEFAULT_CONFIG: AriveConfig = {
-  server: { name: "arive", version: "1.0.0" },
+  server: { name: "arive", version: VERSION },
   compression: {
     enabled: true,
     thresholdTokens: 2000,

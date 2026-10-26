@@ -21,8 +21,6 @@ import { createLocalTools } from "./local/index.js";
 import { MemoryStore } from "./local/memory.js";
 import { createPipelineTools } from "./pipelines/index.js";
 
-const VERSION = "1.0.0";
-
 function readArgs(argv: string[]): { configPath?: string; verbose: boolean } {
   let configPath: string | undefined;
   let verbose = false;
@@ -67,7 +65,7 @@ function main(): Promise<void> {
     inputSchema: { type: "object", properties: {} },
     handler: () =>
       textResult({
-        server: { name: config.server.name, version: VERSION },
+        server: { name: config.server.name, version: config.server.version },
         namespaces: registry.namespaceSummary(),
         downstreams: clients.map((client) => client.status()),
         compression: compressor.stats(),
@@ -85,7 +83,7 @@ function main(): Promise<void> {
   ]);
 
   const server = new Server(
-    { name: config.server.name, version: VERSION },
+    { name: config.server.name, version: config.server.version },
     {
       capabilities: { tools: {} },
       instructions:
@@ -165,7 +163,7 @@ function main(): Promise<void> {
   return (async () => {
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    log("info", `${config.server.name} ${VERSION} ready`, {
+    log("info", `${config.server.name} ${config.server.version} ready`, {
       downstreams: clients
         .filter((client) => client.enabled)
         .map((client) => client.namespace),
