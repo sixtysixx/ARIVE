@@ -98,4 +98,32 @@ describe("config", () => {
     process.env.ARIVE_COMPRESS = "0";
     expect(loadConfig(writeConfig({})).compression.enabled).toBe(false);
   });
+
+  test("fails loudly on a missing explicit config file", () => {
+    const missing = path.join(os.tmpdir(), "arive-missing-config.json");
+    expect(() => loadConfig(missing)).toThrow(/Config file not found/);
+  });
+
+  test("fails loudly on a missing ARIVE_CONFIG file", () => {
+    process.env.ARIVE_CONFIG = path.join(
+      os.tmpdir(),
+      "arive-missing-env-config.json",
+    );
+    expect(() => loadConfig()).toThrow(/Config file not found/);
+  });
+
+  test("rejects numeric settings that cannot work", () => {
+    expect(() =>
+      loadConfig(writeConfig({ compression: { maxEntries: 0 } })),
+    ).toThrow(/maxEntries/);
+    expect(() =>
+      loadConfig(writeConfig({ compression: { previewChars: -1 } })),
+    ).toThrow(/previewChars/);
+    expect(() => loadConfig(writeConfig({ memory: { maxItems: 0 } }))).toThrow(
+      /maxItems/,
+    );
+    expect(() => loadConfig(writeConfig({ search: { maxResults: 0 } }))).toThrow(
+      /maxResults/,
+    );
+  });
 });

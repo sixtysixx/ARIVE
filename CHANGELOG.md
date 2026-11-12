@@ -1,5 +1,47 @@
 # Changelog
 
+## Unreleased
+
+Reliability and correctness pass over the gateway. The local tool surface, downstream failure costs, memory/compression/search semantics, and configuration validation changed; the wire protocol only gained one advertised capability.
+
+### Changed
+
+- **Discovery is background work.** `ToolRegistry` installs local adapters synchronously, waits at most one second on the first `tools/list`, and then serves the route table without touching any downstream. The gateway advertises `tools.listChanged` and emits `notifications/tools/list_changed` when the aggregated list actually changes. A downstream call still waits for discovery before routing, and a namespace that failed discovery is retried once when a tool in it is called explicitly.
+- **Downstream listing no longer re-spawns.** Tools reported during discovery are cached on the route, so `tools/list` costs no downstream request. The old `namespaceFromError` string matching is gone; failed results are attributed by array index.
+- **Reconnect cooldown.** A failed spawn or a closed transport parks the downstream for 30 seconds (`RETRY_COOLDOWN_MS`), exposed as `status().retryInMs` and shown by `arive_status`. Explicit tool calls bypass the cooldown.
+- **Timeouts are enforced by the MCP request layer.** `connectTimeoutMs` and `callTimeoutMs` are passed as `RequestOptions.timeout` instead of racing an abandoned promise, so a hanging request is cancelled. Timeout errors read `<namespace> tools/list timed out after …` and `<namespace>/<tool> timed out after …`. The hand-rolled `withTimeout` helper is deleted.
+- **`context_compress` lost its `contentType` argument.** It was a namespace hint that let a caller misfile a payload; the tool now always stores under `context`.
+- **`arive_status` reports `discovery` state** (`discovered`, `discovering`) alongside namespace counts.
+- **Search results report truncation honestly.** Hitting `maxResults` is detected before dropping a match, and both adapters return `truncated`. A timeout is reported as a timeout instead of a failed spawn.
+
+### Fixed
+
+- **`close()` is authoritative.** `DownstreamClient.close()` bumps a generation counter, and a handshake that completes afterwards closes its own client instead of installing it, so a shutdown can no longer be overtaken by an in-flight `connect()`. It also clears `lastError`/`retryAt`, so a deliberate close reports `connected: false` with no phantom failure or cooldown.
+- **A dead downstream no longer keeps stale routes.** A closed transport now notifies `ToolRegistry`, which marks discovery stale and re-lists: the cooldown makes the dead namespace fail fast, its routes are dropped, `discoveryErrors` gains the message, and `tools/list_changed` fires. `namespaceSummary()` gained an `enabled` flag so a disabled namespace stops looking like a healthy empty one.
+- **`ctx:` refs are validated.** `ContextCompressor.retrieve` accepts only `ctx:` plus 32 hex characters, so a ref such as `ctx:../../secret` can no longer steer the disk read. The unread `namespace` field on a compression entry is gone; refs are now an id, not a path fragment.
+- **The debug pipeline's ledger is honest.** When the launch fails or no DAP tool exists, `dap_breakpoints`/`dap_continue`/`dap_stack`/`dap_variables` are recorded as `skipped` instead of vanishing, a missing capability is recorded as `skipped` rather than omitted, and `ok` is no longer `true` for a run in which nothing succeeded.
+- **Capability lookup follows the caller's preference order.** `ToolRegistry.findTool` iterates candidates before routes, so `["launch", "attach"]` resolves to `launch` even when the downstream lists `attach` first. The old unordered `includes` also matched by iteration order.
+- **A memory drawer keeps its tags.** `mem_remember` merged nothing, so re-writing a drawer replaced its tags. It now unions them with the stored set, and its description says so.
+- **A lowered `memory.maxItems` takes effect at open.** The store prunes in its constructor instead of waiting for the next write.
+- **Recall returns what it wrote.** `mem_recall` used to patch `access_count`/`last_accessed` onto a pre-update snapshot; it now uses `UPDATE … RETURNING *` and reorders the rows to the original ranking.
+- **Compression is a threshold, not a name check.** Gateway-level tools (`arive_reasoned_debug`) were exempt from compression because their prefix is not a namespace; they now follow the global threshold, and `arive_status` is exempt explicitly instead. Compression marks results with `structuredContentOmitted: true` when it drops structured content, and `context_compress` reports disabled compression as an error instead of blaming the payload size.
+- **Search separates "killed" from "missing".** `ExecResult` carries `signal`; a ripgrep killed by a signal reports `ripgrep was killed by <signal>` instead of "install ripgrep", and a byte-capped run now contributes to `truncated`.
+- **Shutdown drains in-flight calls.** The gateway refuses new calls once shutdown starts, waits up to five seconds for running ones, and only then closes downstreams and the memory database.
+- **A bare `--config` is fatal.** `--config`/`-c` with no following path exits 1 with `--config requires a path` instead of ignoring the flag and starting on defaults.
+- **Error results are no longer compressed.** An `isError` result used to be replaced by a `ctx:` envelope, hiding the failure text behind a reference. `ContextCompressor.apply` returns error results verbatim.
+- **The disk compression store is bounded.** Files older than 7 days are pruned, then the oldest entries above 256 MiB, at startup and at most hourly. Each prune is best-effort and logs instead of throwing.
+- **Recall updates access metadata.** `mem_recall` bumped nothing, so `ORDER BY last_accessed` was effectively `ORDER BY created_at`. Recalled drawers now get a new `last_accessed` and an incremented `access_count`, and the returned rows show the incremented values.
+- **`mem_recall` normalizes filters like `mem_remember`.** Remembering with `wing: "My Wing"` and recalling with the same string previously matched nothing, because only writes were slugged.
+- **LIKE wildcards in a query are literal.** `mem_recall({ query: "100%" })` matched every drawer; `%` and `_` are now escaped.
+- **A missing explicit config file is an error.** `--config <path>` and `$ARIVE_CONFIG` pointing at a nonexistent file now fail with `Config file not found: …` instead of silently running on defaults. `./arive.config.json` stays optional.
+- **Numeric settings are validated.** `compression.maxEntries`, `compression.previewChars`, `memory.maxItems`, and `search.maxResults` reject values that cannot work (`0`, negatives, non-integers) instead of degrading at runtime.
+- **A child that dies mid-`rg` no longer risks an unhandled stdin error.** `runCommand` attaches a no-op stdin error listener.
+
+### Tests
+
+- New `tests/timeout.test.ts` (slow fixture, cooldown), `tests/search.test.ts` (truncation), `tests/context.test.ts` (envelope namespace, no `contentType`). `tests/registry.test.ts` covers a hung downstream, change notifications, namespace-less local tools, and callee-triggered rediscovery. `tests/gateway.e2e.test.ts` asserts late discovery and the `tools/list_changed` counter. `tests/memory.test.ts` covers access counts, wing normalization, and wildcard escaping. `tests/compressor.test.ts` covers error passthrough and disk pruning. `tests/config.test.ts` covers required paths and numeric validation.
+- New coverage for the state-machine fixes: `tests/downstream.test.ts` closes a client mid-handshake and asserts it stays closed without a phantom error; `tests/registry.test.ts` covers close-triggered route invalidation, the `enabled` flag, and capability preference order; `tests/compressor.test.ts` rejects unissued refs; `tests/pipelines.test.ts` covers a failed launch and a run with no successes; `tests/memory.test.ts` covers tag merging and startup pruning; `tests/search.test.ts` separates a killed child from a missing binary; `tests/gateway.e2e.test.ts` compresses composite output while leaving `arive_status` readable.
+
 ## 2.0.0 — 2026-10-26
 
 Version bump only; behavior is unchanged apart from one reporting fix. The tool surface made incompatible by `5575c50` is now reflected in the number clients see.

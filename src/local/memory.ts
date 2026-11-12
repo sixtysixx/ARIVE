@@ -29,6 +29,15 @@ interface MemoryConfig {
   maxItems: number;
 }
 
+/**
+ * Escapes SQL LIKE wildcards so a query for "100%" matches a literal percent
+ * sign instead of every drawer.
+ */
+function likePattern(value: string): string {
+  const escaped = value.replace(/[\\%_]/g, (match) => `\\${match}`);
+  return `%${escaped}%`;
+}
+
 function slug(value: string): string {
   return (
     value
@@ -67,6 +76,9 @@ export class MemoryStore {
       CREATE INDEX IF NOT EXISTS idx_drawers_room ON drawers(room);
       CREATE INDEX IF NOT EXISTS idx_drawers_hall ON drawers(hall);
     `);
+    // A lowered memory.maxItems must take effect at startup, not at the next
+    // write, or the store silently exceeds its own cap.
+    this.prune();
   }
 
   write(input: {
@@ -90,6 +102,22 @@ export class MemoryStore {
     const now = new Date().toISOString();
     const importance = Math.min(10, Math.max(1, Math.round(input.importance)));
 
+    // A rewrite identifies the same drawer, so its tags accumulate instead of
+    // being replaced by whatever the last caller happened to pass.
+    const prior = this.db
+      .prepare("SELECT tags FROM drawers WHERE drawer_id = ?")
+      .get(drawerId) as { tags: string } | undefined;
+    let priorTags: string[] = [];
+    try {
+      const parsed = JSON.parse(prior?.tags ?? "[]") as unknown;
+      if (Array.isArray(parsed)) {
+        priorTags = parsed.filter((tag): tag is string => typeof tag === "string");
+      }
+    } catch {
+      priorTags = [];
+    }
+    const tags = [...new Set([...priorTags, ...input.tags])];
+
     this.db
       .prepare(
         `INSERT INTO drawers (drawer_id, wing, room, hall, content, tags, importance, created_at, last_accessed, access_count)
@@ -107,7 +135,7 @@ export class MemoryStore {
         input.room,
         input.hall,
         content,
-        JSON.stringify(input.tags),
+        JSON.stringify(tags),
         importance,
         now,
         now,
@@ -136,9 +164,9 @@ export class MemoryStore {
 
     if (query.text) {
       clauses.push(
-        "(content LIKE ? OR tags LIKE ? OR wing LIKE ? OR room LIKE ?)",
+        "(content LIKE ? ESCAPE '\\' OR tags LIKE ? ESCAPE '\\' OR wing LIKE ? ESCAPE '\\' OR room LIKE ? ESCAPE '\\')",
       );
-      const pattern = `%${query.text}%`;
+      const pattern = likePattern(query.text);
       params.push(pattern, pattern, pattern, pattern);
     }
     if (query.wing) {
@@ -162,7 +190,25 @@ export class MemoryStore {
       )
       .all(...params) as DrawerRow[];
 
-    return rows.map((row) => this.toEntry(row));
+    if (rows.length === 0) return [];
+
+    // A recall is an access: keep recency ordering and usage counts honest.
+    // RETURNING reports the rows that were actually written, so the counters
+    // in the response cannot drift from the stored ones.
+    const now = new Date().toISOString();
+    const placeholders = rows.map(() => "?").join(",");
+    const updated = this.db
+      .prepare(
+        `UPDATE drawers SET last_accessed = ?, access_count = access_count + 1
+         WHERE drawer_id IN (${placeholders}) RETURNING *`,
+      )
+      .all(now, ...rows.map((row) => row.drawer_id)) as DrawerRow[];
+
+    const byId = new Map(updated.map((row) => [row.drawer_id, row]));
+    return rows
+      .map((row) => byId.get(row.drawer_id))
+      .filter((row): row is DrawerRow => row !== undefined)
+      .map((row) => this.toEntry(row));
   }
 
   forget(drawerId: string): JsonObject {
@@ -255,7 +301,7 @@ export function createMemoryTools(store: MemoryStore): LocalTool[] {
     {
       name: "mem_remember",
       description:
-        "[MEM] Store a durable fact, decision, or finding in the spatial memory hierarchy (wing/room/hall). Idempotent per content.",
+        "[MEM] Store a durable fact, decision, or finding in the spatial memory hierarchy (wing/room/hall). Idempotent per (wing, room, content); re-writing the same drawer merges tags and updates hall/importance.",
       inputSchema: {
         type: "object",
         properties: {
@@ -308,11 +354,14 @@ export function createMemoryTools(store: MemoryStore): LocalTool[] {
           100,
           Math.max(1, optionalNumber(args, "limit") ?? 20),
         );
+        const wing = optionalString(args, "wing");
+        const room = optionalString(args, "room");
+        const hall = optionalString(args, "hall");
         const results = store.recall({
           text: optionalString(args, "query"),
-          wing: optionalString(args, "wing"),
-          room: optionalString(args, "room"),
-          hall: optionalString(args, "hall"),
+          wing: wing ? slug(wing) : undefined,
+          room: room ? slug(room) : undefined,
+          hall: hall ? slug(hall) : undefined,
           limit,
         });
         return textResult({ count: results.length, results });

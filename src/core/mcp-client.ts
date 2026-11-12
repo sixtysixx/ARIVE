@@ -3,10 +3,16 @@ import {
   StdioClientTransport,
   getDefaultEnvironment,
 } from "@modelcontextprotocol/sdk/client/stdio.js";
-import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
+import {
+  ErrorCode,
+  McpError,
+  type CallToolResult,
+  type Tool,
+} from "@modelcontextprotocol/sdk/types.js";
 import type { DownstreamConfig, Namespace } from "./config.js";
 import { errorMessage, log } from "./log.js";
-import { type JsonObject, withTimeout } from "./results.js";
+import type { JsonObject } from "./results.js";
+import { VERSION } from "./version.js";
 
 export interface ClientStatus {
   namespace: Namespace;
@@ -14,11 +20,20 @@ export interface ClientStatus {
   connected: boolean;
   toolCount: number;
   error?: string;
+  /** Milliseconds until the next automatic reconnect attempt is allowed. */
+  retryInMs?: number;
   command: string;
 }
 
 const RECONNECT_PATTERN =
   /closed|not connected|disconnect|transport|EPIPE|ECONNRESET|broken pipe/i;
+
+/** How long a failed downstream is left alone before an automatic retry. */
+const RETRY_COOLDOWN_MS = 30_000;
+
+function isTimeout(error: unknown): boolean {
+  return error instanceof McpError && error.code === ErrorCode.RequestTimeout;
+}
 
 /**
  * A lazily started downstream MCP server. A failed server never takes down the
@@ -30,7 +45,11 @@ export class DownstreamClient {
   private client?: Client;
   private tools?: Tool[];
   private lastError?: string;
+  private retryAt = 0;
   private connecting?: Promise<void>;
+  /** Bumped by `close()` so an in-flight connect cannot resurrect the client. */
+  private generation = 0;
+  private closeHandler?: () => void;
 
   constructor(config: DownstreamConfig) {
     this.config = config;
@@ -45,6 +64,11 @@ export class DownstreamClient {
     return this.config.compress;
   }
 
+  /** Registered by the registry so a dead downstream invalidates its routes. */
+  setCloseHandler(handler: () => void): void {
+    this.closeHandler = handler;
+  }
+
   status(): ClientStatus {
     return {
       namespace: this.namespace,
@@ -52,6 +76,9 @@ export class DownstreamClient {
       connected: this.client !== undefined,
       toolCount: this.tools?.length ?? 0,
       ...(this.lastError ? { error: this.lastError } : {}),
+      ...(this.retryAt > Date.now()
+        ? { retryInMs: this.retryAt - Date.now() }
+        : {}),
       command: [this.config.command, ...this.config.args].join(" "),
     };
   }
@@ -66,17 +93,25 @@ export class DownstreamClient {
     if (this.tools && !force) return this.tools;
 
     const client = this.requireClient();
-    const result = await withTimeout(
-      client.listTools(),
-      this.config.connectTimeoutMs,
-      `${this.namespace} tools/list`,
-    );
-    this.tools = result.tools;
-    return this.tools;
+    try {
+      const result = await client.listTools(undefined, {
+        timeout: this.config.connectTimeoutMs,
+      });
+      this.tools = result.tools;
+      return this.tools;
+    } catch (error) {
+      if (isTimeout(error)) {
+        throw new Error(
+          `${this.namespace} tools/list timed out after ${this.config.connectTimeoutMs}ms`,
+        );
+      }
+      throw error;
+    }
   }
 
   async callTool(tool: string, args: JsonObject): Promise<CallToolResult> {
-    await this.connect();
+    // An explicit call is user intent, so it bypasses the reconnect cooldown.
+    await this.connect(false);
     try {
       return await this.invoke(tool, args);
     } catch (error) {
@@ -84,15 +119,23 @@ export class DownstreamClient {
       log("warn", `${this.namespace}: transport error, reconnecting once`, {
         error: errorMessage(error),
       });
+      this.lastError = undefined;
+      this.retryAt = 0;
       await this.close();
-      await this.connect();
+      await this.connect(false);
       return this.invoke(tool, args);
     }
   }
 
   async close(): Promise<void> {
+    // Increment first: any connect() awaiting a handshake must observe the
+    // close and refuse to install its client afterwards.
+    this.generation += 1;
     const client = this.client;
     this.client = undefined;
+    this.tools = undefined;
+    this.lastError = undefined;
+    this.retryAt = 0;
     if (client) {
       try {
         await client.close();
@@ -107,12 +150,23 @@ export class DownstreamClient {
     args: JsonObject,
   ): Promise<CallToolResult> {
     const client = this.requireClient();
-    const result = await withTimeout(
-      client.callTool({ name: tool, arguments: args }),
-      this.config.callTimeoutMs,
-      `${this.namespace}/${tool}`,
-    );
-    return result as CallToolResult;
+    try {
+      const result = await client.callTool(
+        { name: tool, arguments: args },
+        undefined,
+        { timeout: this.config.callTimeoutMs },
+      );
+      return result as CallToolResult;
+    } catch (error) {
+      // A timed-out request is cancelled by the SDK, so report it as such
+      // instead of letting it look like a transport failure.
+      if (isTimeout(error)) {
+        throw new Error(
+          `${this.namespace}/${tool} timed out after ${this.config.callTimeoutMs}ms`,
+        );
+      }
+      throw error;
+    }
   }
 
   private requireClient(): Client {
@@ -122,7 +176,7 @@ export class DownstreamClient {
     return this.client;
   }
 
-  private async connect(): Promise<void> {
+  private async connect(respectCooldown = true): Promise<void> {
     if (!this.config.enabled) {
       throw new Error(
         `Namespace "${this.namespace}" is disabled in configuration.`,
@@ -130,6 +184,10 @@ export class DownstreamClient {
     }
     if (this.client) return;
     if (this.connecting) return this.connecting;
+    if (respectCooldown && this.lastError && this.retryAt > Date.now()) {
+      throw new Error(this.lastError);
+    }
+    const generation = this.generation;
 
     this.connecting = (async () => {
       const transport = new StdioClientTransport({
@@ -146,32 +204,58 @@ export class DownstreamClient {
       });
 
       const client = new Client(
-        { name: "arive-gateway", version: "1.0.0" },
+        { name: "arive-gateway", version: VERSION },
         { capabilities: {} },
       );
 
+      // A crashed child must not leave a stale client behind: drop it and hold
+      // off the next automatic spawn for the cooldown window.
+      transport.onclose = () => {
+        if (this.client !== client) return;
+        this.client = undefined;
+        this.tools = undefined;
+        this.lastError = `downstream "${this.namespace}" transport closed`;
+        this.retryAt = Date.now() + RETRY_COOLDOWN_MS;
+        log("warn", `${this.namespace}: downstream transport closed`);
+        this.closeHandler?.();
+      };
+
       try {
-        await withTimeout(
-          client.connect(transport),
-          this.config.connectTimeoutMs,
-          `${this.namespace} connect`,
-        );
-        this.client = client;
-        this.lastError = undefined;
-        log("info", `${this.namespace}: downstream connected`, {
-          command: [this.config.command, ...this.config.args].join(" "),
+        await client.connect(transport, {
+          timeout: this.config.connectTimeoutMs,
         });
       } catch (error) {
-        this.lastError = errorMessage(error);
+        const message = `Failed to start downstream "${this.namespace}" (${this.config.command} ${this.config.args.join(" ")}): ${errorMessage(error)}`;
+        this.lastError = message;
+        this.retryAt = Date.now() + RETRY_COOLDOWN_MS;
         try {
           await client.close();
         } catch {
           // Ignore cleanup failures on a failed handshake.
         }
+        throw new Error(message);
+      }
+
+      // `close()` ran while the handshake was in flight: honour it instead of
+      // installing a client the caller already believes is gone. This is a
+      // deliberate shutdown, not a failure, so it sets no cooldown.
+      if (generation !== this.generation) {
+        try {
+          await client.close();
+        } catch {
+          // The gateway is shutting down; a half-open child is already gone.
+        }
         throw new Error(
-          `Failed to start downstream "${this.namespace}" (${this.config.command} ${this.config.args.join(" ")}): ${this.lastError}`,
+          `Namespace "${this.namespace}" was closed during startup.`,
         );
       }
+
+      this.client = client;
+      this.lastError = undefined;
+      this.retryAt = 0;
+      log("info", `${this.namespace}: downstream connected`, {
+        command: [this.config.command, ...this.config.args].join(" "),
+      });
     })().finally(() => {
       this.connecting = undefined;
     });

@@ -21,12 +21,21 @@ import { createLocalTools } from "./local/index.js";
 import { MemoryStore } from "./local/memory.js";
 import { createPipelineTools } from "./pipelines/index.js";
 
-function readArgs(argv: string[]): { configPath?: string; verbose: boolean } {
+function readArgs(argv: string[]): {
+  configPath?: string;
+  verbose: boolean;
+  error?: string;
+} {
   let configPath: string | undefined;
   let verbose = false;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--config" || arg === "-c") {
+      // A trailing `--config` would otherwise start the gateway on defaults,
+      // silently ignoring the path the user meant to pass.
+      if (argv[i + 1] === undefined) {
+        return { configPath, verbose, error: "--config requires a path" };
+      }
       configPath = argv[i + 1];
       i += 1;
     } else if (arg === "--verbose" || arg === "-v") {
@@ -39,7 +48,8 @@ function readArgs(argv: string[]): { configPath?: string; verbose: boolean } {
 const parsed = readArgs(process.argv.slice(2));
 if (parsed.verbose) process.env.ARIVE_LOG = "debug";
 
-function main(): Promise<void> {
+async function main(): Promise<void> {
+  if (parsed.error) throw new Error(parsed.error);
   const config = loadConfig(parsed.configPath);
 
   const compressor = new ContextCompressor(config.compression);
@@ -49,6 +59,21 @@ function main(): Promise<void> {
   );
 
   const localTools = createLocalTools({ config, compressor, memory });
+
+  // The server exists before the registry so discovery can announce late
+  // arrivals through notifications/tools/list_changed.
+  const server = new Server(
+    { name: config.server.name, version: config.server.version },
+    {
+      capabilities: { tools: { listChanged: true } },
+      instructions:
+        "ARIVE gateway. Every tool is namespaced: think_* (sequential thinking), lsp_*, dap_*, search_* (ripgrep), mem_* (spatial memory), context_* (reversible compression). " +
+        "Oversized outputs are replaced by an envelope containing a ctx: reference; call context_retrieve with that ref to recover the original losslessly. " +
+        "Use arive_reasoned_debug for reflection plus debugger inspection. " +
+        "Call arive_status to see which namespaces are live before relying on a downstream tool. " +
+        "Downstream tools are discovered after startup; the gateway emits notifications/tools/list_changed when the tool list changes.",
+    },
+  );
 
   let registry: ToolRegistry;
 
@@ -67,6 +92,7 @@ function main(): Promise<void> {
       textResult({
         server: { name: config.server.name, version: config.server.version },
         namespaces: registry.namespaceSummary(),
+        discovery: registry.discoveryState,
         downstreams: clients.map((client) => client.status()),
         compression: compressor.stats(),
         local: {
@@ -76,21 +102,17 @@ function main(): Promise<void> {
       }),
   };
 
-  registry = new ToolRegistry(clients, [
-    ...localTools,
-    ...pipelines,
-    statusTool,
-  ]);
-
-  const server = new Server(
-    { name: config.server.name, version: config.server.version },
-    {
-      capabilities: { tools: {} },
-      instructions:
-        "ARIVE gateway. Every tool is namespaced: think_* (sequential thinking), lsp_*, dap_*, search_* (ripgrep), mem_* (spatial memory), context_* (reversible compression). " +
-        "Oversized outputs are replaced by an envelope containing a ctx: reference; call context_retrieve with that ref to recover the original losslessly. " +
-        "Use arive_reasoned_debug for reflection plus debugger inspection. " +
-        "Call arive_status to see which namespaces are live before relying on a downstream tool.",
+  registry = new ToolRegistry(
+    clients,
+    [...localTools, ...pipelines, statusTool],
+    () => {
+      void server
+        .sendToolListChanged()
+        .catch((error: unknown) =>
+          log("warn", "tools/list_changed failed", {
+            error: errorMessage(error),
+          }),
+        );
     },
   );
 
@@ -104,12 +126,18 @@ function main(): Promise<void> {
     const name = request.params.name;
     const args = asObject(request.params.arguments);
 
+    if (shuttingDown) {
+      return errorResult("gateway is shutting down", { tool: name });
+    }
+    inFlight += 1;
     try {
       const result = await registry.callTool(name, args);
       return applyCompression(name, result);
     } catch (error) {
       log("error", `tool ${name} failed`, { error: errorMessage(error) });
       return errorResult(errorMessage(error), { tool: name });
+    } finally {
+      inFlight -= 1;
     }
   });
 
@@ -124,24 +152,43 @@ function main(): Promise<void> {
     name: string,
     result: CallToolResult,
   ): CallToolResult {
-    // The retrieval path must never compress its own payload, and context
-    // envelopes are already compressed by definition.
-    if (!config.compression.enabled || name === "context_retrieve")
+    // The retrieval path must never compress its own payload, and the health
+    // report must stay readable: both would hide the thing being asked for.
+    if (
+      !config.compression.enabled ||
+      name === "context_retrieve" ||
+      name === "arive_status"
+    ) {
       return result;
+    }
     const namespace = namespaceOfTool(name);
-    if (!namespace || namespace === "context") return result;
+    if (namespace === "context") return result;
 
     const downstream = clients.find((client) => client.namespace === namespace);
     if (downstream?.enabled && !downstream.compress) return result;
 
-    return compressor.apply(result, namespace);
+    // A gateway-level tool (arive_reasoned_debug) has no downstream to ask, so
+    // it follows the global threshold like everything else.
+    return compressor.apply(result, namespace ?? "arive");
   }
 
   let shuttingDown = false;
+  let inFlight = 0;
+  const DRAIN_TIMEOUT_MS = 5_000;
+
   const shutdown = async (reason: string): Promise<void> => {
     if (shuttingDown) return;
     shuttingDown = true;
     log("info", `shutting down (${reason})`);
+    // Calls already accepted must finish: closing the clients under a running
+    // tool call turns a slow answer into a transport error.
+    const deadline = Date.now() + DRAIN_TIMEOUT_MS;
+    while (inFlight > 0 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    if (inFlight > 0) {
+      log("warn", `abandoning ${inFlight} in-flight call(s) after drain timeout`);
+    }
     await Promise.allSettled(clients.map((client) => client.close()));
     try {
       memory.close();

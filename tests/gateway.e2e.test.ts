@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { ToolListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -15,6 +16,25 @@ const fakeDownstream = path.resolve(
 let client: Client;
 let transport: StdioClientTransport;
 let tempDir: string;
+let toolListChanges = 0;
+
+async function waitForTool(name: string, timeoutMs = 10_000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const { tools } = await client.listTools();
+    if (tools.some((tool) => tool.name === name)) return true;
+    await Bun.sleep(100);
+  }
+  return false;
+}
+
+async function waitForNotification(timeoutMs = 2_000): Promise<number> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline && toolListChanges === 0) {
+    await Bun.sleep(50);
+  }
+  return toolListChanges;
+}
 
 function textOf(result: unknown): string {
   const content = (
@@ -53,6 +73,9 @@ beforeAll(async () => {
     { name: "arive-e2e", version: "1.0.0" },
     { capabilities: {} },
   );
+  client.setNotificationHandler(ToolListChangedNotificationSchema, () => {
+    toolListChanges += 1;
+  });
   await client.connect(transport);
 }, 30_000);
 
@@ -75,9 +98,11 @@ describe("gateway end to end", () => {
     ]) {
       expect(names).toContain(expected);
     }
-    expect(names).toContain("lsp_echo");
     expect(names.every((name) => !name.startsWith("think_"))).toBe(true);
-  });
+
+    expect(await waitForTool("lsp_echo")).toBe(true);
+    expect(await waitForNotification()).toBeGreaterThan(0);
+  }, 20_000);
 
   test("routes a namespaced call to a real subprocess server", async () => {
     const result = await client.callTool({
@@ -133,6 +158,35 @@ describe("gateway end to end", () => {
     const payload = JSON.parse(textOf(retrieved)) as { content: string };
     const original = JSON.parse(payload.content) as { files: string[] };
     expect(original.files.length).toBeGreaterThan(3);
+  });
+
+  test("compresses gateway composite output but keeps status readable", async () => {
+    const debug = await client.callTool({
+      name: "arive_reasoned_debug",
+      arguments: { symptom: "s".repeat(400) },
+    });
+    const envelope = JSON.parse(textOf(debug)) as {
+      _arive_compressed: boolean;
+      namespace: string;
+      ref: string;
+    };
+    expect(envelope._arive_compressed).toBe(true);
+    expect(envelope.namespace).toBe("arive");
+
+    const recovered = await client.callTool({
+      name: "context_retrieve",
+      arguments: { ref: envelope.ref },
+    });
+    const payload = JSON.parse(textOf(recovered)) as { content: string };
+    expect(payload.content).toContain("s".repeat(400));
+
+    // The health report must never be hidden behind a ref.
+    const status = await client.callTool({
+      name: "arive_status",
+      arguments: {},
+    });
+    const health = JSON.parse(textOf(status)) as { namespaces: unknown };
+    expect(health.namespaces).toBeDefined();
   });
 
   test("reports namespace health", async () => {

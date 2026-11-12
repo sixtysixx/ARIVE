@@ -84,14 +84,30 @@ export function createSearchTools(defaultMaxResults: number): LocalTool[] {
         rgArgs.push("--", pattern, target);
 
         const result = await runCommand("rg", rgArgs, { timeoutMs: 20_000 });
+        if (result.timedOut) {
+          return errorResult("ripgrep timed out after 20000ms.", {
+            path: target,
+          });
+        }
         if (result.code === null) {
+          // A killed process and an unusable binary are different problems.
+          if (result.signal) {
+            return errorResult(`ripgrep was killed by ${result.signal}.`, {
+              path: target,
+            });
+          }
           return errorResult(
             "ripgrep (rg) is required for search_query but was not runnable. Install ripgrep and ensure it is on PATH.",
             { detail: result.stderr.trim() },
           );
         }
         if (result.code === 1) {
-          return textResult({ matches: [], count: 0, pattern });
+          return textResult({
+            matches: [],
+            count: 0,
+            truncated: false,
+            pattern,
+          });
         }
         if (result.code !== 0) {
           return errorResult("ripgrep failed.", {
@@ -101,6 +117,7 @@ export function createSearchTools(defaultMaxResults: number): LocalTool[] {
         }
 
         const matches: Match[] = [];
+        let truncated = false;
         for (const line of result.stdout.split("\n")) {
           if (!line.trim()) continue;
           let parsed: RgMatch;
@@ -110,6 +127,10 @@ export function createSearchTools(defaultMaxResults: number): LocalTool[] {
             continue;
           }
           if (parsed.type !== "match") continue;
+          if (matches.length >= maxResults) {
+            truncated = true;
+            break;
+          }
           const file = parsed.data.path.text ?? "";
           matches.push({
             file: relative(file),
@@ -117,13 +138,13 @@ export function createSearchTools(defaultMaxResults: number): LocalTool[] {
             column: (parsed.data.submatches?.[0]?.start ?? 0) + 1,
             text: truncate(parsed.data.lines?.text ?? ""),
           });
-          if (matches.length >= maxResults) break;
         }
 
         return textResult({
           pattern,
           count: matches.length,
-          truncated: matches.length >= maxResults,
+          // Either cap is a truncation the caller must know about.
+          truncated: truncated || result.truncated,
           matches,
         });
       },
@@ -159,11 +180,24 @@ export function createSearchTools(defaultMaxResults: number): LocalTool[] {
         rgArgs.push(target);
 
         const result = await runCommand("rg", rgArgs, { timeoutMs: 20_000 });
+        if (result.timedOut) {
+          return errorResult("ripgrep timed out after 20000ms.", {
+            path: target,
+          });
+        }
         if (result.code === null) {
+          if (result.signal) {
+            return errorResult(`ripgrep was killed by ${result.signal}.`, {
+              path: target,
+            });
+          }
           return errorResult(
             "ripgrep (rg) is required for search_files but was not runnable. Install ripgrep and ensure it is on PATH.",
             { detail: result.stderr.trim() },
           );
+        }
+        if (result.code === 1) {
+          return textResult({ count: 0, truncated: false, files: [] });
         }
         if (result.code !== 0) {
           return errorResult("ripgrep failed.", {
@@ -172,14 +206,17 @@ export function createSearchTools(defaultMaxResults: number): LocalTool[] {
           });
         }
 
-        const files = result.stdout
+        const allFiles = result.stdout
           .split("\n")
           .map((line) => line.trim())
-          .filter(Boolean)
-          .slice(0, maxResults)
-          .map(relative);
+          .filter(Boolean);
+        const files = allFiles.slice(0, maxResults).map(relative);
 
-        return textResult({ count: files.length, files });
+        return textResult({
+          count: files.length,
+          truncated: allFiles.length > maxResults || result.truncated,
+          files,
+        });
       },
     },
   ];

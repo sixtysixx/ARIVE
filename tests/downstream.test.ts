@@ -44,4 +44,17 @@ describe("downstream multiplexing", () => {
     expect(payload.echo).toBe("ping");
     expect(payload.from).toBe("fake-downstream");
   }, 20_000);
+
+  test("close() during startup keeps the client closed", async () => {
+    const late = new DownstreamClient(config);
+    const pending = late.listTools();
+    await late.close();
+    await expect(pending).rejects.toThrow("was closed during startup");
+
+    const status = late.status();
+    expect(status.connected).toBe(false);
+    expect(status.toolCount).toBe(0);
+    expect(status.error).toBeUndefined();
+    expect(status.retryInMs).toBeUndefined();
+  }, 20_000);
 });

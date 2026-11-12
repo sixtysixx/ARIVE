@@ -34,6 +34,7 @@ function fakeClient(
       command: "fake",
     }),
     close: async () => {},
+    setCloseHandler: () => {},
   } as unknown as DownstreamClient;
 }
 
@@ -52,6 +53,7 @@ describe("ToolRegistry", () => {
       [fakeClient("search", [remoteTool("query"), remoteTool("files")])],
       [localTool("context_retrieve")],
     );
+    await registry.refresh();
     const tools = await registry.listTools();
     const names = tools.map((t) => t.name);
     expect(names).toContain("search_query");
@@ -65,6 +67,7 @@ describe("ToolRegistry", () => {
       [fakeClient("context", [remoteTool("retrieve")])],
       [localTool("context_retrieve")],
     );
+    await registry.refresh();
     const tools = await registry.listTools();
     expect(tools.filter((t) => t.name === "context_retrieve")).toHaveLength(1);
     const result = await registry.callTool("context_retrieve", {});
@@ -76,7 +79,7 @@ describe("ToolRegistry", () => {
       [fakeClient("lsp", [remoteTool("diagnostics")])],
       [],
     );
-    await registry.listTools();
+    await registry.refresh();
     const result = await registry.callTool("lsp_diagnostics", { file: "a.ts" });
     expect(JSON.stringify(result.content)).toBe(
       JSON.stringify([{ type: "text", text: "remote:lsp/diagnostics" }]),
@@ -88,7 +91,7 @@ describe("ToolRegistry", () => {
       [fakeClient("think", [remoteTool("think")])],
       [],
     );
-    await registry.listTools();
+    await registry.refresh();
     const result = await registry.callTool("think_missing", {});
     expect(result.isError).toBe(true);
     const text = result.content[0];
@@ -106,7 +109,7 @@ describe("ToolRegistry", () => {
       ],
       [],
     );
-    await registry.listTools();
+    await registry.refresh();
     expect(registry.findTool("lsp", ["diagnostics"])).toBe(
       "lsp_rust_analyzer_diagnostics",
     );
@@ -116,15 +119,128 @@ describe("ToolRegistry", () => {
     expect(registry.findTool("lsp", ["nope"])).toBeUndefined();
   });
 
+  test("resolves capabilities in the caller's preference order", async () => {
+    // The downstream lists `attach` first; the caller prefers `launch`.
+    const registry = new ToolRegistry(
+      [fakeClient("dap", [remoteTool("attach"), remoteTool("launch")])],
+      [],
+    );
+    await registry.refresh();
+    expect(registry.findTool("dap", ["launch", "attach"])).toBe("dap_launch");
+    // Order is still exact-match only: a missing preferred name falls through.
+    expect(registry.findTool("dap", ["start", "attach"])).toBe("dap_attach");
+  });
+
   test("counts only real namespace tools", async () => {
     const registry = new ToolRegistry(
       [fakeClient("dap", [remoteTool("launch")])],
       [localTool("arive_status"), localTool("context_stats")],
     );
-    await registry.listTools();
+    await registry.refresh();
     expect(registry.toolCount("dap")).toBe(1);
     expect(registry.toolCount("context")).toBe(1);
     expect(registry.toolCount("mem")).toBe(0);
+  });
+
+  test("serves local tools without waiting for a hung downstream", async () => {
+    const hanging = {
+      ...fakeClient("think", []),
+      listTools: () => new Promise<Tool[]>(() => {}),
+    } as unknown as DownstreamClient;
+    const registry = new ToolRegistry([hanging], [localTool("arive_status")]);
+
+    const started = Date.now();
+    const tools = await registry.listTools();
+    const elapsed = Date.now() - started;
+
+    expect(tools.map((tool) => tool.name)).toEqual(["arive_status"]);
+    expect(elapsed).toBeLessThan(2_000);
+    expect(registry.discoveryState.discovering).toBe(true);
+  });
+
+  test("announces a changed tool list only when the route table changes", async () => {
+    let changes = 0;
+    const registry = new ToolRegistry(
+      [fakeClient("search", [remoteTool("query")])],
+      [localTool("arive_status")],
+      () => {
+        changes += 1;
+      },
+    );
+
+    expect(changes).toBe(0);
+    await registry.refresh();
+    expect(changes).toBe(1);
+    await registry.refresh();
+    expect(changes).toBe(1);
+  });
+
+  test("non-namespaced local tools belong to no namespace", async () => {
+    const registry = new ToolRegistry([], [localTool("arive_status")]);
+    await registry.refresh();
+    expect(registry.findTool("context", ["status"])).toBeUndefined();
+    expect(registry.toolCount("context")).toBe(0);
+  });
+
+  test("retries discovery once for an explicitly called namespace", async () => {
+    let attempts = 0;
+    const flaky = {
+      ...fakeClient("lsp", []),
+      listTools: async () => {
+        attempts += 1;
+        if (attempts === 1) throw new Error('Failed to start downstream "lsp"');
+        return [remoteTool("echo")];
+      },
+    } as unknown as DownstreamClient;
+    const registry = new ToolRegistry([flaky], []);
+
+    const result = await registry.callTool("lsp_echo", { text: "ping" });
+    expect(attempts).toBe(2);
+    expect(JSON.stringify(result.content)).toContain("remote:lsp/echo");
+  });
+
+  test("drops routes when a downstream transport closes", async () => {
+    let onClose: (() => void) | undefined;
+    let alive = true;
+    const flaky = {
+      ...fakeClient("lsp", []),
+      listTools: async () => {
+        if (!alive) throw new Error('downstream "lsp" transport closed');
+        return [remoteTool("echo")];
+      },
+      setCloseHandler: (handler: () => void) => {
+        onClose = handler;
+      },
+    } as unknown as DownstreamClient;
+    const registry = new ToolRegistry([flaky], []);
+
+    const before = (await registry.listTools()).map((tool) => tool.name);
+    expect(before).toContain("lsp_echo");
+
+    alive = false;
+    if (!onClose) throw new Error("registry did not register a close handler");
+    onClose();
+    await registry.refresh();
+
+    const after = (await registry.listTools()).map((tool) => tool.name);
+    expect(after).not.toContain("lsp_echo");
+    expect(registry.namespaceSummary().lsp).toEqual({
+      tools: 0,
+      enabled: true,
+      error: 'downstream "lsp" transport closed',
+    });
+  });
+
+  test("reports disabled namespaces distinctly from empty ones", async () => {
+    const registry = new ToolRegistry(
+      [fakeClient("dap", [remoteTool("launch")], false)],
+      [],
+    );
+    await registry.refresh();
+    expect(registry.namespaceSummary().dap).toEqual({
+      tools: 0,
+      enabled: false,
+    });
   });
 
   test("sanitizes invalid tool name characters", () => {

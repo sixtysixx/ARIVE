@@ -115,6 +115,52 @@ describe("reasoned debug pipeline", () => {
     expect(observations.breakpoints).toEqual({ breakpoints: 1 });
   });
 
+  test("marks follow-up steps skipped when the launch fails", async () => {
+    const deps = makeDeps({ dap: true });
+    const failing: PipelineDeps = {
+      ...deps,
+      call: async (name, args) => {
+        if (name === "dap_launch") throw new Error("debugger refused to start");
+        return deps.call(name, args);
+      },
+    };
+    const result = parse(
+      await debug(failing).handler({
+        symptom: "crash on boot",
+        program: "./app",
+        filePath: "app.ts",
+        breakpoints: [3],
+      }),
+    );
+    const steps = result.steps as Array<{
+      step: string;
+      status: string;
+      detail?: string;
+    }>;
+    const byStep = Object.fromEntries(steps.map((s) => [s.step, s.status]));
+    expect(byStep.dap_launch).toBe("failed");
+    for (const step of [
+      "dap_breakpoints",
+      "dap_continue",
+      "dap_stack",
+      "dap_variables",
+    ]) {
+      expect(byStep[step]).toBe("skipped");
+    }
+    expect(result.ok).toBe(false);
+  });
+
+  test("is not ok when no step succeeded", async () => {
+    const result = parse(
+      await debug(makeDeps({ mem: false, think: false, dap: false })).handler({
+        symptom: "nothing available",
+      }),
+    );
+    const steps = result.steps as Array<{ step: string; status: string }>;
+    expect(steps.every((s) => s.status === "skipped")).toBe(true);
+    expect(result.ok).toBe(false);
+  });
+
   test("skips the debugger when no program is supplied", async () => {
     const result = parse(
       await debug(makeDeps({ dap: true })).handler({

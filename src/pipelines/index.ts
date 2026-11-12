@@ -167,7 +167,23 @@ export function createPipelineTools(deps: PipelineDeps): LocalTool[] {
           } catch (error) {
             record(steps, "dap_launch", "failed", errorMessage(error));
           }
+        }
 
+        // A session that never launched cannot have paused anywhere, so the
+        // follow-up steps are recorded as skipped instead of disappearing.
+        const launched = steps.some(
+          (step) => step.step === "dap_launch" && step.status === "ok",
+        );
+        if (!launched) {
+          for (const step of [
+            "dap_breakpoints",
+            "dap_continue",
+            "dap_stack",
+            "dap_variables",
+          ]) {
+            record(steps, step, "skipped", "Debug session did not launch.");
+          }
+        } else {
           if (breakpointTool && filePath && breakpoints.length > 0) {
             try {
               observations.breakpoints = parseJson(
@@ -203,6 +219,13 @@ export function createPipelineTools(deps: PipelineDeps): LocalTool[] {
             } catch (error) {
               record(steps, "dap_continue", "failed", errorMessage(error));
             }
+          } else {
+            record(
+              steps,
+              "dap_continue",
+              "skipped",
+              "No continue capability advertised by the dap namespace.",
+            );
           }
 
           const stackTool = deps.find("dap", [
@@ -219,6 +242,13 @@ export function createPipelineTools(deps: PipelineDeps): LocalTool[] {
             } catch (error) {
               record(steps, "dap_stack", "failed", errorMessage(error));
             }
+          } else {
+            record(
+              steps,
+              "dap_stack",
+              "skipped",
+              "No stack_trace capability advertised by the dap namespace.",
+            );
           }
 
           const variablesTool = deps.find("dap", [
@@ -235,6 +265,13 @@ export function createPipelineTools(deps: PipelineDeps): LocalTool[] {
             } catch (error) {
               record(steps, "dap_variables", "failed", errorMessage(error));
             }
+          } else {
+            record(
+              steps,
+              "dap_variables",
+              "skipped",
+              "No variables capability advertised by the dap namespace.",
+            );
           }
         }
 
@@ -266,7 +303,11 @@ export function createPipelineTools(deps: PipelineDeps): LocalTool[] {
         }
 
         return textResult({
-          ok: steps.every((step) => step.status !== "failed"),
+          // A run where nothing succeeded is not a success, however few steps
+          // failed outright.
+          ok:
+            steps.some((step) => step.status === "ok") &&
+            steps.every((step) => step.status !== "failed"),
           symptom,
           thoughts,
           observations,

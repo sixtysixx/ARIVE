@@ -8,7 +8,6 @@ import { errorMessage, log } from "./log.js";
 
 interface Entry {
   text: string;
-  namespace: string;
   createdAt: number;
 }
 
@@ -30,6 +29,10 @@ export interface CompressionStats {
 
 const CHARS_PER_TOKEN = 4;
 const MAX_STORE_BYTES = 64 * 1024 * 1024;
+/** Disk retention is a persistence cache, so it is bounded separately. */
+const MAX_DISK_BYTES = 256 * 1024 * 1024;
+const DISK_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const DISK_PRUNE_INTERVAL_MS = 60 * 60 * 1000;
 
 /**
  * Headroom-style reversible compression. Oversized payloads are replaced by a
@@ -40,6 +43,7 @@ export class ContextCompressor {
   private readonly entries = new Map<string, Entry>();
   private bytes = 0;
   private compressions = 0;
+  private lastDiskPrune = 0;
   private readonly config: CompressionConfig;
 
   constructor(config: CompressionConfig) {
@@ -53,6 +57,7 @@ export class ContextCompressor {
           `cannot create compression store dir: ${errorMessage(error)}`,
         );
       }
+      this.pruneDisk(Date.now(), true);
     }
   }
 
@@ -67,7 +72,7 @@ export class ContextCompressor {
     );
   }
 
-  store(text: string, namespace: string): string {
+  store(text: string): string {
     const digest = createHash("sha256").update(text).digest("hex").slice(0, 32);
     const ref = `ctx:${digest}`;
 
@@ -78,7 +83,7 @@ export class ContextCompressor {
       return ref;
     }
 
-    this.entries.set(ref, { text, namespace, createdAt: Date.now() });
+    this.entries.set(ref, { text, createdAt: Date.now() });
     this.bytes += text.length;
     this.evict();
     this.persist(ref, text);
@@ -87,6 +92,9 @@ export class ContextCompressor {
 
   retrieve(ref: string): string | null {
     const normalized = ref.startsWith("ctx:") ? ref : `ctx:${ref}`;
+    // A ref is an id this store minted, never a path fragment. Without this a
+    // caller could steer the disk read at an arbitrary path.
+    if (!/^ctx:[0-9a-f]{32}$/.test(normalized)) return null;
     const entry = this.entries.get(normalized);
     if (entry) {
       this.entries.delete(normalized);
@@ -103,11 +111,7 @@ export class ContextCompressor {
         if (fs.existsSync(file)) {
           const text = fs.readFileSync(file, "utf8");
           // Rehydrate into the LRU so repeat reads are cheap.
-          this.entries.set(normalized, {
-            text,
-            namespace: "disk",
-            createdAt: Date.now(),
-          });
+          this.entries.set(normalized, { text, createdAt: Date.now() });
           this.bytes += text.length;
           this.evict();
           return text;
@@ -130,7 +134,7 @@ export class ContextCompressor {
       return { text, compressed: false };
     }
 
-    const ref = this.store(text, namespace);
+    const ref = this.store(text);
     this.compressions += 1;
 
     const preview =
@@ -155,7 +159,9 @@ export class ContextCompressor {
    * audio, resources) are always preserved untouched.
    */
   apply(result: CallToolResult, namespace: string): CallToolResult {
-    if (!this.config.enabled) return result;
+    // An error envelope would hide the failure text behind a ref, so failures
+    // always pass through verbatim.
+    if (!this.config.enabled || result.isError) return result;
 
     let compressedAny = false;
     const content = result.content.map((block) => {
@@ -167,12 +173,15 @@ export class ContextCompressor {
     });
 
     if (!compressedAny) return result;
-    return {
+    const next = {
       ...result,
       content,
       // Structured content duplicates the text; the ref is authoritative now.
       structuredContent: undefined,
-    };
+    } as CallToolResult & { structuredContentOmitted?: boolean };
+    // Distinguish "the gateway removed it" from "the server never sent any".
+    if (result.structuredContent) next.structuredContentOmitted = true;
+    return next;
   }
 
   stats(): CompressionStats {
@@ -200,6 +209,61 @@ export class ContextCompressor {
         "warn",
         `failed persisting compressed payload: ${errorMessage(error)}`,
       );
+      return;
+    }
+    this.pruneDisk(Date.now());
+  }
+
+  /**
+   * Bounds the on-disk retention cache by age and total size. Deleting a file
+   * is safe for a ref the process still holds in memory: `retrieve` checks the
+   * LRU first.
+   */
+  private pruneDisk(now: number, force = false): void {
+    const storeDir = this.config.storeDir;
+    if (!storeDir) return;
+    if (!force && now - this.lastDiskPrune < DISK_PRUNE_INTERVAL_MS) return;
+    this.lastDiskPrune = now;
+
+    const dir = path.resolve(storeDir);
+    let files: Array<{ file: string; size: number; mtimeMs: number }>;
+    try {
+      files = fs
+        .readdirSync(dir)
+        .filter((name) => name.endsWith(".txt"))
+        .map((name) => {
+          const file = path.join(dir, name);
+          const stat = fs.statSync(file);
+          return { file, size: stat.size, mtimeMs: stat.mtimeMs };
+        });
+    } catch (error) {
+      log("warn", `cannot scan compression store: ${errorMessage(error)}`);
+      return;
+    }
+
+    const removed = (file: string): void => {
+      try {
+        fs.rmSync(file, { force: true });
+      } catch (error) {
+        log(
+          "warn",
+          `failed pruning compressed payload: ${errorMessage(error)}`,
+        );
+      }
+    };
+
+    const survivors: typeof files = [];
+    for (const entry of files) {
+      if (now - entry.mtimeMs > DISK_TTL_MS) removed(entry.file);
+      else survivors.push(entry);
+    }
+
+    survivors.sort((a, b) => a.mtimeMs - b.mtimeMs);
+    let total = survivors.reduce((sum, entry) => sum + entry.size, 0);
+    for (const entry of survivors) {
+      if (total <= MAX_DISK_BYTES) break;
+      removed(entry.file);
+      total -= entry.size;
     }
   }
 

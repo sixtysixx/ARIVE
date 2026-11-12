@@ -15,6 +15,8 @@ export interface ExecResult {
   stderr: string;
   timedOut: boolean;
   truncated: boolean;
+  /** Termination signal, present only when the child was killed by one. */
+  signal: string | null;
 }
 
 /**
@@ -48,6 +50,10 @@ export function runCommand(
       child.kill("SIGKILL");
     }, timeoutMs);
 
+    // A child that exits before reading stdin would otherwise surface as an
+    // unhandled EPIPE on the write side.
+    child.stdin?.on("error", () => {});
+
     const append = (current: string, chunk: Buffer): string => {
       if (current.length >= maxBytes) {
         truncated = true;
@@ -74,17 +80,17 @@ export function runCommand(
       child.stdin?.end();
     }
 
-    const finish = (code: number | null): void => {
+    const finish = (code: number | null, signal: string | null = null): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolve({ code, stdout, stderr, timedOut, truncated });
+      resolve({ code, stdout, stderr, timedOut, truncated, signal });
     };
 
     child.on("error", (error) => {
       stderr += `spawn error: ${error.message}`;
       finish(null);
     });
-    child.on("close", (code) => finish(code));
+    child.on("close", (code, signal) => finish(code, signal));
   });
 }

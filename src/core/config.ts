@@ -252,6 +252,24 @@ function validate(config: AriveConfig): void {
   ) {
     throw new Error("compression.thresholdTokens must be a positive number");
   }
+  if (
+    !Number.isInteger(config.compression.maxEntries) ||
+    config.compression.maxEntries < 1
+  ) {
+    throw new Error("compression.maxEntries must be an integer >= 1");
+  }
+  if (
+    !Number.isInteger(config.compression.previewChars) ||
+    config.compression.previewChars < 0
+  ) {
+    throw new Error("compression.previewChars must be an integer >= 0");
+  }
+  if (!Number.isInteger(config.memory.maxItems) || config.memory.maxItems < 1) {
+    throw new Error("memory.maxItems must be an integer >= 1");
+  }
+  if (!Number.isInteger(config.search.maxResults) || config.search.maxResults < 1) {
+    throw new Error("search.maxResults must be an integer >= 1");
+  }
   const seen = new Set<Namespace>();
   for (const entry of config.downstreams) {
     if (seen.has(entry.namespace)) {
@@ -281,21 +299,28 @@ function validate(config: AriveConfig): void {
 
 /**
  * Loads configuration from an explicit path, $ARIVE_CONFIG, or ./arive.config.json.
- * Missing files are not an error: built-in defaults apply.
+ * An explicitly requested file that does not exist is an error: silently
+ * falling back to defaults hides a typo behind a working gateway.
  */
 export function loadConfig(explicitPath?: string): AriveConfig {
-  const candidates = [
-    explicitPath,
-    process.env.ARIVE_CONFIG,
-    path.resolve(process.cwd(), "arive.config.json"),
-  ].filter(
-    (value): value is string => typeof value === "string" && value !== "",
-  );
+  const candidates: Array<{ path: string; required: boolean }> = [];
+  if (explicitPath) candidates.push({ path: explicitPath, required: true });
+  if (process.env.ARIVE_CONFIG)
+    candidates.push({ path: process.env.ARIVE_CONFIG, required: true });
+  candidates.push({
+    path: path.resolve(process.cwd(), "arive.config.json"),
+    required: false,
+  });
 
   let raw: unknown = {};
   for (const candidate of candidates) {
-    const resolved = path.resolve(process.cwd(), candidate);
-    if (!fs.existsSync(resolved)) continue;
+    const resolved = path.resolve(process.cwd(), candidate.path);
+    if (!fs.existsSync(resolved)) {
+      if (candidate.required) {
+        throw new Error(`Config file not found: ${resolved}`);
+      }
+      continue;
+    }
     try {
       raw = JSON.parse(fs.readFileSync(resolved, "utf8"));
     } catch (error) {

@@ -38,15 +38,19 @@ Local adapters win name collisions. Everything else from a downstream server is 
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `arive_reasoned_debug` | Runs sequential-thinking steps, then launches a DAP session with breakpoints, stack, and variables when a debugger and `program` are available, and stores findings in memory. |
 
-The composite returns a `steps` array with `ok`, `skipped`, or `failed` per step. A missing capability is reported as `skipped` with a reason — it is never silently fabricated.
+The composite returns a `steps` array with `ok`, `skipped`, or `failed` per step. A missing capability is reported as `skipped` with a reason — it is never silently fabricated. When the debug session does not launch, the follow-up steps (`dap_breakpoints`, `dap_continue`, `dap_stack`, `dap_variables`) are recorded as `skipped` rather than omitted, and `ok` is `false` for any run where no step succeeded.
 
-`arive_status` reports namespace tool counts, downstream connection state, the memory database path, and compression store usage.
+`arive_status` reports namespace tool counts, whether each namespace is enabled, downstream connection state and reconnect cooldown, discovery state, the memory database path, and compression store usage. A transport that dies invalidates its routes immediately, so a dead namespace reports `tools: 0` with the failure rather than its last known count.
+
+`mem_remember` is idempotent per (wing, room, content): re-writing the same drawer merges its tags and updates hall/importance. A lowered `memory.maxItems` is enforced when the store opens, not at the next write.
+
+Downstream discovery runs in the background: the first `tools/list` answers with local adapters after at most one second of waiting, and the gateway emits `notifications/tools/list_changed` when spawned servers finish reporting. A call to a downstream tool waits for discovery before routing, so a client that ignores the notification still works.
 
 > Worktree-based automation, the persistent REPL kernel, and the Ponytail ruleset namespace are intentionally not part of this build.
 
 ## Reversible context compression
 
-All tool results except `context_retrieve` are inspected. When a text block exceeds `thresholdTokens` (approximate: 4 chars per token, default 2000), it is replaced by an envelope:
+All tool results except `context_retrieve` and `arive_status` are inspected. When a text block exceeds `thresholdTokens` (approximate: 4 chars per token, default 2000), it is replaced by an envelope:
 
 ```json
 {
@@ -58,7 +62,11 @@ All tool results except `context_retrieve` are inspected. When a text block exce
 }
 ```
 
-The original is retained losslessly in an LRU (default 500 entries) and optionally spilled to disk so refs survive restarts. Non-text blocks (images, audio, resources) are never touched. Set `compression.storeDir` to enable persistence.
+The original is retained losslessly in an LRU (default 500 entries) and optionally spilled to disk so refs survive restarts. Non-text blocks (images, audio, resources) are never touched. Set `compression.storeDir` to enable persistence; the disk cache is pruned at startup and hourly, dropping files older than 7 days and then the oldest entries above 256 MiB. Error results (`isError`) are never compressed, so a failure message always reaches the client verbatim.
+
+Gateway-level tools (`arive_reasoned_debug`) follow the same global threshold; only `arive_status` is exempt so health stays readable. A namespace configured with `compress: false` is exempt too. When compression replaces `structuredContent`, the result carries `structuredContentOmitted: true`, which distinguishes "the gateway dropped it" from "the server never sent any".
+
+`context_compress` refuses with an error when compression is disabled by configuration (`compression.enabled=false`, `ARIVE_COMPRESS=0`); pass `force: true` to store the payload anyway.
 
 ## Run
 
@@ -90,6 +98,8 @@ Configuration is optional. Defaults live in `src/core/config.ts`: three spawned 
 2. `$ARIVE_CONFIG`
 3. `./arive.config.json`
 4. built-in defaults
+
+A path given through `--config` or `$ARIVE_CONFIG` must exist: a typo fails startup with `Config file not found: …` instead of silently running on defaults. `./arive.config.json` stays optional. A bare `--config`/`-c` with no path is likewise fatal (`[arive] fatal: --config requires a path`, exit 1) instead of starting the gateway on defaults.
 
 Copy [`arive.config.example.json`](arive.config.example.json) to `arive.config.json` to customize. Downstream entries merge by `namespace`, so you only specify what changes.
 
@@ -170,7 +180,7 @@ bun test
 bun x tsc --noEmit
 ```
 
-Coverage includes reversible compression and eviction, config merging and validation, namespace routing and collisions, the debug composite in degraded and DAP-enabled modes, memory and search adapters, a real subprocess MCP handshake against a fixture server, and an end-to-end stdio boot that lists tools, routes a namespaced call, compresses an oversized search payload, and retrieves it losslessly.
+Coverage includes reversible compression and eviction, disk-retention pruning, error passthrough, config merging and validation, namespace routing and collisions, staged discovery with a hung downstream, reconnect cooldown, request cancellation, memory recall metadata and LIKE escaping, search truncation reporting, the debug composite in degraded and DAP-enabled modes, a real subprocess MCP handshake against a fixture server, and an end-to-end stdio boot that lists tools, announces late discovery, routes a namespaced call, compresses an oversized search payload, and retrieves it losslessly.
 
 ## Project layout
 
@@ -193,7 +203,8 @@ tests/                     # unit suites, fixtures, and a stdio end-to-end test
 
 ## Operational and security notes
 
-- **Downstream failures are contained.** A missing or misconfigured server marks its namespace unavailable; `arive_status` shows the error and the gateway keeps serving.
+- **Downstream failures are contained.** A missing or misconfigured server marks its namespace unavailable; `arive_status` shows the error and the gateway keeps serving. A failed spawn or a crashed child is not retried for 30 seconds (`retryInMs`), so discovery stays cheap; an explicit tool call retries immediately.
+- **Timeouts cancel.** `connectTimeoutMs` and `callTimeoutMs` are enforced by the MCP request layer, so a hanging request is aborted instead of lingering.
 - **The composite discovers capabilities, not fixed schemas.** It looks for candidate tool names advertised by a namespace. If a server names things differently, the step is skipped with the failure detail — configure a matching server rather than expecting a hard-coded call to work.
 - **Compression refs live in server memory** unless `compression.storeDir` is set; a restart without it invalidates old refs.
 - **Search results respect `.gitignore`** because ripgrep is invoked with its defaults.

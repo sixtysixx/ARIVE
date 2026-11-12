@@ -2,7 +2,6 @@ import type { ContextCompressor } from "../core/compressor.js";
 import {
   errorResult,
   optionalBoolean,
-  optionalString,
   requireString,
   textResult,
   type LocalTool,
@@ -23,19 +22,20 @@ export function createContextTools(compressor: ContextCompressor): LocalTool[] {
             description: "Store even when the payload is under the threshold.",
             default: false,
           },
-          contentType: {
-            type: "string",
-            enum: ["auto", "json", "text", "logs"],
-            default: "auto",
-          },
         },
         required: ["content"],
       },
       handler: (args) => {
         const content = requireString(args, "content", "context_compress");
         const force = optionalBoolean(args, "force") ?? false;
-        const namespace = optionalString(args, "contentType") ?? "context";
-        const result = compressor.compressText(content, namespace, force);
+        // Reporting "under the threshold" for a store that cannot compress at
+        // all would blame the payload for a configuration choice.
+        if (!compressor.enabled && !force) {
+          return errorResult(
+            "Compression is disabled by configuration (compression.enabled=false or ARIVE_COMPRESS=0); pass force:true to store the payload anyway.",
+          );
+        }
+        const result = compressor.compressText(content, "context", force);
         if (!result.compressed) {
           return textResult({
             compressed: false,

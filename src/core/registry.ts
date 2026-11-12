@@ -6,10 +6,20 @@ import { errorMessage, log } from "./log.js";
 
 interface Route {
   kind: "local" | "downstream";
-  namespace: Namespace;
+  /** Absent for local tools whose name carries no namespace prefix. */
+  namespace?: Namespace;
   local?: LocalTool;
   client?: DownstreamClient;
   remoteName?: string;
+  /** Last tool descriptor reported by the downstream, reused for listings. */
+  remoteTool?: Tool;
+}
+
+/** How long the first `tools/list` may wait for downstream discovery. */
+const LIST_GRACE_MS = 1_000;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export function sanitizeToolName(name: string): string {
@@ -20,127 +30,90 @@ export class ToolRegistry {
   private readonly routes = new Map<string, Route>();
   private readonly clients: DownstreamClient[];
   private readonly locals: LocalTool[];
-  private readonly localNames: Set<string>;
+  private readonly onToolsChanged?: () => void;
   private discovered = false;
-  private discoveryErrors = new Map<Namespace, string>();
+  private discovering?: Promise<void>;
+  private readonly discoveryErrors = new Map<Namespace, string>();
 
-  constructor(clients: DownstreamClient[], locals: LocalTool[]) {
+  constructor(
+    clients: DownstreamClient[],
+    locals: LocalTool[],
+    onToolsChanged?: () => void,
+  ) {
     this.clients = clients;
     this.locals = locals;
-    this.localNames = new Set(locals.map((tool) => tool.name));
+    this.onToolsChanged = onToolsChanged;
+    // Local adapters are wireable synchronously, so they answer tools/list
+    // before any downstream subprocess has finished spawning.
+    this.installLocalRoutes();
+    // A downstream that dies between discoveries would otherwise keep serving
+    // routes from a process that no longer exists.
+    for (const client of clients) {
+      client.setCloseHandler(() => {
+        this.discovered = false;
+        void this.refresh().catch((error: unknown) =>
+          log(
+            "warn",
+            `rediscovery after disconnect failed: ${errorMessage(error)}`,
+          ),
+        );
+      });
+    }
+  }
+
+  get discoveryState(): { discovered: boolean; discovering: boolean } {
+    return {
+      discovered: this.discovered,
+      discovering: this.discovering !== undefined,
+    };
   }
 
   /** Discovers every enabled downstream concurrently and rebuilds the route table. */
   async refresh(): Promise<void> {
-    const enabled = this.clients.filter((client) => client.enabled);
-    const results = await Promise.allSettled(
-      enabled.map(async (client) => ({
-        namespace: client.namespace,
-        tools: await client.listTools(),
-      })),
-    );
-
-    this.routes.clear();
-    this.discoveryErrors.clear();
-
-    for (const tool of this.locals) {
-      this.routes.set(tool.name, {
-        kind: "local",
-        namespace: namespaceOf(tool.name),
-        local: tool,
-      });
-    }
-
-    // Local adapters win collisions so that context refs and pipeline
-    // primitives cannot be shadowed by a downstream server.
-    for (const result of results) {
-      if (result.status === "rejected") continue;
-      const { namespace, tools } = result.value;
-      for (const tool of tools) {
-        const exposed = `${namespace}_${sanitizeToolName(
-          tool.name.replace(new RegExp(`^${namespace}_`), ""),
-        )}`;
-        if (this.routes.has(exposed)) {
-          log("debug", `skipping duplicate tool ${exposed} from ${namespace}`);
-          continue;
-        }
-        this.routes.set(exposed, {
-          kind: "downstream",
-          namespace,
-          client: this.clients.find((c) => c.namespace === namespace),
-          remoteName: tool.name,
-        });
-      }
-    }
-
-    for (const result of results) {
-      if (result.status === "rejected") {
-        const message = errorMessage(result.reason);
-        const namespace = namespaceFromError(enabled, message);
-        if (namespace) this.discoveryErrors.set(namespace, message);
-        log("warn", `downstream discovery failed: ${message}`);
-      }
-    }
-
-    this.discovered = true;
+    if (this.discovering) return this.discovering;
+    const pending = this.discover().finally(() => {
+      this.discovering = undefined;
+    });
+    this.discovering = pending;
+    return pending;
   }
 
   /** Returns every tool with strict namespace prefixes applied. */
   async listTools(): Promise<Tool[]> {
-    if (!this.discovered) await this.refresh();
-    const tools: Tool[] = [];
-    for (const [name, route] of this.routes) {
-      if (route.kind === "local" && route.local) {
-        tools.push({
-          name,
-          description: route.local.description,
-          inputSchema: route.local
-            .inputSchema as unknown as Tool["inputSchema"],
-        });
-      }
+    if (!this.discovered && !this.discovering) {
+      const pending = this.refresh().catch((error: unknown) => {
+        log("warn", `tool discovery failed: ${errorMessage(error)}`);
+      });
+      // A slow or hung downstream must not delay the local tool surface.
+      await Promise.race([pending, delay(LIST_GRACE_MS)]);
     }
-
-    for (const client of this.clients) {
-      if (!client.enabled) continue;
-      let remote: Tool[];
-      try {
-        remote = await client.listTools();
-      } catch {
-        continue;
-      }
-      for (const tool of remote) {
-        const exposed = `${client.namespace}_${sanitizeToolName(
-          tool.name.replace(new RegExp(`^${client.namespace}_`), ""),
-        )}`;
-        const route = this.routes.get(exposed);
-        if (!route || route.kind !== "downstream" || route.client !== client) {
-          continue;
-        }
-        tools.push({
-          ...tool,
-          name: exposed,
-          description: `[${client.namespace.toUpperCase()}] ${tool.description ?? tool.title ?? tool.name}`,
-        });
-      }
-    }
-
-    return tools.sort((a, b) => a.name.localeCompare(b.name));
+    return this.buildToolList();
   }
 
   async callTool(name: string, args: JsonObject): Promise<CallToolResult> {
     let route = this.routes.get(name);
 
     if (!route) {
-      if (!this.discovered) {
-        await this.refresh();
-        route = this.routes.get(name);
-      }
+      if (this.discovering) await this.discovering;
+      else if (!this.discovered) await this.refresh();
+      route = this.routes.get(name);
+
       if (!route) {
-        return errorResult(
-          `Unknown tool "${name}". Use the exact namespaced name returned by tools/list (for example think_sequentialthinking or context_compress).`,
-          { namespaces: this.namespaceSummary() },
-        );
+        // An explicitly requested namespace may be inside its reconnect
+        // cooldown; one discovery retry lets it recover immediately.
+        const prefix = name.split("_")[0] as Namespace;
+        if (this.discoveryErrors.has(prefix)) {
+          await this.refresh();
+          route = this.routes.get(name);
+        }
       }
+    }
+
+    if (!route) {
+      return errorResult(
+        `Unknown tool "${name}". Use the exact namespaced name returned by tools/list (for example think_sequentialthinking or context_compress).`,
+        { namespaces: this.namespaceSummary() },
+      );
     }
 
     if (route.kind === "local") {
@@ -165,17 +138,21 @@ export class ToolRegistry {
 
   /** Finds the routed name for a downstream tool by candidate remote names. */
   findTool(namespace: Namespace, candidates: string[]): string | undefined {
+    // Candidates are a preference list, so the newest route table must not be
+    // allowed to decide which synonym wins.
     const lowered = candidates.map((candidate) => candidate.toLowerCase());
-    for (const [exposed, route] of this.routes) {
-      if (route.namespace !== namespace) continue;
-      const remote =
-        route.kind === "local" ? route.local?.name : route.remoteName;
-      if (!remote) continue;
-      const short = remote
-        .replace(new RegExp(`^${namespace}_`), "")
-        .toLowerCase();
-      if (lowered.includes(short) || lowered.includes(remote.toLowerCase())) {
-        return exposed;
+    for (const candidate of lowered) {
+      for (const [exposed, route] of this.routes) {
+        if (route.namespace !== namespace) continue;
+        const remote =
+          route.kind === "local" ? route.local?.name : route.remoteName;
+        if (!remote) continue;
+        const short = remote
+          .replace(new RegExp(`^${namespace}_`), "")
+          .toLowerCase();
+        if (short === candidate || remote.toLowerCase() === candidate) {
+          return exposed;
+        }
       }
     }
     // Fall back to suffix matching for names like "rust_analyzer_diagnostics".
@@ -206,30 +183,130 @@ export class ToolRegistry {
     return count;
   }
 
-  namespaceSummary(): Record<string, { tools: number; error?: string }> {
-    const summary: Record<string, { tools: number; error?: string }> = {};
+  namespaceSummary(): Record<
+    string,
+    { tools: number; enabled: boolean; error?: string }
+  > {
+    const summary: Record<
+      string,
+      { tools: number; enabled: boolean; error?: string }
+    > = {};
     for (const namespace of NAMESPACES) {
       const error = this.discoveryErrors.get(namespace);
+      // "Disabled" and "healthy but empty" used to look identical here.
+      const enabled = this.clients.some(
+        (client) => client.namespace === namespace && client.enabled,
+      );
       summary[namespace] = {
         tools: this.toolCount(namespace),
+        enabled,
         ...(error ? { error } : {}),
       };
     }
     return summary;
   }
+
+  private async discover(): Promise<void> {
+    const before = this.signature();
+    const enabled = this.clients.filter((client) => client.enabled);
+    const results = await Promise.allSettled(
+      enabled.map((client) => client.listTools()),
+    );
+
+    this.routes.clear();
+    this.installLocalRoutes();
+    this.discoveryErrors.clear();
+
+    results.forEach((result, index) => {
+      const client = enabled[index];
+      if (!client) return;
+      if (result.status === "rejected") {
+        const message = errorMessage(result.reason);
+        this.discoveryErrors.set(client.namespace, message);
+        log("warn", `downstream discovery failed: ${message}`);
+        return;
+      }
+      // Local adapters win collisions so that context refs and pipeline
+      // primitives cannot be shadowed by a downstream server.
+      for (const tool of result.value) {
+        const exposed = `${client.namespace}_${sanitizeToolName(
+          tool.name.replace(new RegExp(`^${client.namespace}_`), ""),
+        )}`;
+        if (this.routes.has(exposed)) {
+          log(
+            "debug",
+            `skipping duplicate tool ${exposed} from ${client.namespace}`,
+          );
+          continue;
+        }
+        this.routes.set(exposed, {
+          kind: "downstream",
+          namespace: client.namespace,
+          client,
+          remoteName: tool.name,
+          remoteTool: tool,
+        });
+      }
+    });
+
+    this.discovered = true;
+    if (this.signature() !== before) this.emitChanged();
+  }
+
+  private installLocalRoutes(): void {
+    for (const tool of this.locals) {
+      this.routes.set(tool.name, {
+        kind: "local",
+        namespace: namespaceOf(tool.name),
+        local: tool,
+      });
+    }
+  }
+
+  /** Serves the current route table without touching any downstream. */
+  private buildToolList(): Tool[] {
+    const tools: Tool[] = [];
+    for (const [name, route] of this.routes) {
+      if (route.kind === "local" && route.local) {
+        tools.push({
+          name,
+          description: route.local.description,
+          inputSchema: route.local
+            .inputSchema as unknown as Tool["inputSchema"],
+        });
+        continue;
+      }
+      if (route.kind !== "downstream" || !route.remoteTool) continue;
+      tools.push({
+        ...route.remoteTool,
+        name,
+        description: `[${route.namespace?.toUpperCase()}] ${
+          route.remoteTool.description ??
+          route.remoteTool.title ??
+          route.remoteTool.name
+        }`,
+      });
+    }
+    return tools.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  private signature(): string {
+    return [...this.routes.keys()].sort().join("\n");
+  }
+
+  private emitChanged(): void {
+    if (!this.onToolsChanged) return;
+    try {
+      this.onToolsChanged();
+    } catch (error) {
+      log("warn", `tools/list_changed failed: ${errorMessage(error)}`);
+    }
+  }
 }
 
-function namespaceOf(name: string): Namespace {
+function namespaceOf(name: string): Namespace | undefined {
   const prefix = name.split("_")[0];
   return (NAMESPACES as readonly string[]).includes(prefix)
     ? (prefix as Namespace)
-    : "context";
-}
-
-function namespaceFromError(
-  clients: DownstreamClient[],
-  message: string,
-): Namespace | undefined {
-  return clients.find((client) => message.includes(`"${client.namespace}"`))
-    ?.namespace;
+    : undefined;
 }
