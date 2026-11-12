@@ -1,8 +1,10 @@
 # Changelog
 
-## Unreleased
+## 2.1.0 — 2026-11-12
 
 Reliability and correctness pass over the gateway. The local tool surface, downstream failure costs, memory/compression/search semantics, and configuration validation changed; the wire protocol only gained one advertised capability.
+
+The minor bump reflects three observable behavior changes rather than new tools: `mem_remember` unions tags on re-write instead of replacing them, gateway-level `arive_*` results are now subject to the compression threshold, and a `close()` that races a startup handshake reports `Namespace "…" was closed during startup` instead of silently connecting. Everything else is a fix.
 
 ### Changed
 
