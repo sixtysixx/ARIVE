@@ -104,9 +104,16 @@ describe("search adapter", () => {
   });
 
   test("still asks for ripgrep when the binary cannot be started", async () => {
+    // Deleting PATH is not portable: with PATH unset the OS falls back to its
+    // default search path (/bin:/usr/bin on Linux), where CI installs rg. Point
+    // PATH at a directory that cannot exist instead.
     const saved = { PATH: process.env.PATH, Path: process.env.Path };
-    delete process.env.PATH;
-    delete process.env.Path;
+    const emptyPath = path.join(
+      os.tmpdir(),
+      `arive-empty-path-${process.pid}-${Date.now()}`,
+    );
+    process.env.PATH = emptyPath;
+    if (process.platform === "win32") process.env.Path = emptyPath;
     try {
       const result = await tools.search_query!.handler({
         pattern: "needle",
@@ -116,8 +123,8 @@ describe("search adapter", () => {
       expect(JSON.stringify(result.content)).toContain("not runnable");
       expect(JSON.stringify(result.content)).not.toContain("killed by");
     } finally {
-      if (saved.PATH) process.env.PATH = saved.PATH;
-      if (saved.Path) process.env.Path = saved.Path;
+      if (saved.PATH !== undefined) process.env.PATH = saved.PATH;
+      if (saved.Path !== undefined) process.env.Path = saved.Path;
     }
   });
 });
