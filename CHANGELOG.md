@@ -1,8 +1,10 @@
 # Changelog
 
-## Unreleased
+## 2.3.0 — 2026-11-18
 
 Guard hooks at the tool boundary, one catalogue for namespace knowledge, and four hot-path fixes. No wire-protocol change: the gateway gains one tool (`arive_guard`), one config block (`hooks`), and `arive_status.hooks`.
+
+The minor bump covers the new tool and the new config surface. The refactor and the performance work are behaviour-preserving, with one exception worth knowing: the compression exemptions now follow the namespace catalogue instead of a hardcoded name list, so `context_compress` and `context_stats` join `context_retrieve` and `rag_*` in never being replaced by a `ctx:` envelope.
 
 ### Added
 

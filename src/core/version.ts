@@ -3,4 +3,4 @@
  * that it matches `package.json` and the example config, so a release bump that
  * misses one of them fails CI instead of shipping three different versions.
  */
-export const VERSION = "2.2.0";
+export const VERSION = "2.3.0";
