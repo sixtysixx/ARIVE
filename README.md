@@ -1,7 +1,12 @@
 # ARIVE
 
-A unified MCP gateway that exposes six specialist namespaces (`think`, `mem`, `lsp`, `dap`, `search`, `context`) behind one stdio server, with strict tool prefixing, reversible output compression, and graceful degradation when a downstream server is unavailable.
+**A**ggregate · **R**etrieve · **I**ndex · **V**ectorize · **E**nvelope
 
+- **Aggregate** — namespaced tool aggregation across downstream MCP servers (`ToolRegistry`)
+- **Retrieve** — `rag_query`, `search_query`, `mem_recall`, `context_retrieve`
+- **Index** — `rag_index` (line-ranged chunk store), memory drawers
+- **Vectorize** — optional Ollama/OpenAI embeddings, cosine fusion with BM25
+- **Envelope** — oversized output replaced by a `ctx:` ref that recovers losslessly
 ```text
                 ┌────────────────────────────── ARIVE gateway ─────────────────────────────┐
  MCP client ──▶ │ stdio transport → namespaced router → compression middleware → result   │
@@ -9,9 +14,9 @@ A unified MCP gateway that exposes six specialist namespaces (`think`, `mem`, `l
                         │                        │                            │
              ┌──────────▼─────────┐   ┌──────────▼─────────┐       ┌──────────▼──────────┐
              │ spawned MCP servers│   │ in-process adapters│       │ composite pipeline  │
-             │ think · lsp · dap  │   │ search · mem       │       │ arive_reasoned_*    │
+             │ think · lsp · dap  │   │ search · mem · rag │       │ arive_reasoned_*    │
              │ (optional overrides│   │ context            │       │                     │
-             │  for search/mem)   │   │                    │       │                     │
+             │ for mem/search/rag)│   │                    │       │                     │
              └────────────────────┘   └────────────────────┘       └─────────────────────┘
 ```
 
@@ -27,8 +32,9 @@ Every exposed tool carries a strict prefix, so a server can never collide with a
 | `search_*`  | **in-process** ripgrep adapter                              | `search_query`, `search_files`                          |
 | `mem_*`     | **in-process** SQLite spatial memory                        | `mem_remember`, `mem_recall`, `mem_forget`, `mem_stats` |
 | `context_*` | **in-process** reversible compressor                        | `context_compress`, `context_retrieve`, `context_stats` |
+| `rag_*`     | **in-process** SQLite FTS5 retrieval, optional embeddings   | `rag_index`, `rag_query`, `rag_stats`, `rag_forget`     |
 
-Several upstream projects in this lineage are libraries or rulesets rather than installable MCP servers. Spawning a command that does not exist would be worse than useless, so those capabilities are implemented locally with the same semantics (reversible compression, ripgrep search, spatial memory). The three real MCP packages are spawned over stdio and their full tool surface is aggregated.
+Several upstream projects in this lineage are libraries or rulesets rather than installable MCP servers. Spawning a command that does not exist would be worse than useless, so those capabilities are implemented locally with the same semantics (reversible compression, ripgrep search, spatial memory, hybrid retrieval). The three real MCP packages are spawned over stdio and their full tool surface is aggregated.
 
 Local adapters win name collisions. Everything else from a downstream server is exposed as `<namespace>_<sanitized tool name>`, with routing back to the original tool name preserved.
 
@@ -44,13 +50,15 @@ The composite returns a `steps` array with `ok`, `skipped`, or `failed` per step
 
 `mem_remember` is idempotent per (wing, room, content): re-writing the same drawer merges its tags and updates hall/importance. A lowered `memory.maxItems` is enforced when the store opens, not at the next write.
 
+`rag_index` walks a file tree with ripgrep, splits each file into line-ranged chunks, and stores them in SQLite FTS5 (BM25 weighted 4× toward a code-aware identifier column, so `compressPayload` also matches `compress` and `payload`). Indexing is incremental: equal mtime+size is skipped without reading, and an identical SHA-256 only refreshes the timestamp. Binaries, files over `rag.maxFileBytes`, and files with a single line over 4000 characters are skipped; files that disappeared under the indexed root are pruned. Vectors are optional — with `rag.embeddings.provider` set to `ollama` or `openai`, chunk embeddings are added and `rag_query` fuses BM25 with cosine similarity by reciprocal rank; failure of the provider degrades to lexical results and reports `degraded.reason` instead of failing the query, and missing vectors are backfilled by the next `rag_index`. `rag_query` returns `path:line-line` citations and never compresses them.
+
 Downstream discovery runs in the background: the first `tools/list` answers with local adapters after at most one second of waiting, and the gateway emits `notifications/tools/list_changed` when spawned servers finish reporting. A call to a downstream tool waits for discovery before routing, so a client that ignores the notification still works.
 
 > Worktree-based automation, the persistent REPL kernel, and the Ponytail ruleset namespace are intentionally not part of this build.
 
 ## Reversible context compression
 
-All tool results except `context_retrieve` and `arive_status` are inspected. When a text block exceeds `thresholdTokens` (approximate: 4 chars per token, default 2000), it is replaced by an envelope:
+All tool results except `context_retrieve`, `arive_status`, and the `rag_*` family are inspected. When a text block exceeds `thresholdTokens` (approximate: 4 chars per token, default 2000), it is replaced by an envelope:
 
 ```json
 {
@@ -64,7 +72,7 @@ All tool results except `context_retrieve` and `arive_status` are inspected. Whe
 
 The original is retained losslessly in an LRU (default 500 entries) and optionally spilled to disk so refs survive restarts. Non-text blocks (images, audio, resources) are never touched. Set `compression.storeDir` to enable persistence; the disk cache is pruned at startup and hourly, dropping files older than 7 days and then the oldest entries above 256 MiB. Error results (`isError`) are never compressed, so a failure message always reaches the client verbatim.
 
-Gateway-level tools (`arive_reasoned_debug`) follow the same global threshold; only `arive_status` is exempt so health stays readable. A namespace configured with `compress: false` is exempt too. When compression replaces `structuredContent`, the result carries `structuredContentOmitted: true`, which distinguishes "the gateway dropped it" from "the server never sent any".
+Gateway-level tools (`arive_reasoned_debug`) follow the same global threshold; only `arive_status` is exempt so health stays readable. A namespace configured with `compress: false` is exempt too, as are the local `context_*` and `rag_*` adapters: compression must never hide the payload or the retrieval answer being asked for. When compression replaces `structuredContent`, the result carries `structuredContentOmitted: true`, which distinguishes "the gateway dropped it" from "the server never sent any".
 
 `context_compress` refuses with an error when compression is disabled by configuration (`compression.enabled=false`, `ARIVE_COMPRESS=0`); pass `force: true` to store the payload anyway.
 
@@ -92,7 +100,7 @@ Requirements: Bun ≥ 1.1 and ripgrep (`rg`) on `PATH`. `git` is only needed if 
 
 ## Configuration
 
-Configuration is optional. Defaults live in `src/core/config.ts`: three spawned servers (`think`, `lsp`, `dap`) enabled, three local adapters active (`search`, `mem`, `context`). Override precedence:
+Configuration is optional. Defaults live in `src/core/config.ts`: three spawned servers (`think`, `lsp`, `dap`) enabled, four local adapters active (`search`, `mem`, `context`, `rag`). Override precedence:
 
 1. `--config <path>`
 2. `$ARIVE_CONFIG`
@@ -112,6 +120,7 @@ Environment variables:
 | `ARIVE_COMPRESS`                 | `0` disables compression entirely.                       |
 | `ARIVE_COMPRESS_THRESHOLD`       | Token threshold for compression.                         |
 | `ARIVE_MEMORY_DB`                | SQLite memory path (default `.arive/memory.db`).         |
+| `ARIVE_RAG_DB`                   | SQLite retrieval index path (default `.arive/rag.db`).   |
 | `ARIVE_SEARCH_MAX_RESULTS`       | Default ripgrep result cap.                              |
 | `ARIVE_LOG`                      | `error`, `warn`, `info` (default), `debug`; stderr only. |
 
@@ -126,6 +135,23 @@ Enable the real ripgrep server instead:
 ```json
 { "downstreams": [{ "namespace": "search", "enabled": true }] }
 ```
+
+Tune the retrieval index — every field is optional, and the default provider is offline:
+
+```json
+{
+  "rag": {
+    "chunkChars": 1200,
+    "chunkOverlapChars": 200,
+    "maxFiles": 20000,
+    "defaultTopK": 8,
+    "maxPerFile": 3,
+    "embeddings": { "provider": "ollama", "model": "nomic-embed-text" }
+  }
+}
+```
+
+`rag.embeddings.provider` accepts `none` (default), `ollama`, or `openai`. Ollama defaults to `http://127.0.0.1:11434`; the OpenAI-compatible endpoint defaults to `https://api.openai.com/v1` and reads its key from `rag.embeddings.apiKeyEnv` (default `OPENAI_API_KEY`) on every request. Set `baseUrl` to point at any compatible server. Switching models over an existing index requires `rag_index` with `force: true`, otherwise the gateway refuses to mix vectors from two models.
 
 ## Client configuration
 
@@ -180,7 +206,7 @@ bun test
 bun x tsc --noEmit
 ```
 
-Coverage includes reversible compression and eviction, disk-retention pruning, error passthrough, config merging and validation, namespace routing and collisions, staged discovery with a hung downstream, reconnect cooldown, request cancellation, memory recall metadata and LIKE escaping, search truncation reporting, the debug composite in degraded and DAP-enabled modes, a real subprocess MCP handshake against a fixture server, and an end-to-end stdio boot that lists tools, announces late discovery, routes a namespaced call, compresses an oversized search payload, and retrieves it losslessly.
+Coverage includes reversible compression and eviction, disk-retention pruning, error passthrough, config merging and validation, namespace routing and collisions, staged discovery with a hung downstream, reconnect cooldown, request cancellation, memory recall metadata and LIKE escaping, search truncation reporting, chunking and line-range round-trips, incremental and pruned RAG indexing, hybrid BM25/vector fusion with a failing and a fake HTTP embedding provider, the debug composite in degraded and DAP-enabled modes, a real subprocess MCP handshake against a fixture server, and an end-to-end stdio boot that lists tools, announces late discovery, routes a namespaced call, compresses an oversized search payload, and retrieves it losslessly.
 
 ## Project layout
 
@@ -196,6 +222,7 @@ src/
     results.ts, log.ts     # result helpers and stderr logging
   local/
     context.ts search.ts memory.ts index.ts
+    rag/                   # chunker, embeddings, FTS5 store, tools
   pipelines/
     index.ts               # arive_reasoned_debug
 tests/                     # unit suites, fixtures, and a stdio end-to-end test

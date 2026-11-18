@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.2.0 — 2026-11-18
+
+Adds a seventh namespace. `rag_*` is a local hybrid-retrieval adapter — incremental line-ranged indexing over a file tree, BM25 ranking in SQLite FTS5, and optional vector fusion — so the gateway can answer "where is this implemented?" without a network round trip or an API key.
+
+### Added
+
+- **`rag_*` namespace (in-process).** `rag_index` walks a tree with ripgrep and stores line-ranged chunks in SQLite FTS5. Indexing is incremental by mtime+size and then SHA-256, skips binaries, oversized files, and files with a single line over 4000 characters, prunes files that disappeared under the indexed root, and refuses to prune when the enumeration was capped (`truncated`), because a truncated list looks like a directory full of deletions.
+- **`rag_query` fuses lexical and vector rank.** BM25 is weighted 4× toward a code-aware identifier column (`compressPayload` indexes as `compresspayload`, `compress`, `payload`), so identifiers match without camelCase guessing. With `rag.embeddings.provider` set to `ollama` or `openai`, chunk embeddings are stored alongside the chunks and fused with reciprocal rank; results carry `path:line-line` citations, a per-file cap, and a character budget.
+- **Degradation instead of failure.** An unreachable provider, a missing API key, or a model switch without `force: true` leaves lexical results intact and reports `degraded.reason`. Missing vectors are backfilled by the next `rag_index`. The default provider is `none`, so no network call happens unless configured.
+- **Config surface.** `rag.{dbPath,chunkChars,chunkOverlapChars,maxFileBytes,maxFiles,defaultTopK,maxTopK,maxPerFile,maxVectorScan}` and `rag.embeddings.{provider,model,baseUrl,apiKeyEnv,batchSize,timeoutMs}` merge over defaults and are validated; `$ARIVE_RAG_DB` overrides the index path. A disabled `rag` downstream slot is reserved for the official Qdrant server (`uvx mcp-server-qdrant`) and loses name collisions to the local adapter.
+
+### Changed
+
+- **`arive_status` reports `local.ragDb`**, and its note lists the `rag` adapter.
+- **Retrieval results are never compressed.** The `context_*` exemption now covers `rag_*` too: an envelope would hide the citations and chunk text the caller asked for. `rag_index` and `rag_stats` summaries stay readable for the same reason.
+
 ## 2.1.0 — 2026-11-12
 
 Reliability and correctness pass over the gateway. The local tool surface, downstream failure costs, memory/compression/search semantics, and configuration validation changed; the wire protocol only gained one advertised capability.

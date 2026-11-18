@@ -10,6 +10,7 @@ export const NAMESPACES = [
   "dap",
   "search",
   "context",
+  "rag",
 ] as const;
 
 export type Namespace = (typeof NAMESPACES)[number];
@@ -37,11 +38,36 @@ export interface CompressionConfig {
   storeDir?: string;
 }
 
+export type EmbeddingProviderKind = "none" | "ollama" | "openai";
+
+export interface RagEmbeddingConfig {
+  provider: EmbeddingProviderKind;
+  model?: string;
+  baseUrl?: string;
+  apiKeyEnv: string;
+  batchSize: number;
+  timeoutMs: number;
+}
+
+export interface RagConfig {
+  dbPath: string;
+  chunkChars: number;
+  chunkOverlapChars: number;
+  maxFileBytes: number;
+  maxFiles: number;
+  defaultTopK: number;
+  maxTopK: number;
+  maxPerFile: number;
+  maxVectorScan: number;
+  embeddings: RagEmbeddingConfig;
+}
+
 export interface AriveConfig {
   server: { name: string; version: string };
   compression: CompressionConfig;
   memory: { dbPath: string; maxItems: number };
   search: { maxResults: number };
+  rag: RagConfig;
   downstreams: DownstreamConfig[];
 }
 
@@ -108,6 +134,16 @@ const DEFAULT_DOWNSTREAMS: DownstreamConfig[] = [
     callTimeoutMs: 60_000,
     compress: true,
   },
+  {
+    namespace: "rag",
+    enabled: false,
+    command: "uvx",
+    args: ["mcp-server-qdrant"], // official Qdrant RAG server; needs uv + Qdrant only if enabled
+    env: {},
+    connectTimeoutMs: 20_000,
+    callTimeoutMs: 60_000,
+    compress: true,
+  },
 ];
 
 const DEFAULT_CONFIG: AriveConfig = {
@@ -120,6 +156,23 @@ const DEFAULT_CONFIG: AriveConfig = {
   },
   memory: { dbPath: ".arive/memory.db", maxItems: 50_000 },
   search: { maxResults: 50 },
+  rag: {
+    dbPath: ".arive/rag.db",
+    chunkChars: 1200,
+    chunkOverlapChars: 200,
+    maxFileBytes: 1_000_000,
+    maxFiles: 20_000,
+    defaultTopK: 8,
+    maxTopK: 50,
+    maxPerFile: 3,
+    maxVectorScan: 50_000,
+    embeddings: {
+      provider: "none",
+      apiKeyEnv: "OPENAI_API_KEY",
+      batchSize: 32,
+      timeoutMs: 30_000,
+    },
+  },
   downstreams: DEFAULT_DOWNSTREAMS,
 };
 
@@ -170,6 +223,50 @@ export function mergeConfig(raw: unknown): AriveConfig {
 
   if (isRecord(raw.search) && typeof raw.search.maxResults === "number") {
     base.search.maxResults = raw.search.maxResults;
+  }
+
+  if (isRecord(raw.rag)) {
+    const r = raw.rag;
+    if (typeof r.dbPath === "string") base.rag.dbPath = r.dbPath;
+    if (typeof r.chunkChars === "number") base.rag.chunkChars = r.chunkChars;
+    if (typeof r.chunkOverlapChars === "number")
+      base.rag.chunkOverlapChars = r.chunkOverlapChars;
+    if (typeof r.maxFileBytes === "number")
+      base.rag.maxFileBytes = r.maxFileBytes;
+    if (typeof r.maxFiles === "number") base.rag.maxFiles = r.maxFiles;
+    if (typeof r.defaultTopK === "number")
+      base.rag.defaultTopK = r.defaultTopK;
+    if (typeof r.maxTopK === "number") base.rag.maxTopK = r.maxTopK;
+    if (typeof r.maxPerFile === "number")
+      base.rag.maxPerFile = r.maxPerFile;
+    if (typeof r.maxVectorScan === "number")
+      base.rag.maxVectorScan = r.maxVectorScan;
+
+    if (isRecord(r.embeddings)) {
+      const e = r.embeddings;
+      if (typeof e.provider === "string") {
+        if (
+          e.provider !== "none" &&
+          e.provider !== "ollama" &&
+          e.provider !== "openai"
+        ) {
+          throw new Error(
+            `Invalid rag.embeddings.provider "${e.provider}"; expected none, ollama, or openai`,
+          );
+        }
+        base.rag.embeddings.provider = e.provider;
+      }
+      if (typeof e.model === "string" && e.model !== "")
+        base.rag.embeddings.model = e.model;
+      if (typeof e.baseUrl === "string" && e.baseUrl !== "")
+        base.rag.embeddings.baseUrl = e.baseUrl;
+      if (typeof e.apiKeyEnv === "string" && e.apiKeyEnv !== "")
+        base.rag.embeddings.apiKeyEnv = e.apiKeyEnv;
+      if (typeof e.batchSize === "number")
+        base.rag.embeddings.batchSize = e.batchSize;
+      if (typeof e.timeoutMs === "number")
+        base.rag.embeddings.timeoutMs = e.timeoutMs;
+    }
   }
 
   if (Array.isArray(raw.downstreams)) {
@@ -239,6 +336,7 @@ function applyEnvOverrides(config: AriveConfig): void {
   }
   if (process.env.ARIVE_MEMORY_DB)
     config.memory.dbPath = process.env.ARIVE_MEMORY_DB;
+  if (process.env.ARIVE_RAG_DB) config.rag.dbPath = process.env.ARIVE_RAG_DB;
 
   const searchMax = Number(process.env.ARIVE_SEARCH_MAX_RESULTS);
   if (Number.isFinite(searchMax) && searchMax > 0)
@@ -269,6 +367,55 @@ function validate(config: AriveConfig): void {
   }
   if (!Number.isInteger(config.search.maxResults) || config.search.maxResults < 1) {
     throw new Error("search.maxResults must be an integer >= 1");
+  }
+  const rag = config.rag;
+  if (!Number.isInteger(rag.chunkChars) || rag.chunkChars < 100) {
+    throw new Error("rag.chunkChars must be an integer >= 100");
+  }
+  if (
+    !Number.isInteger(rag.chunkOverlapChars) ||
+    rag.chunkOverlapChars < 0 ||
+    rag.chunkOverlapChars >= rag.chunkChars
+  ) {
+    throw new Error(
+      "rag.chunkOverlapChars must be an integer >= 0 and less than rag.chunkChars",
+    );
+  }
+  if (!Number.isInteger(rag.maxFileBytes) || rag.maxFileBytes < 1) {
+    throw new Error("rag.maxFileBytes must be an integer >= 1");
+  }
+  if (!Number.isInteger(rag.maxFiles) || rag.maxFiles < 1) {
+    throw new Error("rag.maxFiles must be an integer >= 1");
+  }
+  if (!Number.isInteger(rag.defaultTopK) || rag.defaultTopK < 1) {
+    throw new Error("rag.defaultTopK must be an integer >= 1");
+  }
+  if (
+    !Number.isInteger(rag.maxTopK) ||
+    rag.maxTopK < rag.defaultTopK ||
+    rag.maxTopK > 100
+  ) {
+    throw new Error(
+      "rag.maxTopK must be an integer between rag.defaultTopK and 100",
+    );
+  }
+  if (!Number.isInteger(rag.maxPerFile) || rag.maxPerFile < 1) {
+    throw new Error("rag.maxPerFile must be an integer >= 1");
+  }
+  if (!Number.isInteger(rag.maxVectorScan) || rag.maxVectorScan < 1) {
+    throw new Error("rag.maxVectorScan must be an integer >= 1");
+  }
+  if (
+    !Number.isInteger(rag.embeddings.batchSize) ||
+    rag.embeddings.batchSize < 1
+  ) {
+    throw new Error("rag.embeddings.batchSize must be an integer >= 1");
+  }
+  if (
+    !Number.isFinite(rag.embeddings.timeoutMs) ||
+    rag.embeddings.timeoutMs <= 0
+  ) {
+    throw new Error("rag.embeddings.timeoutMs must be a positive number");
   }
   const seen = new Set<Namespace>();
   for (const entry of config.downstreams) {

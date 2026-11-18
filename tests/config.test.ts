@@ -31,11 +31,11 @@ function writeConfig(raw: unknown): string {
 }
 
 describe("config", () => {
-  test("defaults cover all six namespaces exactly once", () => {
+  test("defaults cover all seven namespaces exactly once", () => {
     const config = defaultConfig();
     const namespaces = config.downstreams.map((d) => d.namespace).sort();
     expect(namespaces).toEqual([...NAMESPACES].sort());
-    expect(new Set(namespaces).size).toBe(6);
+    expect(new Set(namespaces).size).toBe(7);
   });
 
   test("defaults spawn only the three real MCP servers", () => {
@@ -57,7 +57,7 @@ describe("config", () => {
         },
       ],
     });
-    expect(config.downstreams).toHaveLength(6);
+    expect(config.downstreams).toHaveLength(7);
     const search = config.downstreams.find((d) => d.namespace === "search");
     expect(search?.enabled).toBe(true);
     expect(search?.command).toBe("custom-search");
@@ -124,6 +124,54 @@ describe("config", () => {
     );
     expect(() => loadConfig(writeConfig({ search: { maxResults: 0 } }))).toThrow(
       /maxResults/,
+    );
+  });
+
+  test("rag defaults are offline and fully populated", () => {
+    const rag = defaultConfig().rag;
+    expect(rag.embeddings.provider).toBe("none");
+    expect(rag.chunkChars).toBe(1200);
+    expect(rag.maxTopK).toBeGreaterThanOrEqual(rag.defaultTopK);
+  });
+
+  test("merges a partial rag override without dropping other rag defaults", () => {
+    const config = mergeConfig({ rag: { chunkChars: 2000, maxTopK: 20 } });
+    expect(config.rag.chunkChars).toBe(2000);
+    expect(config.rag.maxTopK).toBe(20);
+    expect(config.rag.chunkOverlapChars).toBe(200);
+    expect(config.rag.embeddings.provider).toBe("none");
+
+    const withProvider = mergeConfig({
+      rag: { embeddings: { provider: "ollama", model: "nomic-embed-text" } },
+    });
+    expect(withProvider.rag.embeddings.provider).toBe("ollama");
+    expect(withProvider.rag.embeddings.model).toBe("nomic-embed-text");
+    expect(withProvider.rag.embeddings.batchSize).toBe(32);
+  });
+
+  test("rejects an unknown embedding provider", () => {
+    expect(() =>
+      mergeConfig({ rag: { embeddings: { provider: "cohere" } } }),
+    ).toThrow(/rag\.embeddings\.provider "cohere"/);
+  });
+
+  test("ARIVE_RAG_DB overrides the rag database path", () => {
+    process.env.ARIVE_RAG_DB = path.join(os.tmpdir(), "custom-rag.db");
+    const config = loadConfig(writeConfig({}));
+    expect(config.rag.dbPath).toBe(process.env.ARIVE_RAG_DB);
+  });
+
+  test("rejects rag settings that cannot work", () => {
+    expect(() =>
+      loadConfig(
+        writeConfig({ rag: { chunkChars: 200, chunkOverlapChars: 200 } }),
+      ),
+    ).toThrow(/chunkOverlapChars/);
+    expect(() =>
+      loadConfig(writeConfig({ rag: { defaultTopK: 20, maxTopK: 10 } })),
+    ).toThrow(/maxTopK/);
+    expect(() => loadConfig(writeConfig({ rag: { maxPerFile: 0 } }))).toThrow(
+      /maxPerFile/,
     );
   });
 });

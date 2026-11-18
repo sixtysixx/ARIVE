@@ -19,6 +19,7 @@ import {
 } from "./core/results.js";
 import { createLocalTools } from "./local/index.js";
 import { MemoryStore } from "./local/memory.js";
+import { RagStore } from "./local/rag/store.js";
 import { createPipelineTools } from "./pipelines/index.js";
 
 function readArgs(argv: string[]): {
@@ -54,11 +55,12 @@ async function main(): Promise<void> {
 
   const compressor = new ContextCompressor(config.compression);
   const memory = new MemoryStore(config.memory);
+  const rag = new RagStore(config.rag);
   const clients = config.downstreams.map(
     (entry) => new DownstreamClient(entry),
   );
 
-  const localTools = createLocalTools({ config, compressor, memory });
+  const localTools = createLocalTools({ config, compressor, memory, rag });
 
   // The server exists before the registry so discovery can announce late
   // arrivals through notifications/tools/list_changed.
@@ -67,7 +69,7 @@ async function main(): Promise<void> {
     {
       capabilities: { tools: { listChanged: true } },
       instructions:
-        "ARIVE gateway. Every tool is namespaced: think_* (sequential thinking), lsp_*, dap_*, search_* (ripgrep), mem_* (spatial memory), context_* (reversible compression). " +
+        "ARIVE gateway. Every tool is namespaced: think_* (sequential thinking), lsp_*, dap_*, search_* (ripgrep), mem_* (spatial memory), rag_* (hybrid retrieval over an indexed corpus), context_* (reversible compression). " +
         "Oversized outputs are replaced by an envelope containing a ctx: reference; call context_retrieve with that ref to recover the original losslessly. " +
         "Use arive_reasoned_debug for reflection plus debugger inspection. " +
         "Call arive_status to see which namespaces are live before relying on a downstream tool. " +
@@ -97,8 +99,9 @@ async function main(): Promise<void> {
         compression: compressor.stats(),
         local: {
           memoryDb: config.memory.dbPath,
+          ragDb: config.rag.dbPath,
         },
-        note: "Namespaces with a local adapter (context, search, mem) stay available even when no downstream server is configured.",
+        note: "Namespaces with a local adapter (context, search, mem, rag) stay available even when no downstream server is configured.",
       }),
   };
 
@@ -163,6 +166,10 @@ async function main(): Promise<void> {
     }
     const namespace = namespaceOfTool(name);
     if (namespace === "context") return result;
+    // The local RAG adapter reports what it just did (retrieved chunks with
+    // citations, index counters, stats); an envelope would hide the answer or
+    // the outcome behind a ref, so the family stays readable.
+    if (namespace === "rag") return result;
 
     const downstream = clients.find((client) => client.namespace === namespace);
     if (downstream?.enabled && !downstream.compress) return result;
@@ -194,6 +201,11 @@ async function main(): Promise<void> {
       memory.close();
     } catch (error) {
       log("warn", `memory close failed: ${errorMessage(error)}`);
+    }
+    try {
+      rag.close();
+    } catch (error) {
+      log("warn", `rag close failed: ${errorMessage(error)}`);
     }
   };
 
