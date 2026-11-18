@@ -83,61 +83,69 @@ export function createSearchTools(defaultMaxResults: number): LocalTool[] {
         if (glob) rgArgs.push("--glob", glob);
         rgArgs.push("--", pattern, target);
 
-        const result = await runCommand("rg", rgArgs, { timeoutMs: 20_000 });
-        if (result.timedOut) {
-          return errorResult("ripgrep timed out after 20000ms.", {
-            path: target,
-          });
-        }
-        if (result.code === null) {
-          // A killed process and an unusable binary are different problems.
-          if (result.signal) {
-            return errorResult(`ripgrep was killed by ${result.signal}.`, {
+        const matches: Match[] = [];
+        let truncated = false;
+        const result = await runCommand("rg", rgArgs, {
+          timeoutMs: 20_000,
+          // Parsing as the stream arrives means the cap costs one kill instead
+          // of buffering every match in the repository.
+          onStdoutLine: (line) => {
+            if (!line.trim()) return;
+            let parsed: RgMatch;
+            try {
+              parsed = JSON.parse(line) as RgMatch;
+            } catch {
+              return;
+            }
+            if (parsed.type !== "match") return;
+            // Reaching the cap is only a truncation once another match exists.
+            if (matches.length >= maxResults) {
+              truncated = true;
+              return false;
+            }
+            const file = parsed.data.path.text ?? "";
+            matches.push({
+              file: relative(file),
+              line: parsed.data.line_number ?? 0,
+              column: (parsed.data.submatches?.[0]?.start ?? 0) + 1,
+              text: truncate(parsed.data.lines?.text ?? ""),
+            });
+          },
+        });
+        // A stopped child exits by signal with a null code; the exit-code
+        // branches below would report that as an unrunnable binary.
+        if (!result.stopped) {
+          if (result.timedOut) {
+            return errorResult("ripgrep timed out after 20000ms.", {
               path: target,
             });
           }
-          return errorResult(
-            "ripgrep (rg) is required for search_query but was not runnable. Install ripgrep and ensure it is on PATH.",
-            { detail: result.stderr.trim() },
-          );
-        }
-        if (result.code === 1) {
-          return textResult({
-            matches: [],
-            count: 0,
-            truncated: false,
-            pattern,
-          });
-        }
-        if (result.code !== 0) {
-          return errorResult("ripgrep failed.", {
-            exitCode: result.code,
-            stderr: truncate(result.stderr, 2000),
-          });
-        }
-
-        const matches: Match[] = [];
-        let truncated = false;
-        for (const line of result.stdout.split("\n")) {
-          if (!line.trim()) continue;
-          let parsed: RgMatch;
-          try {
-            parsed = JSON.parse(line) as RgMatch;
-          } catch {
-            continue;
+          if (result.code === null) {
+            // A killed process and an unusable binary are different problems.
+            if (result.signal) {
+              return errorResult(`ripgrep was killed by ${result.signal}.`, {
+                path: target,
+              });
+            }
+            return errorResult(
+              "ripgrep (rg) is required for search_query but was not runnable. Install ripgrep and ensure it is on PATH.",
+              { detail: result.stderr.trim() },
+            );
           }
-          if (parsed.type !== "match") continue;
-          if (matches.length >= maxResults) {
-            truncated = true;
-            break;
+          if (result.code === 1) {
+            return textResult({
+              matches: [],
+              count: 0,
+              truncated: false,
+              pattern,
+            });
           }
-          const file = parsed.data.path.text ?? "";
-          matches.push({
-            file: relative(file),
-            line: parsed.data.line_number ?? 0,
-            column: (parsed.data.submatches?.[0]?.start ?? 0) + 1,
-            text: truncate(parsed.data.lines?.text ?? ""),
-          });
+          if (result.code !== 0) {
+            return errorResult("ripgrep failed.", {
+              exitCode: result.code,
+              stderr: truncate(result.stderr, 2000),
+            });
+          }
         }
 
         return textResult({
@@ -179,42 +187,49 @@ export function createSearchTools(defaultMaxResults: number): LocalTool[] {
         if (glob) rgArgs.push("--glob", glob);
         rgArgs.push(target);
 
-        const result = await runCommand("rg", rgArgs, { timeoutMs: 20_000 });
-        if (result.timedOut) {
-          return errorResult("ripgrep timed out after 20000ms.", {
-            path: target,
-          });
-        }
-        if (result.code === null) {
-          if (result.signal) {
-            return errorResult(`ripgrep was killed by ${result.signal}.`, {
+        const files: string[] = [];
+        const result = await runCommand("rg", rgArgs, {
+          timeoutMs: 20_000,
+          // A capped listing must not walk the whole tree first.
+          onStdoutLine: (line) => {
+            const trimmed = line.trim();
+            if (!trimmed) return;
+            if (files.length >= maxResults) return false;
+            files.push(relative(trimmed));
+          },
+        });
+        if (!result.stopped) {
+          if (result.timedOut) {
+            return errorResult("ripgrep timed out after 20000ms.", {
               path: target,
             });
           }
-          return errorResult(
-            "ripgrep (rg) is required for search_files but was not runnable. Install ripgrep and ensure it is on PATH.",
-            { detail: result.stderr.trim() },
-          );
+          if (result.code === null) {
+            if (result.signal) {
+              return errorResult(`ripgrep was killed by ${result.signal}.`, {
+                path: target,
+              });
+            }
+            return errorResult(
+              "ripgrep (rg) is required for search_files but was not runnable. Install ripgrep and ensure it is on PATH.",
+              { detail: result.stderr.trim() },
+            );
+          }
+          if (result.code === 1) {
+            return textResult({ count: 0, truncated: false, files: [] });
+          }
+          if (result.code !== 0) {
+            return errorResult("ripgrep failed.", {
+              exitCode: result.code,
+              stderr: truncate(result.stderr, 2000),
+            });
+          }
         }
-        if (result.code === 1) {
-          return textResult({ count: 0, truncated: false, files: [] });
-        }
-        if (result.code !== 0) {
-          return errorResult("ripgrep failed.", {
-            exitCode: result.code,
-            stderr: truncate(result.stderr, 2000),
-          });
-        }
-
-        const allFiles = result.stdout
-          .split("\n")
-          .map((line) => line.trim())
-          .filter(Boolean);
-        const files = allFiles.slice(0, maxResults).map(relative);
 
         return textResult({
           count: files.length,
-          truncated: allFiles.length > maxResults || result.truncated,
+          // Stopping early is itself the truncation signal.
+          truncated: result.stopped || result.truncated,
           files,
         });
       },
