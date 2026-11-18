@@ -11,6 +11,7 @@ import {
   createEmbeddingProvider,
   type EmbeddingProvider,
 } from "./embeddings.js";
+import { dot, fromBlob, toBlob, vectorLength } from "./vectors.js";
 
 export interface IndexArgs {
   path?: string;
@@ -95,20 +96,6 @@ function buildFtsQuery(query: string): string {
     terms.push(`"${token.replace(/"/g, '""')}"${token.length >= 4 ? "*" : ""}`);
   }
   return terms.join(" OR ");
-}
-
-function toBlob(vector: Float32Array): Uint8Array {
-  const copy = new Uint8Array(vector.byteLength);
-  copy.set(new Uint8Array(vector.buffer, vector.byteOffset, vector.byteLength));
-  return copy;
-}
-
-function fromBlob(bytes: Uint8Array): Float32Array {
-  // Copy first: the returned slice may be aligned differently than a
-  // Float32Array requires.
-  const copy = new Uint8Array(bytes.byteLength);
-  copy.set(bytes);
-  return new Float32Array(copy.buffer, 0, Math.floor(copy.byteLength / 4));
 }
 
 function clamp(min: number, max: number, value: number): number {
@@ -217,6 +204,11 @@ export class RagStore {
 
     for (const abs of enumeration.files) {
       counts.scanned += 1;
+      // Indexing is synchronous work over a whole tree; without a yield, every
+      // other in-flight MCP request waits for the walk to finish.
+      if (counts.scanned % 25 === 0) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
 
       let stat: fs.Stats;
       try {
@@ -671,17 +663,18 @@ export class RagStore {
 
             const ranked = scored
               .map((row) => {
-                const vector = row.embedding
-                  ? fromBlob(row.embedding)
-                  : undefined;
-                if (!vector || vector.length !== queryVector.length) {
+                // A dimension mismatch is a stale vector, not a match; the
+                // length precheck keeps it out of the dot product entirely.
+                if (
+                  !row.embedding ||
+                  vectorLength(row.embedding) !== queryVector.length
+                ) {
                   return undefined;
                 }
-                let dot = 0;
-                for (let i = 0; i < vector.length; i += 1) {
-                  dot += vector[i]! * queryVector[i]!;
-                }
-                return { row, similarity: dot };
+                return {
+                  row,
+                  similarity: dot(fromBlob(row.embedding), queryVector),
+                };
               })
               .filter(
                 (entry): entry is { row: ChunkRow; similarity: number } =>
