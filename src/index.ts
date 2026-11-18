@@ -170,6 +170,12 @@ async function main(): Promise<void> {
     if (inFlight > 0) {
       log("warn", `abandoning ${inFlight} in-flight call(s) after drain timeout`);
     }
+    // A ref already handed to a client must survive the restart it implies.
+    try {
+      await compressor.flush();
+    } catch (error) {
+      log("warn", `compression flush failed: ${errorMessage(error)}`);
+    }
     await Promise.allSettled(clients.map((client) => client.close()));
     try {
       memory.close();

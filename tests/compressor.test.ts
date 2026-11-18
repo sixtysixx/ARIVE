@@ -145,7 +145,7 @@ describe("ContextCompressor", () => {
     }
   });
 
-  test("prunes stale disk entries while keeping fresh ones retrievable", () => {
+  test("prunes stale disk entries while keeping fresh ones retrievable", async () => {
     const storeDir = fs.mkdtempSync(path.join(os.tmpdir(), "arive-store-"));
     try {
       const first = new ContextCompressor({
@@ -159,6 +159,8 @@ describe("ContextCompressor", () => {
       const freshText = "f".repeat(200);
       const staleRef = first.compressText(staleText, "test");
       const freshRef = first.compressText(freshText, "test");
+      // Spills are queued, so the files exist only after a flush.
+      await first.flush();
       const staleFile = path.join(storeDir, `${staleRef.ref!.slice(4)}.txt`);
       const eightDaysAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
       fs.utimesSync(staleFile, eightDaysAgo, eightDaysAgo);
@@ -178,6 +180,57 @@ describe("ContextCompressor", () => {
       );
       expect(second.retrieve(freshRef.ref!)).toBe(freshText);
       expect(second.retrieve(staleRef.ref!)).toBeNull();
+    } finally {
+      fs.rmSync(storeDir, { recursive: true, force: true });
+    }
+  });
+
+  test("flush makes a persisted ref readable after a restart", async () => {
+    const storeDir = fs.mkdtempSync(path.join(os.tmpdir(), "arive-store-"));
+    try {
+      const settings = {
+        enabled: true,
+        thresholdTokens: 10,
+        maxEntries: 10,
+        previewChars: 40,
+        storeDir,
+      };
+      const first = new ContextCompressor(settings);
+      const original = "p".repeat(200);
+      const ref = first.compressText(original, "test");
+      expect(ref.compressed).toBe(true);
+      await first.flush();
+
+      // A second process sharing the store dir has no LRU to fall back on.
+      const second = new ContextCompressor(settings);
+      expect(second.retrieve(ref.ref!)).toBe(original);
+    } finally {
+      fs.rmSync(storeDir, { recursive: true, force: true });
+    }
+  });
+
+  test("a failed write does not break later writes", async () => {
+    const storeDir = fs.mkdtempSync(path.join(os.tmpdir(), "arive-store-"));
+    try {
+      const compressor = new ContextCompressor({
+        enabled: true,
+        thresholdTokens: 10,
+        maxEntries: 10,
+        previewChars: 40,
+        storeDir,
+      });
+      // The queue must survive a store dir that vanished after construction.
+      fs.rmSync(storeDir, { recursive: true, force: true });
+
+      const one = compressor.compressText("a".repeat(200), "test");
+      const two = compressor.compressText("b".repeat(200), "test");
+      // Bun fails the test on an unhandled rejection; this asserts the queued
+      // catch swallowed both failures instead.
+      await compressor.flush();
+
+      expect(one.compressed).toBe(true);
+      expect(two.compressed).toBe(true);
+      expect(compressor.stats().compressions).toBe(2);
     } finally {
       fs.rmSync(storeDir, { recursive: true, force: true });
     }

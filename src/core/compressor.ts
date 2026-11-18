@@ -44,6 +44,7 @@ export class ContextCompressor {
   private bytes = 0;
   private compressions = 0;
   private lastDiskPrune = 0;
+  private pendingWrites: Promise<void> = Promise.resolve();
   private readonly config: CompressionConfig;
 
   constructor(config: CompressionConfig) {
@@ -57,7 +58,7 @@ export class ContextCompressor {
           `cannot create compression store dir: ${errorMessage(error)}`,
         );
       }
-      this.pruneDisk(Date.now(), true);
+      this.pruneDiskSync(Date.now());
     }
   }
 
@@ -197,32 +198,77 @@ export class ContextCompressor {
   }
 
   private persist(ref: string, text: string): void {
-    if (!this.config.storeDir) return;
-    try {
-      const file = path.resolve(
-        this.config.storeDir,
-        `${ref.slice("ctx:".length)}.txt`,
+    const storeDir = this.config.storeDir;
+    if (!storeDir) return;
+    const file = path.resolve(storeDir, `${ref.slice("ctx:".length)}.txt`);
+    // The write is a cache spill, not part of the answer: the request path
+    // returns immediately, and writes stay in submission order. The trailing
+    // catch keeps one failure from poisoning the queue for every later ref.
+    this.pendingWrites = this.pendingWrites
+      .then(() => fs.promises.writeFile(file, text, "utf8"))
+      .then(() => this.pruneDisk())
+      .catch((error: unknown) =>
+        log(
+          "warn",
+          `failed persisting compressed payload: ${errorMessage(error)}`,
+        ),
       );
-      fs.writeFileSync(file, text, "utf8");
-    } catch (error) {
-      log(
-        "warn",
-        `failed persisting compressed payload: ${errorMessage(error)}`,
-      );
-      return;
-    }
-    this.pruneDisk(Date.now());
+  }
+
+  /** Resolves once every queued spill has been written and pruned. */
+  async flush(): Promise<void> {
+    await this.pendingWrites;
   }
 
   /**
-   * Bounds the on-disk retention cache by age and total size. Deleting a file
-   * is safe for a ref the process still holds in memory: `retrieve` checks the
-   * LRU first.
+   * Bounds the on-disk retention cache. Deleting a file is safe for a ref the
+   * process still holds in memory: `retrieve` checks the LRU first.
    */
-  private pruneDisk(now: number, force = false): void {
+  private async pruneDisk(): Promise<void> {
     const storeDir = this.config.storeDir;
     if (!storeDir) return;
-    if (!force && now - this.lastDiskPrune < DISK_PRUNE_INTERVAL_MS) return;
+    const now = Date.now();
+    if (now - this.lastDiskPrune < DISK_PRUNE_INTERVAL_MS) return;
+    this.lastDiskPrune = now;
+
+    const dir = path.resolve(storeDir);
+    let files: Array<{ file: string; size: number; mtimeMs: number }>;
+    try {
+      const names = await fs.promises.readdir(dir);
+      files = await Promise.all(
+        names
+          .filter((name) => name.endsWith(".txt"))
+          .map(async (name) => {
+            const file = path.join(dir, name);
+            const stat = await fs.promises.stat(file);
+            return { file, size: stat.size, mtimeMs: stat.mtimeMs };
+          }),
+      );
+    } catch (error) {
+      log("warn", `cannot scan compression store: ${errorMessage(error)}`);
+      return;
+    }
+
+    for (const file of selectPrunable(files, now)) {
+      try {
+        await fs.promises.rm(file, { force: true });
+      } catch (error) {
+        log(
+          "warn",
+          `failed pruning compressed payload: ${errorMessage(error)}`,
+        );
+      }
+    }
+  }
+
+  /**
+   * The constructor's scan: it must run before the first request, so it stays
+   * synchronous and unconditional. It shares the selection rule with the
+   * periodic prune above, so the two cannot drift.
+   */
+  private pruneDiskSync(now: number): void {
+    const storeDir = this.config.storeDir;
+    if (!storeDir) return;
     this.lastDiskPrune = now;
 
     const dir = path.resolve(storeDir);
@@ -241,7 +287,7 @@ export class ContextCompressor {
       return;
     }
 
-    const removed = (file: string): void => {
+    for (const file of selectPrunable(files, now)) {
       try {
         fs.rmSync(file, { force: true });
       } catch (error) {
@@ -250,20 +296,6 @@ export class ContextCompressor {
           `failed pruning compressed payload: ${errorMessage(error)}`,
         );
       }
-    };
-
-    const survivors: typeof files = [];
-    for (const entry of files) {
-      if (now - entry.mtimeMs > DISK_TTL_MS) removed(entry.file);
-      else survivors.push(entry);
-    }
-
-    survivors.sort((a, b) => a.mtimeMs - b.mtimeMs);
-    let total = survivors.reduce((sum, entry) => sum + entry.size, 0);
-    for (const entry of survivors) {
-      if (total <= MAX_DISK_BYTES) break;
-      removed(entry.file);
-      total -= entry.size;
     }
   }
 
@@ -279,4 +311,30 @@ export class ContextCompressor {
       this.bytes -= entry?.text.length ?? 0;
     }
   }
+}
+
+/**
+ * Chooses which spill files to delete: everything past the TTL, then the oldest
+ * while the survivors still exceed the byte budget. Both prune drivers call
+ * this so the startup scan and the periodic scan cannot disagree.
+ */
+function selectPrunable(
+  files: Array<{ file: string; size: number; mtimeMs: number }>,
+  now: number,
+): string[] {
+  const doomed = files
+    .filter((entry) => now - entry.mtimeMs > DISK_TTL_MS)
+    .map((entry) => entry.file);
+
+  const survivors = files
+    .filter((entry) => now - entry.mtimeMs <= DISK_TTL_MS)
+    .sort((a, b) => a.mtimeMs - b.mtimeMs);
+
+  let total = survivors.reduce((sum, entry) => sum + entry.size, 0);
+  for (const entry of survivors) {
+    if (total <= MAX_DISK_BYTES) break;
+    doomed.push(entry.file);
+    total -= entry.size;
+  }
+  return doomed;
 }
