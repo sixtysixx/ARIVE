@@ -47,10 +47,29 @@ interface CompiledDoc {
   tool: RegExp;
 }
 
+/** Result of one `sg` process, before it is attributed to a rule. */
+type AstExec =
+  | { kind: "ok"; matched: boolean }
+  | { kind: "timeout" }
+  | { kind: "missing" }
+  | { kind: "failed"; detail: string };
+
 const MAX_MATCH_CHARS = 200;
+/** ast-grep's stderr when the pattern itself is not a valid AST. */
+const AST_PATTERN_WARNING = /^Warning: .*ERROR node/m;
 
 function emptyOutcome(): HookOutcome {
   return { violations: [], blocked: false, degraded: [], scannedChars: 0 };
+}
+
+/** Number of ast-grep matches in `--json=compact` output, or undefined. */
+function parseAstCount(stdout: string): number | undefined {
+  try {
+    const parsed: unknown = JSON.parse(stdout);
+    return Array.isArray(parsed) ? parsed.length : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -119,18 +138,17 @@ export class HookEngine {
     const scanned = serialized.slice(0, this.config.maxScanChars);
     outcome.scannedChars = scanned.length;
 
+    // Only string values can be parsed as code; a number has no AST.
+    const astTexts = Object.entries(args)
+      .filter((entry): entry is [string, string] => typeof entry[1] === "string")
+      .map(([label, text]) => ({ label, text }));
+    const cache = new Map<string, AstExec>();
+
     for (const guard of this.guards) {
       if (guard.rule.scope === "text") continue;
       if (guard.tool && !guard.tool.test(tool)) continue;
-      if (!guard.condition) continue;
-      const found = guard.condition.exec(scanned);
-      if (!found) continue;
-      outcome.violations.push({
-        rule: guard.rule.id,
-        action: guard.rule.action,
-        guidance: guard.rule.guidance,
-        match: found[0].slice(0, MAX_MATCH_CHARS),
-      });
+      const violation = await this.evaluate(guard, scanned, astTexts, cache, outcome);
+      if (violation) outcome.violations.push(violation);
     }
 
     return this.finish(outcome);
@@ -144,22 +162,160 @@ export class HookEngine {
 
     const scanned = text.slice(0, this.config.maxScanChars);
     outcome.scannedChars = scanned.length;
+    const astTexts = [{ label: "text", text: scanned }];
+    const cache = new Map<string, AstExec>();
 
     for (const guard of this.guards) {
       if (guard.rule.scope === "args") continue;
       if (tool !== undefined && guard.tool && !guard.tool.test(tool)) continue;
-      if (!guard.condition) continue;
-      const found = guard.condition.exec(scanned);
-      if (!found) continue;
-      outcome.violations.push({
-        rule: guard.rule.id,
-        action: guard.rule.action,
-        guidance: guard.rule.guidance,
-        match: found[0].slice(0, MAX_MATCH_CHARS),
-      });
+      const violation = await this.evaluate(guard, scanned, astTexts, cache, outcome);
+      if (violation) outcome.violations.push(violation);
     }
 
     return this.finish(outcome);
+  }
+
+  /**
+   * Applies one rule to one subject. A rule contributes at most one violation:
+   * a regex hit answers the rule without running `sg` at all.
+   */
+  private async evaluate(
+    guard: CompiledGuard,
+    regexText: string,
+    astTexts: Array<{ label: string; text: string }>,
+    cache: Map<string, AstExec>,
+    outcome: HookOutcome,
+  ): Promise<HookViolation | undefined> {
+    const rule = guard.rule;
+    if (guard.condition) {
+      const found = guard.condition.exec(regexText);
+      if (found) {
+        return {
+          rule: rule.id,
+          action: rule.action,
+          guidance: rule.guidance,
+          match: found[0].slice(0, MAX_MATCH_CHARS),
+        };
+      }
+    }
+    if (!rule.astCondition) return undefined;
+
+    for (const entry of astTexts) {
+      if (entry.text.length > this.config.maxScanChars) {
+        outcome.degraded.push(
+          `argument "${entry.label}" exceeds hooks.maxScanChars; astCondition rule "${rule.id}" skipped`,
+        );
+        continue;
+      }
+      const executed = await this.astMatch(rule, entry.text, cache);
+      if (executed.kind !== "ok") {
+        const reason = this.astReason(rule, executed);
+        outcome.degraded.push(reason);
+        this.astErrors += 1;
+        // Fail closed only when the deployment asked for it.
+        if (this.config.onAstError === "block") {
+          return {
+            rule: rule.id,
+            action: "block",
+            guidance: `Guard rule ${rule.id} could not be evaluated: ${reason}`,
+            match: "",
+          };
+        }
+        continue;
+      }
+      if (executed.matched) {
+        return {
+          rule: rule.id,
+          action: rule.action,
+          guidance: rule.guidance,
+          match: entry.text.trim().slice(0, MAX_MATCH_CHARS),
+        };
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Runs `sg` once per (pattern, text) pair inside a single check. The text is
+   * part of the key: sharing a result across different arguments would apply a
+   * match to text that was never parsed.
+   */
+  private async astMatch(
+    rule: GuardRuleConfig,
+    text: string,
+    cache: Map<string, AstExec>,
+  ): Promise<AstExec> {
+    const ast = rule.astCondition!;
+    const key = [
+      ast.pattern,
+      ast.lang,
+      ast.selector ?? "",
+      ast.strictness ?? "",
+      text,
+    ].join("\u0000");
+    const cached = cache.get(key);
+    if (cached) return cached;
+
+    const args = [
+      "run",
+      "--pattern",
+      ast.pattern,
+      "--lang",
+      ast.lang,
+      "--stdin",
+      "--json=compact",
+    ];
+    if (ast.selector) args.push("--selector", ast.selector);
+    if (ast.strictness) args.push("--strictness", ast.strictness);
+
+    this.astChecks += 1;
+    const result = await this.run("sg", args, {
+      stdin: text,
+      timeoutMs: this.config.astTimeoutMs,
+      maxBytes: 2_000_000,
+    });
+
+    let executed: AstExec;
+    if (result.timedOut) {
+      executed = { kind: "timeout" };
+    } else if (result.code === null && !result.signal) {
+      executed = { kind: "missing" };
+    } else if (result.code === 0 || result.code === 1) {
+      // A match exits 0 with a JSON array, no match exits 1 with `[]`, and a
+      // malformed pattern exits 0 with `[]` plus a warning on stderr.
+      const count = parseAstCount(result.stdout);
+      if (count === undefined) {
+        executed = { kind: "failed", detail: result.stderr.slice(0, 300) };
+      } else if (AST_PATTERN_WARNING.test(result.stderr)) {
+        // The parse succeeded but the pattern is unusable, so it would pass
+        // silently forever. Report it instead.
+        executed = {
+          kind: "failed",
+          detail: result.stderr.trim().split("\n")[0]!.slice(0, 300),
+        };
+      } else {
+        executed = { kind: "ok", matched: count > 0 };
+      }
+    } else {
+      executed = { kind: "failed", detail: result.stderr.slice(0, 300) };
+    }
+
+    cache.set(key, executed);
+    return executed;
+  }
+
+  /** Names the rule and the failure, because a degrade must be actionable. */
+  private astReason(rule: GuardRuleConfig, executed: AstExec): string {
+    switch (executed.kind) {
+      case "timeout":
+        return `ast-grep timed out after ${this.config.astTimeoutMs}ms for guard rule "${rule.id}"`;
+      case "missing":
+        return `ast-grep (sg) is not runnable for guard rule "${rule.id}"; install ast-grep and ensure it is on PATH`;
+      case "failed":
+        return `ast-grep failed for guard rule "${rule.id}": ${executed.detail}`;
+      default:
+        return `ast-grep could not evaluate guard rule "${rule.id}"`;
+    }
   }
 
   /**

@@ -1,5 +1,33 @@
 # Changelog
 
+## Unreleased
+
+Guard hooks at the tool boundary, one catalogue for namespace knowledge, and four hot-path fixes. No wire-protocol change: the gateway gains one tool (`arive_guard`), one config block (`hooks`), and `arive_status.hooks`.
+
+### Added
+
+- **Guard hooks.** `hooks.guards` declares rules with an `id`, a `scope` (`args`/`text`/`both`), optional `tool` and `condition` regular expressions, an `action` (`block`/`warn`), and the `guidance` a caller must follow instead. The gateway never sees the model's token stream, so enforcement happens at the boundary it owns: a `tools/call` whose arguments match a blocking rule returns `isError` with `executed: false`, the rule, its guidance, and a `<system-reminder>` block, and the tool never runs. Pipeline order is fixed — guard, dispatch, compress, annotate — so a `ctx:` envelope can never swallow the guidance. Rules are compiled once at startup and a malformed rule fails startup rather than failing open at call time; arrays replace defaults instead of merging item by item.
+- **`arive_guard`.** Evaluates the same compiled rules against generated text and returns `blocked`/`abort` with a `reminder`, so a client can validate output before committing it; `includeRules: true` returns the rule set. The configured rules are also rendered into the server `instructions`, so no client carries its own copy.
+- **Doc hooks.** `hooks.docs` appends `<arive-doc>` snippets to the results of tools selected by a `tool` pattern, which puts project conventions where the call happens.
+- **`astCondition`.** `{ pattern, lang, selector?, strictness? }` matches structure with ast-grep instead of bytes, against each string argument or the supplied text. A missing `sg`, an unusable pattern, or a run past `astTimeoutMs` is reported in `degraded` and counted as no match — never as a silent pass; `hooks.onAstError: "block"` turns an unevaluable rule into a blocked call. Identical patterns run `sg` once per check.
+
+### Changed
+
+- **One namespace catalogue.** `NAMESPACE_INFO` now owns each prefix's summary and compression policy; the server `instructions`, the compression decisions (`ToolRegistry.isCompressible`), and the README table all derive from it instead of from four hand-kept copies. `tests/catalog.test.ts` compares the README table against `NAMESPACES`, so the duplication cannot return unnoticed.
+- **Compression exemptions are declared per tool.** `arive_status` and `arive_guard` carry `compressible: false`, and `context_*`/`rag_*` are exempt by namespace policy rather than by a name list in the entry point.
+- **`arive_status` reports `hooks`** counters: guards, docs, checks, blocked, warned, astChecks, astErrors.
+
+### Performance
+
+- **`search_query` and `search_files` stream ripgrep.** `runCommand` gained a line callback that kills the child when the caller has enough, so a capped query no longer buffers or parses the whole repository. A stopped child is not mistaken for an unrunnable binary.
+- **Compression spills leave the request path.** Disk writes are queued in submission order and pruned after the write; `flush()` runs during shutdown so a ref handed to a client survives the restart it implies. The startup and periodic prunes share one selection rule.
+- **`rag_query` decodes vectors zero-copy** when the blob is 4-byte aligned and rejects dimension mismatches before touching their bytes; `rag_index` yields to the event loop every 25 files, so other in-flight requests run during a large index.
+
+### Tests
+
+- New `tests/catalog.test.ts` (catalogue/README drift, compression policy), `tests/exec.test.ts` (line callback, early kill, byte cap), `tests/rag-vectors.test.ts` (aligned and offset round trips, no aliasing), `tests/hooks.test.ts` (scope separation, tool filter, warn annotation, doc injection, rule validation, blocked envelope), and `tests/hooks.ast.test.ts` (real `sg` when spawnable, skipped otherwise; degrade behaviour with injected runners).
+- `tests/gateway.e2e.test.ts` boots the real server and asserts a blocked `search_query`, `arive_guard`'s abort payload, and `arive_guard` in the tool list; `tests/search.test.ts` and `tests/compressor.test.ts` gained cap and spill-flush coverage.
+
 ## 2.2.0 — 2026-11-18
 
 Adds a seventh namespace. `rag_*` is a local hybrid-retrieval adapter — incremental line-ranged indexing over a file tree, BM25 ranking in SQLite FTS5, and optional vector fusion — so the gateway can answer "where is this implemented?" without a network round trip or an API key.

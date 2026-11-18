@@ -115,9 +115,14 @@ Rules live in `arive.config.json` under `hooks` and are compiled once at startup
 | `guards[].scope`     | `args` (default) checks a call's arguments, `text` checks text passed to `arive_guard`, `both` does either.   |
 | `guards[].tool`      | Regular expression tested against the tool name; absent means every tool.                                     |
 | `guards[].condition` | Regular expression tested against `JSON.stringify(arguments)` or the supplied text, truncated to `maxScanChars`. |
+| `guards[].astCondition` | `{ pattern, lang, selector?, strictness? }`, evaluated by `ast-grep`: a structural match on each string argument or the supplied text. |
 | `guards[].action`    | `block` (default) returns guidance instead of running the tool; `warn` appends guidance to the result.        |
 | `guards[].guidance`  | What the caller must do instead. This is the text a blocked call returns.                                     |
 | `docs[].tool`        | Regular expression selecting the tools whose results receive this snippet.                                    |
+
+`condition` and `astCondition` are independent: a rule can carry either or both, and either one matching satisfies it.
+
+`astCondition` matches structure instead of bytes, so `{ "pattern": "require($M)", "lang": "ts" }` blocks CommonJS requires whatever the quoting or spacing. Only string arguments are parsed, and an argument longer than `maxScanChars` is skipped with a `degraded` note. `ast-grep` is optional: a missing `sg`, a pattern it cannot apply, or a run past `astTimeoutMs` is reported in `degraded` and counted as no match — never as a silent pass. Set `onAstError` to `block` to make an unevaluable rule block the call instead. Identical patterns run `sg` once per check.
 
 The pipeline order is fixed: **guard check → dispatch → compression → append reminders and docs**. A blocking rule returns `isError: true` with `executed: false`, the matched rule, its guidance, and a `<system-reminder>` block; the tool never runs, so a blocked call costs nothing. Guidance is appended after compression, so a `ctx:` envelope can never swallow the reason.
 
