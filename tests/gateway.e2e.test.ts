@@ -61,6 +61,21 @@ beforeAll(async () => {
         command: "bun",
         ...(namespace === "lsp" ? { args: ["run", fakeDownstream] } : {}),
       })),
+      hooks: {
+        guards: [
+          {
+            id: "no-credential-scan",
+            // "both" so the same rule is visible to a call check and to
+            // arive_guard, which is how a client validates generated text.
+            scope: "both",
+            tool: "^search_",
+            action: "block",
+            condition: "AKIA[0-9A-Z]{16}",
+            guidance:
+              "Never scan for literal credentials; reference secrets by name.",
+          },
+        ],
+      },
     }),
   );
   fs.writeFileSync(
@@ -101,6 +116,7 @@ describe("gateway end to end", () => {
     const { tools } = await client.listTools();
     const names = tools.map((tool) => tool.name);
     for (const expected of [
+      "arive_guard",
       "context_compress",
       "context_retrieve",
       "search_query",
@@ -117,6 +133,34 @@ describe("gateway end to end", () => {
 
     expect(await waitForTool("lsp_echo")).toBe(true);
     expect(await waitForNotification()).toBeGreaterThan(0);
+  }, 20_000);
+
+  test("blocks a tool call before it executes", async () => {
+    const result = await client.callTool({
+      name: "search_query",
+      arguments: { pattern: "AKIAABCDEFGHIJKLMNOP" },
+    });
+    expect((result as { isError?: boolean }).isError).toBe(true);
+    const body = textOf(result);
+    expect(body).toContain("no-credential-scan");
+    expect(body).toContain('"executed": false');
+    expect(body).toContain("<system-reminder>");
+    expect(body).toContain("reference secrets by name");
+  }, 20_000);
+
+  test("arive_guard returns abort guidance for text", async () => {
+    const result = await client.callTool({
+      name: "arive_guard",
+      arguments: { text: "const key = 'AKIAABCDEFGHIJKLMNOP'" },
+    });
+    const payload = JSON.parse(textOf(result)) as {
+      blocked: boolean;
+      abort: boolean;
+      reminder?: string;
+    };
+    expect(payload.blocked).toBe(true);
+    expect(payload.abort).toBe(true);
+    expect(payload.reminder).toContain("reference secrets by name");
   }, 20_000);
 
   test("routes a namespaced call to a real subprocess server", async () => {

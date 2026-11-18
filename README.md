@@ -38,15 +38,15 @@ Several upstream projects in this lineage are libraries or rulesets rather than 
 
 Local adapters win name collisions. Everything else from a downstream server is exposed as `<namespace>_<sanitized tool name>`, with routing back to the original tool name preserved.
 
-## Composite pipeline
+## Gateway tools
 
 | Tool                   | What it does                                                                                                                                                                   |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `arive_reasoned_debug` | Runs sequential-thinking steps, then launches a DAP session with breakpoints, stack, and variables when a debugger and `program` are available, and stores findings in memory. |
+| `arive_status`         | Reports namespace tool counts, whether each namespace is enabled, downstream connection state and reconnect cooldown, discovery state, memory and retrieval paths, compression store usage, and hook counters. A transport that dies invalidates its routes immediately, so a dead namespace reports `tools: 0` with the failure rather than its last known count. |
+| `arive_guard`          | Evaluates the configured guard rules against generated text and returns `abort: true` with the matching rule's guidance. Pass `includeRules: true` to receive the rule set. |
 
 The composite returns a `steps` array with `ok`, `skipped`, or `failed` per step. A missing capability is reported as `skipped` with a reason — it is never silently fabricated. When the debug session does not launch, the follow-up steps (`dap_breakpoints`, `dap_continue`, `dap_stack`, `dap_variables`) are recorded as `skipped` rather than omitted, and `ok` is `false` for any run where no step succeeded.
-
-`arive_status` reports namespace tool counts, whether each namespace is enabled, downstream connection state and reconnect cooldown, discovery state, the memory database path, and compression store usage. A transport that dies invalidates its routes immediately, so a dead namespace reports `tools: 0` with the failure rather than its last known count.
 
 `mem_remember` is idempotent per (wing, room, content): re-writing the same drawer merges its tags and updates hall/importance. A lowered `memory.maxItems` is enforced when the store opens, not at the next write.
 
@@ -72,9 +72,56 @@ All tool results except `context_retrieve`, `arive_status`, and the `rag_*` fami
 
 The original is retained losslessly in an LRU (default 500 entries) and optionally spilled to disk so refs survive restarts. Non-text blocks (images, audio, resources) are never touched. Set `compression.storeDir` to enable persistence; the disk cache is pruned at startup and hourly, dropping files older than 7 days and then the oldest entries above 256 MiB. Error results (`isError`) are never compressed, so a failure message always reaches the client verbatim.
 
-Gateway-level tools (`arive_reasoned_debug`) follow the same global threshold; only `arive_status` is exempt so health stays readable. A namespace configured with `compress: false` is exempt too, as are the local `context_*` and `rag_*` adapters: compression must never hide the payload or the retrieval answer being asked for. When compression replaces `structuredContent`, the result carries `structuredContentOmitted: true`, which distinguishes "the gateway dropped it" from "the server never sent any".
+Gateway-level tools (`arive_reasoned_debug`) follow the same global threshold. The exemptions are declared per tool instead of by name here: `arive_status` (health stays readable), `arive_guard` (the abort decision is the answer), and the `context_*` and `rag_*` families (compression must never hide the payload or the retrieval answer being asked for) carry `compressible: false` on the tool, and a namespace configured with `compress: false` inherits the exemption for its own tools. When compression replaces `structuredContent`, the result carries `structuredContentOmitted: true`, which distinguishes "the gateway dropped it" from "the server never sent any".
 
 `context_compress` refuses with an error when compression is disabled by configuration (`compression.enabled=false`, `ARIVE_COMPRESS=0`); pass `force: true` to store the payload anyway.
+
+## Guard hooks
+
+Rules live in `arive.config.json` under `hooks` and are compiled once at startup, so a malformed rule fails startup instead of failing open at call time. When the key is present the whole block replaces the defaults, and `guards`/`docs` are ordered lists: arrays replace, they never merge item by item.
+
+```json
+{
+  "hooks": {
+    "enabled": true,
+    "maxScanChars": 20000,
+    "astTimeoutMs": 3000,
+    "onAstError": "skip",
+    "guards": [
+      {
+        "id": "no-credential-scan",
+        "description": "No literal credential search",
+        "scope": "both",
+        "tool": "^search_",
+        "condition": "AKIA[0-9A-Z]{16}",
+        "action": "block",
+        "guidance": "Never scan for literal credentials; reference secrets by name."
+      }
+    ],
+    "docs": [
+      {
+        "id": "ts-strict",
+        "tool": "^lsp_",
+        "title": "Strict TypeScript",
+        "text": "The project builds with strict: true."
+      }
+    ]
+  }
+}
+```
+
+| Field                | Meaning                                                                                                       |
+| -------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `guards[].scope`     | `args` (default) checks a call's arguments, `text` checks text passed to `arive_guard`, `both` does either.   |
+| `guards[].tool`      | Regular expression tested against the tool name; absent means every tool.                                     |
+| `guards[].condition` | Regular expression tested against `JSON.stringify(arguments)` or the supplied text, truncated to `maxScanChars`. |
+| `guards[].action`    | `block` (default) returns guidance instead of running the tool; `warn` appends guidance to the result.        |
+| `guards[].guidance`  | What the caller must do instead. This is the text a blocked call returns.                                     |
+| `docs[].tool`        | Regular expression selecting the tools whose results receive this snippet.                                    |
+
+The pipeline order is fixed: **guard check → dispatch → compression → append reminders and docs**. A blocking rule returns `isError: true` with `executed: false`, the matched rule, its guidance, and a `<system-reminder>` block; the tool never runs, so a blocked call costs nothing. Guidance is appended after compression, so a `ctx:` envelope can never swallow the reason.
+
+Client contract: call `arive_guard` with generated text before committing it. When the response has `abort: true`, discard the output and re-issue the turn with the returned `reminder`. The same rules are described in the server `instructions`, so a client does not carry its own copy.
 
 ## Run
 

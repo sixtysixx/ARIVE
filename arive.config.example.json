@@ -33,6 +33,14 @@
       "timeoutMs": 30000
     }
   },
+  "hooks": {
+    "enabled": true,
+    "maxScanChars": 20000,
+    "astTimeoutMs": 3000,
+    "onAstError": "skip",
+    "guards": [],
+    "docs": []
+  },
   "downstreams": [
     {
       "namespace": "think",

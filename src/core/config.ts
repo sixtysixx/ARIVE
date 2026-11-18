@@ -240,6 +240,184 @@ function isNamespace(value: unknown): value is Namespace {
   );
 }
 
+const HOOK_SCOPES: readonly HookScope[] = ["args", "text", "both"];
+const HOOK_ACTIONS: readonly HookAction[] = ["block", "warn"];
+const AST_STRICTNESS: readonly NonNullable<
+  AstConditionConfig["strictness"]
+>[] = ["cst", "smart", "ast", "relaxed", "signature", "template"];
+const GUARD_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+const MAX_DOC_TEXT_CHARS = 8_000;
+
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() !== "" ? value : undefined;
+}
+
+/** Compiles an author-supplied pattern, naming the field that is wrong. */
+function compileHookPattern(source: unknown, field: string, index: number): RegExp {
+  if (typeof source !== "string" || source.trim() === "") {
+    throw new Error(
+      `Invalid hooks.guards[${index}]: ${field} must be a non-empty string`,
+    );
+  }
+  try {
+    return new RegExp(source);
+  } catch (error) {
+    throw new Error(
+      `Invalid hooks.guards[${index}]: ${field} is not a valid regular expression (${errorMessage(error)})`,
+    );
+  }
+}
+
+function parseAstCondition(
+  value: unknown,
+  index: number,
+): AstConditionConfig {
+  if (!isRecord(value)) {
+    throw new Error(
+      `Invalid hooks.guards[${index}]: astCondition must be an object`,
+    );
+  }
+  const pattern = nonEmptyString(value.pattern);
+  if (!pattern) {
+    throw new Error(
+      `Invalid hooks.guards[${index}]: astCondition.pattern must be a non-empty string`,
+    );
+  }
+  const lang = nonEmptyString(value.lang);
+  if (!lang) {
+    throw new Error(
+      `Invalid hooks.guards[${index}]: astCondition.lang must be a non-empty string`,
+    );
+  }
+  const selector = nonEmptyString(value.selector);
+  if (value.selector !== undefined && !selector) {
+    throw new Error(
+      `Invalid hooks.guards[${index}]: astCondition.selector must be a non-empty string`,
+    );
+  }
+  let strictness: AstConditionConfig["strictness"];
+  if (value.strictness !== undefined) {
+    if (
+      !AST_STRICTNESS.includes(
+        value.strictness as AstConditionConfig["strictness"] & string,
+      )
+    ) {
+      throw new Error(
+        `Invalid hooks.guards[${index}]: astCondition.strictness must be one of ${AST_STRICTNESS.join(", ")}`,
+      );
+    }
+    strictness = value.strictness as AstConditionConfig["strictness"];
+  }
+  return {
+    pattern,
+    lang,
+    ...(selector ? { selector } : {}),
+    ...(strictness ? { strictness } : {}),
+  };
+}
+
+function parseGuardRule(value: unknown, index: number): GuardRuleConfig {
+  if (!isRecord(value)) {
+    throw new Error(`Invalid hooks.guards[${index}]: expected an object`);
+  }
+  const id = value.id;
+  if (typeof id !== "string" || !GUARD_ID_PATTERN.test(id)) {
+    throw new Error(
+      `Invalid hooks.guards[${index}]: id must be letters, digits, underscores, or hyphens, starting with a letter or digit`,
+    );
+  }
+  const scope = value.scope ?? "args";
+  if (!HOOK_SCOPES.includes(scope as HookScope)) {
+    throw new Error(
+      `Invalid hooks.guards[${index}]: scope must be one of ${HOOK_SCOPES.join(", ")}`,
+    );
+  }
+  const action = value.action ?? "block";
+  if (!HOOK_ACTIONS.includes(action as HookAction)) {
+    throw new Error(
+      `Invalid hooks.guards[${index}]: action must be one of ${HOOK_ACTIONS.join(", ")}`,
+    );
+  }
+  const guidance = nonEmptyString(value.guidance);
+  if (!guidance) {
+    throw new Error(
+      `Invalid hooks.guards[${index}]: guidance must be a non-empty string`,
+    );
+  }
+  const tool =
+    value.tool === undefined
+      ? undefined
+      : compileHookPattern(value.tool, "tool", index).source;
+  const condition =
+    value.condition === undefined
+      ? undefined
+      : compileHookPattern(value.condition, "condition", index).source;
+  const astCondition =
+    value.astCondition === undefined
+      ? undefined
+      : parseAstCondition(value.astCondition, index);
+
+  if (condition === undefined && astCondition === undefined) {
+    throw new Error(
+      `Invalid hooks.guards[${index}]: a rule needs condition or astCondition`,
+    );
+  }
+
+  const description = nonEmptyString(value.description);
+  return {
+    id,
+    ...(description ? { description } : {}),
+    scope: scope as HookScope,
+    ...(tool ? { tool } : {}),
+    ...(condition !== undefined ? { condition } : {}),
+    ...(astCondition ? { astCondition } : {}),
+    action: action as HookAction,
+    guidance,
+  };
+}
+
+function parseDocHook(value: unknown, index: number): DocHookConfig {
+  if (!isRecord(value)) {
+    throw new Error(`Invalid hooks.docs[${index}]: expected an object`);
+  }
+  const id = value.id;
+  if (typeof id !== "string" || !GUARD_ID_PATTERN.test(id)) {
+    throw new Error(
+      `Invalid hooks.docs[${index}]: id must be letters, digits, underscores, or hyphens, starting with a letter or digit`,
+    );
+  }
+  if (typeof value.tool !== "string" || value.tool.trim() === "") {
+    throw new Error(
+      `Invalid hooks.docs[${index}]: tool must be a non-empty string`,
+    );
+  }
+  try {
+    new RegExp(value.tool);
+  } catch (error) {
+    throw new Error(
+      `Invalid hooks.docs[${index}]: tool is not a valid regular expression (${errorMessage(error)})`,
+    );
+  }
+  const text = nonEmptyString(value.text);
+  if (!text) {
+    throw new Error(
+      `Invalid hooks.docs[${index}]: text must be a non-empty string`,
+    );
+  }
+  if (text.length > MAX_DOC_TEXT_CHARS) {
+    throw new Error(
+      `Invalid hooks.docs[${index}]: text must be at most ${MAX_DOC_TEXT_CHARS} characters`,
+    );
+  }
+  const title = nonEmptyString(value.title);
+  return {
+    id,
+    tool: value.tool,
+    ...(title ? { title } : {}),
+    text,
+  };
+}
+
 /** Shallow-merges a raw config over the defaults, merging downstreams by namespace. */
 export function mergeConfig(raw: unknown): AriveConfig {
   const base = defaultConfig();
@@ -315,6 +493,32 @@ export function mergeConfig(raw: unknown): AriveConfig {
         base.rag.embeddings.batchSize = e.batchSize;
       if (typeof e.timeoutMs === "number")
         base.rag.embeddings.timeoutMs = e.timeoutMs;
+    }
+  }
+
+  if (isRecord(raw.hooks)) {
+    const h = raw.hooks;
+    if (typeof h.enabled === "boolean") base.hooks.enabled = h.enabled;
+    if (typeof h.maxScanChars === "number")
+      base.hooks.maxScanChars = h.maxScanChars;
+    if (typeof h.astTimeoutMs === "number")
+      base.hooks.astTimeoutMs = h.astTimeoutMs;
+    if (h.onAstError === "skip" || h.onAstError === "block") {
+      base.hooks.onAstError = h.onAstError;
+    }
+    // Rules are an ordered list, so a configured array replaces the default
+    // and is never merged rule by rule.
+    if (h.guards !== undefined) {
+      if (!Array.isArray(h.guards)) {
+        throw new Error("Invalid hooks.guards: expected an array");
+      }
+      base.hooks.guards = h.guards.map(parseGuardRule);
+    }
+    if (h.docs !== undefined) {
+      if (!Array.isArray(h.docs)) {
+        throw new Error("Invalid hooks.docs: expected an array");
+      }
+      base.hooks.docs = h.docs.map(parseDocHook);
     }
   }
 
@@ -416,6 +620,18 @@ function validate(config: AriveConfig): void {
   }
   if (!Number.isInteger(config.search.maxResults) || config.search.maxResults < 1) {
     throw new Error("search.maxResults must be an integer >= 1");
+  }
+  if (
+    !Number.isInteger(config.hooks.maxScanChars) ||
+    config.hooks.maxScanChars < 1
+  ) {
+    throw new Error("hooks.maxScanChars must be an integer >= 1");
+  }
+  if (
+    !Number.isFinite(config.hooks.astTimeoutMs) ||
+    config.hooks.astTimeoutMs <= 0
+  ) {
+    throw new Error("hooks.astTimeoutMs must be a positive number");
   }
   const rag = config.rag;
   if (!Number.isInteger(rag.chunkChars) || rag.chunkChars < 100) {

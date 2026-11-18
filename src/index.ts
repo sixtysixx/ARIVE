@@ -9,6 +9,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { ContextCompressor } from "./core/compressor.js";
 import { buildInstructions, namespaceOfTool } from "./core/catalog.js";
 import { loadConfig } from "./core/config.js";
+import { blockedResult, HookEngine } from "./core/hooks.js";
 import { errorMessage, log } from "./core/log.js";
 import { DownstreamClient } from "./core/mcp-client.js";
 import { ToolRegistry } from "./core/registry.js";
@@ -55,13 +56,20 @@ async function main(): Promise<void> {
   const config = loadConfig(parsed.configPath);
 
   const compressor = new ContextCompressor(config.compression);
+  const hooks = new HookEngine(config.hooks);
   const memory = new MemoryStore(config.memory);
   const rag = new RagStore(config.rag);
   const clients = config.downstreams.map(
     (entry) => new DownstreamClient(entry),
   );
 
-  const localTools = createLocalTools({ config, compressor, memory, rag });
+  const localTools = createLocalTools({
+    config,
+    compressor,
+    memory,
+    rag,
+    hooks,
+  });
 
   // The server exists before the registry so discovery can announce late
   // arrivals through notifications/tools/list_changed.
@@ -95,6 +103,7 @@ async function main(): Promise<void> {
         discovery: registry.discoveryState,
         downstreams: clients.map((client) => client.status()),
         compression: compressor.stats(),
+        hooks: hooks.stats(),
         local: {
           memoryDb: config.memory.dbPath,
           ragDb: config.rag.dbPath,
@@ -132,8 +141,12 @@ async function main(): Promise<void> {
     }
     inFlight += 1;
     try {
+      // Order is fixed: guard, dispatch, compress, annotate. Guidance must
+      // never be swallowed by a ctx: envelope, so it is appended last.
+      const outcome = await hooks.checkCall(name, args);
+      if (outcome.blocked) return blockedResult(outcome);
       const result = await registry.callTool(name, args);
-      return applyCompression(name, result);
+      return hooks.annotate(name, applyCompression(name, result), outcome);
     } catch (error) {
       log("error", `tool ${name} failed`, { error: errorMessage(error) });
       return errorResult(errorMessage(error), { tool: name });
