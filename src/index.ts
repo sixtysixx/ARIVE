@@ -7,7 +7,8 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { ContextCompressor } from "./core/compressor.js";
-import { loadConfig, NAMESPACES, type Namespace } from "./core/config.js";
+import { buildInstructions, namespaceOfTool } from "./core/catalog.js";
+import { loadConfig } from "./core/config.js";
 import { errorMessage, log } from "./core/log.js";
 import { DownstreamClient } from "./core/mcp-client.js";
 import { ToolRegistry } from "./core/registry.js";
@@ -68,12 +69,7 @@ async function main(): Promise<void> {
     { name: config.server.name, version: config.server.version },
     {
       capabilities: { tools: { listChanged: true } },
-      instructions:
-        "ARIVE gateway. Every tool is namespaced: think_* (sequential thinking), lsp_*, dap_*, search_* (ripgrep), mem_* (spatial memory), rag_* (hybrid retrieval over an indexed corpus), context_* (reversible compression). " +
-        "Oversized outputs are replaced by an envelope containing a ctx: reference; call context_retrieve with that ref to recover the original losslessly. " +
-        "Use arive_reasoned_debug for reflection plus debugger inspection. " +
-        "Call arive_status to see which namespaces are live before relying on a downstream tool. " +
-        "Downstream tools are discovered after startup; the gateway emits notifications/tools/list_changed when the tool list changes.",
+      instructions: buildInstructions(config.hooks),
     },
   );
 
@@ -87,6 +83,8 @@ async function main(): Promise<void> {
 
   const statusTool: LocalTool = {
     name: "arive_status",
+    // Health stays readable: an envelope would hide the report being asked for.
+    compressible: false,
     description:
       "[ARIVE] Gateway health: per-namespace tool counts, downstream connection state, and compression store usage.",
     inputSchema: { type: "object", properties: {} },
@@ -144,39 +142,15 @@ async function main(): Promise<void> {
     }
   });
 
-  function namespaceOfTool(name: string): Namespace | undefined {
-    const prefix = name.split("_")[0];
-    return (NAMESPACES as readonly string[]).includes(prefix)
-      ? (prefix as Namespace)
-      : undefined;
-  }
-
   function applyCompression(
     name: string,
     result: CallToolResult,
   ): CallToolResult {
-    // The retrieval path must never compress its own payload, and the health
-    // report must stay readable: both would hide the thing being asked for.
-    if (
-      !config.compression.enabled ||
-      name === "context_retrieve" ||
-      name === "arive_status"
-    ) {
-      return result;
-    }
-    const namespace = namespaceOfTool(name);
-    if (namespace === "context") return result;
-    // The local RAG adapter reports what it just did (retrieved chunks with
-    // citations, index counters, stats); an envelope would hide the answer or
-    // the outcome behind a ref, so the family stays readable.
-    if (namespace === "rag") return result;
-
-    const downstream = clients.find((client) => client.namespace === namespace);
-    if (downstream?.enabled && !downstream.compress) return result;
-
-    // A gateway-level tool (arive_reasoned_debug) has no downstream to ask, so
+    if (!config.compression.enabled) return result;
+    if (!registry.isCompressible(name)) return result;
+    // A gateway-level tool (arive_reasoned_debug) has no namespace to ask, so
     // it follows the global threshold like everything else.
-    return compressor.apply(result, namespace ?? "arive");
+    return compressor.apply(result, namespaceOfTool(name) ?? "arive");
   }
 
   let shuttingDown = false;

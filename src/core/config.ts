@@ -62,12 +62,53 @@ export interface RagConfig {
   embeddings: RagEmbeddingConfig;
 }
 
+/** What a guard rule inspects: a tool call's arguments, generated text, or both. */
+export type HookScope = "args" | "text" | "both";
+export type HookAction = "block" | "warn";
+
+export interface AstConditionConfig {
+  pattern: string;
+  lang: string;
+  selector?: string;
+  strictness?: "cst" | "smart" | "ast" | "relaxed" | "signature" | "template";
+}
+
+export interface GuardRuleConfig {
+  id: string;
+  description?: string;
+  scope: HookScope;
+  /** Regex tested against the tool name; absent matches every tool. */
+  tool?: string;
+  condition?: string;
+  astCondition?: AstConditionConfig;
+  action: HookAction;
+  guidance: string;
+}
+
+export interface DocHookConfig {
+  id: string;
+  tool: string;
+  title?: string;
+  text: string;
+}
+
+export interface HooksConfig {
+  enabled: boolean;
+  /** Characters of a call's arguments or of supplied text scanned per rule. */
+  maxScanChars: number;
+  astTimeoutMs: number;
+  onAstError: "skip" | "block";
+  guards: GuardRuleConfig[];
+  docs: DocHookConfig[];
+}
+
 export interface AriveConfig {
   server: { name: string; version: string };
   compression: CompressionConfig;
   memory: { dbPath: string; maxItems: number };
   search: { maxResults: number };
   rag: RagConfig;
+  hooks: HooksConfig;
   downstreams: DownstreamConfig[];
 }
 
@@ -172,6 +213,14 @@ const DEFAULT_CONFIG: AriveConfig = {
       batchSize: 32,
       timeoutMs: 30_000,
     },
+  },
+  hooks: {
+    enabled: true,
+    maxScanChars: 20_000,
+    astTimeoutMs: 3_000,
+    onAstError: "skip",
+    guards: [],
+    docs: [],
   },
   downstreams: DEFAULT_DOWNSTREAMS,
 };
