@@ -1,4 +1,5 @@
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
+import { NAMESPACE_INFO, namespaceOfTool } from "./catalog.js";
 import { NAMESPACES, type Namespace } from "./config.js";
 import type { DownstreamClient } from "./mcp-client.js";
 import { errorResult, type JsonObject, type LocalTool } from "./results.js";
@@ -169,6 +170,21 @@ export class ToolRegistry {
     return undefined;
   }
 
+  /**
+   * Whether a route's oversized results may be replaced by a `ctx:` envelope.
+   * Namespace policy decides first (retrieval and health payloads are the thing
+   * being asked for, so they stay readable), then the route's own setting.
+   */
+  isCompressible(name: string): boolean {
+    const route = this.routes.get(name);
+    if (!route) return true;
+    if (route.namespace && !NAMESPACE_INFO[route.namespace].compressible) {
+      return false;
+    }
+    if (route.kind === "local") return route.local?.compressible !== false;
+    return route.client?.compress !== false;
+  }
+
   toolCount(namespace: Namespace): number {
     let count = 0;
     for (const route of this.routes.values()) {
@@ -257,7 +273,7 @@ export class ToolRegistry {
     for (const tool of this.locals) {
       this.routes.set(tool.name, {
         kind: "local",
-        namespace: namespaceOf(tool.name),
+        namespace: namespaceOfTool(tool.name),
         local: tool,
       });
     }
@@ -302,11 +318,4 @@ export class ToolRegistry {
       log("warn", `tools/list_changed failed: ${errorMessage(error)}`);
     }
   }
-}
-
-function namespaceOf(name: string): Namespace | undefined {
-  const prefix = name.split("_")[0];
-  return (NAMESPACES as readonly string[]).includes(prefix)
-    ? (prefix as Namespace)
-    : undefined;
 }

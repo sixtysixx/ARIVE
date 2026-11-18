@@ -7,7 +7,9 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { ContextCompressor } from "./core/compressor.js";
-import { loadConfig, NAMESPACES, type Namespace } from "./core/config.js";
+import { buildInstructions, namespaceOfTool } from "./core/catalog.js";
+import { loadConfig } from "./core/config.js";
+import { blockedResult, HookEngine } from "./core/hooks.js";
 import { errorMessage, log } from "./core/log.js";
 import { DownstreamClient } from "./core/mcp-client.js";
 import { ToolRegistry } from "./core/registry.js";
@@ -19,6 +21,7 @@ import {
 } from "./core/results.js";
 import { createLocalTools } from "./local/index.js";
 import { MemoryStore } from "./local/memory.js";
+import { RagStore } from "./local/rag/store.js";
 import { createPipelineTools } from "./pipelines/index.js";
 
 function readArgs(argv: string[]): {
@@ -53,12 +56,20 @@ async function main(): Promise<void> {
   const config = loadConfig(parsed.configPath);
 
   const compressor = new ContextCompressor(config.compression);
+  const hooks = new HookEngine(config.hooks);
   const memory = new MemoryStore(config.memory);
+  const rag = new RagStore(config.rag);
   const clients = config.downstreams.map(
     (entry) => new DownstreamClient(entry),
   );
 
-  const localTools = createLocalTools({ config, compressor, memory });
+  const localTools = createLocalTools({
+    config,
+    compressor,
+    memory,
+    rag,
+    hooks,
+  });
 
   // The server exists before the registry so discovery can announce late
   // arrivals through notifications/tools/list_changed.
@@ -66,12 +77,7 @@ async function main(): Promise<void> {
     { name: config.server.name, version: config.server.version },
     {
       capabilities: { tools: { listChanged: true } },
-      instructions:
-        "ARIVE gateway. Every tool is namespaced: think_* (sequential thinking), lsp_*, dap_*, search_* (ripgrep), mem_* (spatial memory), context_* (reversible compression). " +
-        "Oversized outputs are replaced by an envelope containing a ctx: reference; call context_retrieve with that ref to recover the original losslessly. " +
-        "Use arive_reasoned_debug for reflection plus debugger inspection. " +
-        "Call arive_status to see which namespaces are live before relying on a downstream tool. " +
-        "Downstream tools are discovered after startup; the gateway emits notifications/tools/list_changed when the tool list changes.",
+      instructions: buildInstructions(config.hooks),
     },
   );
 
@@ -85,6 +91,8 @@ async function main(): Promise<void> {
 
   const statusTool: LocalTool = {
     name: "arive_status",
+    // Health stays readable: an envelope would hide the report being asked for.
+    compressible: false,
     description:
       "[ARIVE] Gateway health: per-namespace tool counts, downstream connection state, and compression store usage.",
     inputSchema: { type: "object", properties: {} },
@@ -95,10 +103,12 @@ async function main(): Promise<void> {
         discovery: registry.discoveryState,
         downstreams: clients.map((client) => client.status()),
         compression: compressor.stats(),
+        hooks: hooks.stats(),
         local: {
           memoryDb: config.memory.dbPath,
+          ragDb: config.rag.dbPath,
         },
-        note: "Namespaces with a local adapter (context, search, mem) stay available even when no downstream server is configured.",
+        note: "Namespaces with a local adapter (context, search, mem, rag) stay available even when no downstream server is configured.",
       }),
   };
 
@@ -131,8 +141,12 @@ async function main(): Promise<void> {
     }
     inFlight += 1;
     try {
+      // Order is fixed: guard, dispatch, compress, annotate. Guidance must
+      // never be swallowed by a ctx: envelope, so it is appended last.
+      const outcome = await hooks.checkCall(name, args);
+      if (outcome.blocked) return blockedResult(outcome);
       const result = await registry.callTool(name, args);
-      return applyCompression(name, result);
+      return hooks.annotate(name, applyCompression(name, result), outcome);
     } catch (error) {
       log("error", `tool ${name} failed`, { error: errorMessage(error) });
       return errorResult(errorMessage(error), { tool: name });
@@ -141,35 +155,15 @@ async function main(): Promise<void> {
     }
   });
 
-  function namespaceOfTool(name: string): Namespace | undefined {
-    const prefix = name.split("_")[0];
-    return (NAMESPACES as readonly string[]).includes(prefix)
-      ? (prefix as Namespace)
-      : undefined;
-  }
-
   function applyCompression(
     name: string,
     result: CallToolResult,
   ): CallToolResult {
-    // The retrieval path must never compress its own payload, and the health
-    // report must stay readable: both would hide the thing being asked for.
-    if (
-      !config.compression.enabled ||
-      name === "context_retrieve" ||
-      name === "arive_status"
-    ) {
-      return result;
-    }
-    const namespace = namespaceOfTool(name);
-    if (namespace === "context") return result;
-
-    const downstream = clients.find((client) => client.namespace === namespace);
-    if (downstream?.enabled && !downstream.compress) return result;
-
-    // A gateway-level tool (arive_reasoned_debug) has no downstream to ask, so
+    if (!config.compression.enabled) return result;
+    if (!registry.isCompressible(name)) return result;
+    // A gateway-level tool (arive_reasoned_debug) has no namespace to ask, so
     // it follows the global threshold like everything else.
-    return compressor.apply(result, namespace ?? "arive");
+    return compressor.apply(result, namespaceOfTool(name) ?? "arive");
   }
 
   let shuttingDown = false;
@@ -189,11 +183,22 @@ async function main(): Promise<void> {
     if (inFlight > 0) {
       log("warn", `abandoning ${inFlight} in-flight call(s) after drain timeout`);
     }
+    // A ref already handed to a client must survive the restart it implies.
+    try {
+      await compressor.flush();
+    } catch (error) {
+      log("warn", `compression flush failed: ${errorMessage(error)}`);
+    }
     await Promise.allSettled(clients.map((client) => client.close()));
     try {
       memory.close();
     } catch (error) {
       log("warn", `memory close failed: ${errorMessage(error)}`);
+    }
+    try {
+      rag.close();
+    } catch (error) {
+      log("warn", `rag close failed: ${errorMessage(error)}`);
     }
   };
 

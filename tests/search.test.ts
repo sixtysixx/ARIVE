@@ -87,6 +87,39 @@ describe("search adapter", () => {
     expect(full.truncated).toBe(false);
   });
 
+  test("caps a large query and listing without draining the tree", async () => {
+    // A separate fixture: 60 matches in the shared dir would make the
+    // three-match and two-file assertions above vacuous.
+    const bulk = fs.mkdtempSync(path.join(os.tmpdir(), "arive-search-bulk-"));
+    try {
+      for (let i = 0; i < 60; i += 1) {
+        fs.writeFileSync(
+          path.join(bulk, `file-${String(i).padStart(2, "0")}.ts`),
+          `export const needle = ${i};\n`,
+        );
+      }
+
+      const capped = jsonOf(
+        await tools.search_query!.handler({
+          pattern: "needle",
+          path: bulk,
+          maxResults: 2,
+        }),
+      );
+      expect(capped.count).toBe(2);
+      expect(capped.truncated).toBe(true);
+
+      const listed = jsonOf(
+        await tools.search_files!.handler({ path: bulk, maxResults: 1 }),
+      );
+      expect(listed.count).toBe(1);
+      expect((listed.files as string[]).length).toBe(1);
+      expect(listed.truncated).toBe(true);
+    } finally {
+      fs.rmSync(bulk, { recursive: true, force: true });
+    }
+  });
+
   test("distinguishes a killed child from a binary that never started", async () => {
     // "Install ripgrep" is only truthful when the process never started; a
     // killed child also reports code null, so the two outcomes need a field.

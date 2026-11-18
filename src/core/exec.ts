@@ -7,6 +7,13 @@ export interface ExecOptions {
   /** Maximum bytes captured per stream before truncation. */
   maxBytes?: number;
   stdin?: string;
+  /**
+   * Consumes stdout line by line as it arrives, so a caller that only needs the
+   * first N records never waits for (or buffers) the whole stream. Returning
+   * false kills the child and marks the result `stopped`. `stdout` stays empty
+   * when this is set: the callback owns the output.
+   */
+  onStdoutLine?: (line: string) => boolean | void;
 }
 
 export interface ExecResult {
@@ -15,6 +22,8 @@ export interface ExecResult {
   stderr: string;
   timedOut: boolean;
   truncated: boolean;
+  /** The callback asked to stop, so the exit code reflects the kill. */
+  stopped: boolean;
   /** Termination signal, present only when the child was killed by one. */
   signal: string | null;
 }
@@ -30,12 +39,15 @@ export function runCommand(
 ): Promise<ExecResult> {
   const timeoutMs = options.timeoutMs ?? 30_000;
   const maxBytes = options.maxBytes ?? 1_000_000;
+  const onStdoutLine = options.onStdoutLine;
 
   return new Promise((resolve) => {
     let stdout = "";
     let stderr = "";
     let truncated = false;
     let timedOut = false;
+    let stopped = false;
+    let pending = "";
     let settled = false;
 
     const child = spawn(command, args, {
@@ -67,8 +79,46 @@ export function runCommand(
       return next;
     };
 
+    const stop = (): void => {
+      stopped = true;
+      pending = "";
+      child.kill("SIGKILL");
+    };
+
+    /** Feeds complete lines to the callback; false means "we have enough". */
+    const drain = (flush: boolean): void => {
+      if (!onStdoutLine) return;
+      let index = pending.indexOf("\n");
+      while (index >= 0) {
+        const line = pending.slice(0, index);
+        pending = pending.slice(index + 1);
+        if (onStdoutLine(line) === false) {
+          stop();
+          return;
+        }
+        index = pending.indexOf("\n");
+      }
+      if (flush && pending !== "") {
+        const tail = pending;
+        pending = "";
+        if (onStdoutLine(tail) === false) stopped = true;
+        return;
+      }
+      // A single line larger than the cap would grow memory without bound.
+      if (!flush && pending.length > maxBytes) {
+        truncated = true;
+        stop();
+      }
+    };
+
     child.stdout?.on("data", (chunk: Buffer) => {
-      stdout = append(stdout, chunk);
+      if (!onStdoutLine) {
+        stdout = append(stdout, chunk);
+        return;
+      }
+      if (stopped) return;
+      pending += chunk.toString("utf8");
+      drain(false);
     });
     child.stderr?.on("data", (chunk: Buffer) => {
       stderr = append(stderr, chunk);
@@ -84,7 +134,8 @@ export function runCommand(
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolve({ code, stdout, stderr, timedOut, truncated, signal });
+      if (!stopped) drain(true);
+      resolve({ code, stdout, stderr, timedOut, truncated, stopped, signal });
     };
 
     child.on("error", (error) => {

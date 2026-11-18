@@ -1,7 +1,7 @@
 {
   "server": {
     "name": "arive",
-    "version": "2.1.0"
+    "version": "2.3.0"
   },
   "compression": {
     "enabled": true,
@@ -15,6 +15,31 @@
   },
   "search": {
     "maxResults": 50
+  },
+  "rag": {
+    "dbPath": ".arive/rag.db",
+    "chunkChars": 1200,
+    "chunkOverlapChars": 200,
+    "maxFileBytes": 1000000,
+    "maxFiles": 20000,
+    "defaultTopK": 8,
+    "maxTopK": 50,
+    "maxPerFile": 3,
+    "maxVectorScan": 50000,
+    "embeddings": {
+      "provider": "none",
+      "apiKeyEnv": "OPENAI_API_KEY",
+      "batchSize": 32,
+      "timeoutMs": 30000
+    }
+  },
+  "hooks": {
+    "enabled": true,
+    "maxScanChars": 20000,
+    "astTimeoutMs": 3000,
+    "onAstError": "skip",
+    "guards": [],
+    "docs": []
   },
   "downstreams": [
     {
@@ -65,6 +90,12 @@
       "enabled": false,
       "command": "bun",
       "args": ["x", "--silent", "github:MemPalace/mempalace"]
+    },
+    {
+      "namespace": "rag",
+      "enabled": false,
+      "command": "uvx",
+      "args": ["mcp-server-qdrant"]
     }
   ]
 }

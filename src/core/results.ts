@@ -14,6 +14,8 @@ export interface LocalTool {
   description: string;
   inputSchema: JsonSchemaObject;
   handler: (args: JsonObject) => Promise<CallToolResult> | CallToolResult;
+  /** Set false to keep this tool's payload out of a `ctx:` envelope. */
+  compressible?: boolean;
 }
 
 export function textResult(value: unknown): CallToolResult {
