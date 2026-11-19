@@ -162,7 +162,9 @@ export class HookEngine {
 
     const scanned = text.slice(0, this.config.maxScanChars);
     outcome.scannedChars = scanned.length;
-    const astTexts = [{ label: "text", text: scanned }];
+    // The regex subject is capped, but evaluation needs the real length so
+    // `evaluate` can degrade on it instead of silently parsing a prefix.
+    const astTexts = [{ label: "text", text }];
     const cache = new Map<string, AstExec>();
 
     for (const guard of this.guards) {
@@ -336,6 +338,15 @@ export class HookEngine {
       blocks.push({
         type: "text",
         text: `<arive-hook rule="${violation.rule}">\n${violation.guidance}\n</arive-hook>`,
+      });
+    }
+
+    // A guard that could not run is a finding, not a pass: say so on the result
+    // even when no rule matched.
+    for (const reason of outcome?.degraded ?? []) {
+      blocks.push({
+        type: "text",
+        text: `<arive-hook degraded="true">\n${reason}\n</arive-hook>`,
       });
     }
 

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { mergeConfig } from "../src/core/config.js";
 import { runCommand } from "../src/core/exec.js";
 import { HookEngine } from "../src/core/hooks.js";
@@ -177,4 +178,58 @@ describe("ast-grep absence", () => {
       'ast-grep timed out after 1234ms for guard rule "no-require"',
     );
   });
+});
+
+function texts(out: CallToolResult): string[] {
+  return out.content
+    .filter((block) => block.type === "text")
+    .map((block) => (block as { text: string }).text);
+}
+
+describe("degraded evaluations", () => {
+  test("annotates a degraded evaluation on the success path", async () => {
+    // An empty result array plus a pattern warning is what `sg` reports for an
+    // unusable pattern: no match, and nothing actually evaluated.
+    const hooks = engine(
+      {
+        guards: [
+          { ...NO_REQUIRE, id: "bad", astCondition: { pattern: "require(", lang: "ts" } },
+        ],
+      },
+      {
+        run: async () => ({
+          code: 0,
+          stdout: "[]",
+          stderr: "Warning: pattern is invalid: ERROR node in AST",
+          timedOut: false,
+          truncated: false,
+          stopped: false,
+          signal: null,
+        }),
+      },
+    );
+    const outcome = await hooks.checkCall("lsp_edit", {
+      code: 'const fs = require("fs");',
+    });
+    expect(outcome.violations).toEqual([]);
+    expect(outcome.degraded.length).toBeGreaterThan(0);
+
+    const annotated = hooks.annotate("lsp_edit", { content: [] }, outcome);
+    const body = texts(annotated);
+    expect(body.at(-1)).toContain('<arive-hook degraded="true">');
+    expect(body.at(-1)).toContain('ast-grep failed for guard rule "bad"');
+  }, 20_000);
+
+  test("checkText degrades instead of truncating silently", async () => {
+    const hooks = engine({
+      maxScanChars: 50,
+      guards: [{ ...NO_REQUIRE, id: "bad-text", scope: "text" }],
+    });
+    const outcome = await hooks.checkText(`require("fs");${"//".repeat(200)}`);
+
+    expect(outcome.blocked).toBe(false);
+    expect(outcome.degraded[0]).toContain("exceeds hooks.maxScanChars");
+    // The prefix was never handed to `sg`, so nothing was evaluated.
+    expect(hooks.stats().astChecks).toBe(0);
+  }, 20_000);
 });
