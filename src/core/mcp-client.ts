@@ -47,6 +47,8 @@ export class DownstreamClient {
   private lastError?: string;
   private retryAt = 0;
   private connecting?: Promise<void>;
+  /** Shared repair for concurrent transport failures. */
+  private reconnecting?: Promise<void>;
   /** Bumped by `close()` so an in-flight connect cannot resurrect the client. */
   private generation = 0;
   private closeHandler?: () => void;
@@ -98,13 +100,16 @@ export class DownstreamClient {
         timeout: this.config.connectTimeoutMs,
       });
       this.tools = result.tools;
+      this.lastError = undefined;
       return this.tools;
     } catch (error) {
-      if (isTimeout(error)) {
-        throw new Error(
-          `${this.namespace} tools/list timed out after ${this.config.connectTimeoutMs}ms`,
-        );
-      }
+      const message = isTimeout(error)
+        ? `${this.namespace} tools/list timed out after ${this.config.connectTimeoutMs}ms`
+        : errorMessage(error);
+      // Discovery failed while the transport is alive: status must say so
+      // instead of reporting a healthy downstream with zero tools.
+      this.lastError = message;
+      if (isTimeout(error)) throw new Error(message);
       throw error;
     }
   }
@@ -119,12 +124,28 @@ export class DownstreamClient {
       log("warn", `${this.namespace}: transport error, reconnecting once`, {
         error: errorMessage(error),
       });
+      await this.reconnect();
+      return this.invoke(tool, args);
+    }
+  }
+
+  /**
+   * Concurrent transport failures share one repair, so no call closes another
+   * call's handshake. One transport close rejects every pending request in the
+   * same tick; without this, each of them would bump `generation` and abort the
+   * single reconnect the others are waiting on.
+   */
+  private async reconnect(): Promise<void> {
+    if (this.reconnecting) return this.reconnecting;
+    this.reconnecting = (async () => {
       this.lastError = undefined;
       this.retryAt = 0;
       await this.close();
       await this.connect(false);
-      return this.invoke(tool, args);
-    }
+    })().finally(() => {
+      this.reconnecting = undefined;
+    });
+    return this.reconnecting;
   }
 
   async close(): Promise<void> {
