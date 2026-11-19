@@ -236,3 +236,94 @@ describe("ContextCompressor", () => {
     }
   });
 });
+
+describe("ContextCompressor envelope", () => {
+  function envelopeOf(text: string): {
+    durable: boolean;
+    hint: string;
+    omitted?: string[];
+  } {
+    return JSON.parse(text) as { durable: boolean; hint: string; omitted?: string[] };
+  }
+
+  test("a ref without storeDir is marked memory-only", () => {
+    const compressor = makeCompiler();
+    const result = compressor.compressText("x".repeat(5000), "lsp", true);
+    const envelope = envelopeOf(result.text);
+    expect(envelope.durable).toBe(false);
+    expect(envelope.hint).toContain("memory only");
+  });
+
+  test("a ref with storeDir is marked durable", async () => {
+    const storeDir = fs.mkdtempSync(path.join(os.tmpdir(), "arive-store-"));
+    try {
+      const compressor = new ContextCompressor({
+        enabled: true,
+        thresholdTokens: 10,
+        maxEntries: 10,
+        previewChars: 40,
+        storeDir,
+      });
+      const result = compressor.compressText("x".repeat(5000), "lsp", true);
+      const envelope = envelopeOf(result.text);
+      expect(envelope.durable).toBe(true);
+      expect(envelope.hint).toContain("on disk");
+      await compressor.flush();
+    } finally {
+      fs.rmSync(storeDir, { recursive: true, force: true });
+    }
+  });
+
+  test("the envelope records omitted structured content", () => {
+    const compressor = makeCompiler();
+    const compressed = compressor.apply(
+      {
+        content: [{ type: "text", text: "y".repeat(5000) }],
+        structuredContent: { rows: [1] },
+      },
+      "lsp",
+    );
+    const block = compressed.content[0];
+    if (!block || block.type !== "text") throw new Error("expected text block");
+    const envelope = envelopeOf(block.text);
+    expect(envelope.omitted).toEqual(["structuredContent"]);
+    expect(envelope.hint).toContain("Structured content was not retained");
+  });
+
+  test("retrieving from disk refreshes the TTL", async () => {
+    const storeDir = fs.mkdtempSync(path.join(os.tmpdir(), "arive-store-"));
+    try {
+      const settings = {
+        enabled: true as const,
+        thresholdTokens: 10,
+        maxEntries: 10,
+        previewChars: 40,
+        storeDir,
+      };
+      const first = new ContextCompressor(settings);
+      const original = "t".repeat(200);
+      const ref = first.compressText(original, "lsp");
+      await first.flush();
+
+      const file = path.join(storeDir, `${ref.ref!.slice(4)}.txt`);
+
+      // Construct first: the constructor's own scan would delete a file that is
+      // already past the TTL, and the point is the read, not the scan.
+      const second = new ContextCompressor(settings);
+      const tenDaysAgo = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000);
+      fs.utimesSync(file, tenDaysAgo, tenDaysAgo);
+      const backdated = fs.statSync(file).mtimeMs;
+
+      expect(second.retrieve(ref.ref!)).toBe(original);
+
+      // The touch is asynchronous; wait for it rather than sleeping.
+      const deadline = Date.now() + 2_000;
+      while (fs.statSync(file).mtimeMs <= backdated && Date.now() < deadline) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+      expect(fs.statSync(file).mtimeMs).toBeGreaterThan(backdated);
+    } finally {
+      fs.rmSync(storeDir, { recursive: true, force: true });
+    }
+  });
+});

@@ -86,7 +86,7 @@ export class ContextCompressor {
 
     this.entries.set(ref, { text, createdAt: Date.now() });
     this.bytes += text.length;
-    this.evict();
+    this.evict(ref);
     this.persist(ref, text);
     return ref;
   }
@@ -111,10 +111,13 @@ export class ContextCompressor {
       try {
         if (fs.existsSync(file)) {
           const text = fs.readFileSync(file, "utf8");
+          // The TTL pruner measures use, so a read must reset the clock.
+          // Best effort: a failed touch only affects retention.
+          void fs.promises.utimes(file, new Date(), new Date()).catch(() => {});
           // Rehydrate into the LRU so repeat reads are cheap.
           this.entries.set(normalized, { text, createdAt: Date.now() });
           this.bytes += text.length;
-          this.evict();
+          this.evict(normalized);
           return text;
         }
       } catch (error) {
@@ -127,7 +130,12 @@ export class ContextCompressor {
     return null;
   }
 
-  compressText(text: string, namespace: string, force = false): CompressedText {
+  compressText(
+    text: string,
+    namespace: string,
+    force = false,
+    omitted?: string[],
+  ): CompressedText {
     if (
       !force &&
       (!this.config.enabled || text.length <= this.thresholdChars)
@@ -143,6 +151,12 @@ export class ContextCompressor {
         ? `${text.slice(0, this.config.previewChars)}…`
         : text;
 
+    // Durability is a property of the store, not of the caller: say which one
+    // this ref lives in so the reader knows whether it can wait.
+    const durable = this.config.storeDir !== undefined;
+    const hint = durable
+      ? `Original retained losslessly on disk. Call context_retrieve with {"ref":"${ref}"} to recover it.`
+      : `Original retained in memory only (LRU, ${this.config.maxEntries} entries) and may be evicted; call context_retrieve with {"ref":"${ref}"} soon.`;
     const envelope = {
       _arive_compressed: true,
       ref,
@@ -150,7 +164,11 @@ export class ContextCompressor {
       originalChars: text.length,
       estimatedOriginalTokens: Math.ceil(text.length / CHARS_PER_TOKEN),
       preview,
-      hint: `Original retained losslessly. Call context_retrieve with {"ref":"${ref}"} to recover it.`,
+      durable,
+      ...(omitted?.length ? { omitted } : {}),
+      hint: omitted?.length
+        ? `${hint} Structured content was not retained.`
+        : hint,
     };
     return { text: JSON.stringify(envelope, null, 2), compressed: true, ref };
   }
@@ -167,7 +185,12 @@ export class ContextCompressor {
     let compressedAny = false;
     const content = result.content.map((block) => {
       if (!isTextBlock(block)) return block;
-      const replaced = this.compressText(block.text, namespace);
+      const replaced = this.compressText(
+        block.text,
+        namespace,
+        false,
+        result.structuredContent ? ["structuredContent"] : undefined,
+      );
       if (!replaced.compressed) return block;
       compressedAny = true;
       return { type: "text" as const, text: replaced.text };
@@ -299,13 +322,19 @@ export class ContextCompressor {
     }
   }
 
-  private evict(): void {
+  /**
+   * Bounds the LRU. `keep` is the ref just minted or just rehydrated: evicting
+   * it would hand back a reference that cannot be resolved, so the byte cap may
+   * be exceeded by that one entry instead. `keep` is always the newest entry
+   * today, so this states the invariant rather than patching a live branch.
+   */
+  private evict(keep?: string): void {
     while (
       this.entries.size > this.config.maxEntries ||
       (this.bytes > MAX_STORE_BYTES && this.entries.size > 1)
     ) {
       const oldest = this.entries.keys().next().value as string | undefined;
-      if (!oldest) break;
+      if (oldest === undefined || oldest === keep) break;
       const entry = this.entries.get(oldest);
       this.entries.delete(oldest);
       this.bytes -= entry?.text.length ?? 0;
