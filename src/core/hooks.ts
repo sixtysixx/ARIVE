@@ -73,6 +73,26 @@ function parseAstCount(stdout: string): number | undefined {
 }
 
 /**
+ * The first stderr line that says something. `sg` wrappers prepend a
+ * deprecation banner, and a rule's degrade reason must be the diagnosis, not
+ * the banner.
+ */
+function firstDiagnostic(stderr: string): string {
+  const lines = stderr
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(
+      (line) =>
+        line !== "" &&
+        !/^[=\-*]+$/.test(line) &&
+        !/`?sg`? is deprecated/i.test(line),
+    );
+  const diagnostic =
+    lines.find((line) => /^(Warning|Error): /i.test(line)) ?? lines[0] ?? "";
+  return diagnostic.slice(0, 300);
+}
+
+/**
  * TTSR-style guard rules and doc injection at the tool boundary.
  *
  * The gateway never sees the model's token stream, so it cannot abort
@@ -287,19 +307,16 @@ export class HookEngine {
       // malformed pattern exits 0 with `[]` plus a warning on stderr.
       const count = parseAstCount(result.stdout);
       if (count === undefined) {
-        executed = { kind: "failed", detail: result.stderr.slice(0, 300) };
+        executed = { kind: "failed", detail: firstDiagnostic(result.stderr) };
       } else if (AST_PATTERN_WARNING.test(result.stderr)) {
         // The parse succeeded but the pattern is unusable, so it would pass
         // silently forever. Report it instead.
-        executed = {
-          kind: "failed",
-          detail: result.stderr.trim().split("\n")[0]!.slice(0, 300),
-        };
+        executed = { kind: "failed", detail: firstDiagnostic(result.stderr) };
       } else {
         executed = { kind: "ok", matched: count > 0 };
       }
     } else {
-      executed = { kind: "failed", detail: result.stderr.slice(0, 300) };
+      executed = { kind: "failed", detail: firstDiagnostic(result.stderr) };
     }
 
     cache.set(key, executed);
