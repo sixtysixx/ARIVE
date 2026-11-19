@@ -276,7 +276,7 @@ export class RagStore {
           vectors = await provider.embed(
             chunks.map((chunk) => `${displayPath(abs)}\n${chunk.text}`),
           );
-          this.recordEmbeddings(vectors);
+          this.recordEmbeddings(vectors, force);
         } catch (error) {
           if (error instanceof EmbeddingDimensionError) throw error;
           embedError = errorMessage(error);
@@ -410,6 +410,14 @@ export class RagStore {
         `Index was built with embeddings from "${prior}". Re-run rag_index with force:true to re-embed the corpus with "${provider.id}".`,
       );
     }
+    this.resetEmbeddings();
+  }
+
+  /**
+   * Drops every stored vector and the metadata that describes it. One owner,
+   * because a partial reset leaves chunks claiming a width they do not have.
+   */
+  private resetEmbeddings(): void {
     this.db.run("UPDATE rag_chunks SET embedding = NULL, embedding_id = NULL");
     this.db.prepare("DELETE FROM rag_meta WHERE key = ?").run("embedding.id");
     this.db
@@ -417,14 +425,19 @@ export class RagStore {
       .run("embedding.dimensions");
   }
 
-  private recordEmbeddings(vectors: Float32Array[]): void {
+  private recordEmbeddings(vectors: Float32Array[], force = false): void {
     const dimensions = vectors[0]?.length;
     if (!dimensions) return;
     const stored = this.metaNumber("embedding.dimensions");
     if (stored !== undefined && stored !== dimensions) {
-      throw new EmbeddingDimensionError(
-        `Embedding dimension mismatch: index has ${stored}, provider "${this.provider?.id}" returned ${dimensions}. Re-run rag_index with force:true after switching models.`,
-      );
+      if (!force) {
+        throw new EmbeddingDimensionError(
+          `Embedding dimension mismatch: index has ${stored}, provider "${this.provider?.id}" returned ${dimensions}. Re-run rag_index with force:true to re-embed the corpus with "${this.provider?.id}".`,
+        );
+      }
+      // A provider that changed width invalidates every stored vector, not
+      // just the ones this call touches.
+      this.resetEmbeddings();
     }
     if (!this.provider) return;
     this.setMeta("embedding.id", this.provider.id);
@@ -459,7 +472,7 @@ export class RagStore {
         vectors = await provider.embed(
           rows.map((row) => `${displayPath(row.path)}\n${row.text}`),
         );
-        this.recordEmbeddings(vectors);
+        this.recordEmbeddings(vectors, true);
       } catch (error) {
         if (error instanceof EmbeddingDimensionError) throw error;
         return { embedded, failed: failed + rows.length, error: errorMessage(error) };
@@ -589,6 +602,7 @@ export class RagStore {
           enabled: Boolean(this.provider),
           scanned: 0,
           truncated: false,
+          pending: 0,
         },
         degraded: { reason: "No indexed chunks; call rag_index first." },
         trimmed: false,
@@ -630,9 +644,17 @@ export class RagStore {
     const vectorStarted = performance.now();
     let vectorScanned = 0;
     let vectorTruncated = false;
+    let embeddingPending = 0;
     const provider = this.provider;
     const vectorEnabled = Boolean(provider);
     if (provider) {
+      embeddingPending = (
+        this.db
+          .prepare(
+            "SELECT COUNT(*) AS c FROM rag_chunks WHERE embedding IS NULL OR embedding_id IS NOT ?",
+          )
+          .get(provider.id) as { c: number }
+      ).c;
       const storedId = this.getMeta("embedding.id");
       if (storedId !== provider.id) {
         degraded = storedId
@@ -707,6 +729,11 @@ export class RagStore {
         }
       }
     }
+    // Coverage is a fact about the corpus, independent of why the provider
+    // failed: a half-embedded index answers worse than it claims to.
+    if (embeddingPending > 0 && !degraded) {
+      degraded = `${embeddingPending} of ${total} chunk(s) have no embedding for "${provider?.id}"; run rag_index with embed enabled to complete vector search.`;
+    }
     const vectorMs = Math.round(performance.now() - vectorStarted);
 
     const ordered = [...hits.values()].sort(
@@ -755,6 +782,7 @@ export class RagStore {
         enabled: vectorEnabled,
         scanned: vectorScanned,
         truncated: vectorTruncated,
+        pending: embeddingPending,
       },
       trimmed,
       timingsMs: { lexical: lexicalMs, vector: vectorMs },

@@ -395,6 +395,78 @@ describe("vector search", () => {
       /filesystem root/,
     );
   });
+
+  /** A provider whose vector width changes after the first call. */
+  function driftingProvider(widths: number[]): EmbeddingProvider {
+    let call = 0;
+    return {
+      id: "fake:drift",
+      provider: "ollama",
+      model: "drift",
+      embed: async (texts: string[]) => {
+        const width = widths[Math.min(call, widths.length - 1)]!;
+        call += 1;
+        return texts.map(() => new Float32Array(width).fill(1));
+      },
+    };
+  }
+
+  test("force re-embeds after the provider's vector width changes", async () => {
+    const root = tempDir("arive-rag-drift-");
+    fs.writeFileSync(path.join(root, "one.ts"), "const DriftProbe = 1;\n");
+    const store = openStore(
+      ragConfig(path.join(root, "rag.db")),
+      driftingProvider([2, 4]),
+    );
+    await store.index({ path: root });
+
+    await store.index({ path: root, force: true });
+
+    const stats = store.stats();
+    expect((stats.embeddings as Record<string, unknown>).dimensions).toBe(4);
+    expect(stats.embeddedChunks).toBe(stats.chunks as number);
+  });
+
+  test("refuses a width change without force", async () => {
+    const root = tempDir("arive-rag-drift-refuse-");
+    fs.writeFileSync(path.join(root, "one.ts"), "const DriftProbe = 1;\n");
+    const store = openStore(
+      ragConfig(path.join(root, "rag.db")),
+      driftingProvider([2, 4]),
+    );
+    await store.index({ path: root });
+
+    // A new file forces an embed call, which is where the width is observed.
+    fs.writeFileSync(path.join(root, "two.ts"), "const DriftProbeToo = 2;\n");
+    await expect(store.index({ path: root })).rejects.toThrow(
+      /force:true to re-embed the corpus with "fake:drift"/,
+    );
+  });
+
+  test("reports chunks that still lack embeddings", async () => {
+    const root = tempDir("arive-rag-partial-");
+    fs.writeFileSync(path.join(root, "a.md"), "PartialCoverageToken here\n");
+    fs.writeFileSync(path.join(root, "b.md"), "OtherPartialToken there\n");
+    let call = 0;
+    const partial: EmbeddingProvider = {
+      id: "fake:partial",
+      provider: "ollama",
+      model: "partial",
+      embed: async (texts: string[]) => {
+        call += 1;
+        if (call > 1) throw new Error("provider offline");
+        return texts.map(() => new Float32Array([1, 0]));
+      },
+    };
+    const store = openStore(ragConfig(path.join(root, "rag.db")), partial);
+    await store.index({ path: root });
+
+    const result = await store.query({ query: "PartialCoverageToken" });
+    const vectorSearch = result.vectorSearch as Record<string, unknown>;
+    expect(Number(vectorSearch.pending)).toBeGreaterThan(0);
+    const degraded = result.degraded as { reason: string };
+    expect(degraded.reason.length).toBeGreaterThan(0);
+  });
 });
 
 describe("embedding providers", () => {
