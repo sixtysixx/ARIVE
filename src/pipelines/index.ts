@@ -276,7 +276,25 @@ export function createPipelineTools(deps: PipelineDeps): LocalTool[] {
         }
 
         const memTool = deps.find("mem", ["remember"]);
-        if (memTool) {
+        // Nothing observed and nothing reasoned is not a debug session: it is
+        // a run that stored its own empty summary.
+        const evidence =
+          thoughts.length > 0 || Object.keys(observations).length > 0;
+        if (!memTool) {
+          record(
+            steps,
+            "mem_remember",
+            "skipped",
+            "mem namespace unavailable.",
+          );
+        } else if (!evidence) {
+          record(
+            steps,
+            "mem_remember",
+            "skipped",
+            "No thoughts or observations to store.",
+          );
+        } else {
           try {
             await deps.call(memTool, {
               content: [
@@ -293,21 +311,16 @@ export function createPipelineTools(deps: PipelineDeps): LocalTool[] {
           } catch (error) {
             record(steps, "mem_remember", "failed", errorMessage(error));
           }
-        } else {
-          record(
-            steps,
-            "mem_remember",
-            "skipped",
-            "mem namespace unavailable.",
-          );
         }
 
         return textResult({
           // A run where nothing succeeded is not a success, however few steps
-          // failed outright.
+          // failed outright, and neither is one that produced no evidence.
           ok:
+            evidence &&
             steps.some((step) => step.status === "ok") &&
             steps.every((step) => step.status !== "failed"),
+          evidence,
           symptom,
           thoughts,
           observations,

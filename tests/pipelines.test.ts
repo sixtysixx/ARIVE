@@ -79,9 +79,25 @@ describe("reasoned debug pipeline", () => {
     const byStep = Object.fromEntries(steps.map((s) => [s.step, s.status]));
     expect(byStep.sequential_thinking).toBe("skipped");
     expect(byStep.dap_launch).toBe("skipped");
+    // Nothing was reasoned and nothing observed, so there is nothing to store.
+    expect(byStep.mem_remember).toBe("skipped");
+    expect(result.evidence).toBe(false);
+    expect(result.ok).toBe(false);
+    expect(result.thoughts).toEqual([]);
+  });
+
+  test("reports ok when reasoning produced evidence", async () => {
+    const result = parse(
+      await debug(makeDeps({ think: true })).handler({
+        symptom: "null deref",
+        maxSteps: 2,
+      }),
+    );
+    const steps = result.steps as Array<{ step: string; status: string }>;
+    const byStep = Object.fromEntries(steps.map((s) => [s.step, s.status]));
+    expect(result.evidence).toBe(true);
     expect(byStep.mem_remember).toBe("ok");
     expect(result.ok).toBe(true);
-    expect(result.thoughts).toEqual([]);
   });
 
   test("records thoughts when sequential thinking is available", async () => {
