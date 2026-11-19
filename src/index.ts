@@ -167,39 +167,51 @@ async function main(): Promise<void> {
   }
 
   let shuttingDown = false;
+  let shutdownPromise: Promise<void> | undefined;
   let inFlight = 0;
   const DRAIN_TIMEOUT_MS = 5_000;
 
-  const shutdown = async (reason: string): Promise<void> => {
-    if (shuttingDown) return;
+  /**
+   * Repeated signals must not restart the drain: a second call returns the
+   * first one's promise, so its caller waits for the same flush and close
+   * instead of exiting under them.
+   */
+  const shutdown = (reason: string): Promise<void> => {
+    if (shutdownPromise) return shutdownPromise;
     shuttingDown = true;
     log("info", `shutting down (${reason})`);
-    // Calls already accepted must finish: closing the clients under a running
-    // tool call turns a slow answer into a transport error.
-    const deadline = Date.now() + DRAIN_TIMEOUT_MS;
-    while (inFlight > 0 && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
-    if (inFlight > 0) {
-      log("warn", `abandoning ${inFlight} in-flight call(s) after drain timeout`);
-    }
-    // A ref already handed to a client must survive the restart it implies.
-    try {
-      await compressor.flush();
-    } catch (error) {
-      log("warn", `compression flush failed: ${errorMessage(error)}`);
-    }
-    await Promise.allSettled(clients.map((client) => client.close()));
-    try {
-      memory.close();
-    } catch (error) {
-      log("warn", `memory close failed: ${errorMessage(error)}`);
-    }
-    try {
-      rag.close();
-    } catch (error) {
-      log("warn", `rag close failed: ${errorMessage(error)}`);
-    }
+    shutdownPromise = (async () => {
+      // Calls already accepted must finish: closing the clients under a running
+      // tool call turns a slow answer into a transport error.
+      const deadline = Date.now() + DRAIN_TIMEOUT_MS;
+      while (inFlight > 0 && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      if (inFlight > 0) {
+        log(
+          "warn",
+          `abandoning ${inFlight} in-flight call(s) after drain timeout`,
+        );
+      }
+      // A ref already handed to a client must survive the restart it implies.
+      try {
+        await compressor.flush();
+      } catch (error) {
+        log("warn", `compression flush failed: ${errorMessage(error)}`);
+      }
+      await Promise.allSettled(clients.map((client) => client.close()));
+      try {
+        memory.close();
+      } catch (error) {
+        log("warn", `memory close failed: ${errorMessage(error)}`);
+      }
+      try {
+        rag.close();
+      } catch (error) {
+        log("warn", `rag close failed: ${errorMessage(error)}`);
+      }
+    })();
+    return shutdownPromise;
   };
 
   process.on("SIGINT", () => {

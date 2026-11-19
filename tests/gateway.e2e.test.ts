@@ -309,4 +309,30 @@ describe("gateway end to end", () => {
     // Retrieval payloads stay readable: compression would bury the answer.
     expect(payload._arive_compressed).toBeUndefined();
   }, 20_000);
+
+  // Declared last: it ends the gateway process. Windows emulates signals with
+  // TerminateProcess, so a child spawned on a pipe never runs its SIGINT
+  // handler and the drain cannot be exercised there.
+  test.skipIf(process.platform === "win32")(
+    "a second signal does not abandon the drain",
+    async () => {
+      // In flight when the first signal arrives, so the drain has to wait.
+      const pending = client.callTool({ name: "lsp_wait", arguments: {} });
+      const pid = transport.pid;
+      if (pid === null) throw new Error("transport exposed no pid");
+
+      // The call must reach the gateway before the signal, or the drain finds
+      // nothing in flight and finishes immediately.
+      await Bun.sleep(50);
+      process.kill(pid, "SIGINT");
+      await Bun.sleep(10);
+      process.kill(pid, "SIGINT");
+
+      // A second shutdown() that returns early would exit under the drain and
+      // turn this answer into a transport error.
+      const result = await pending;
+      expect(textOf(result)).toContain("done");
+    },
+    30_000,
+  );
 });
