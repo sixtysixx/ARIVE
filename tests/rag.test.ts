@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -259,6 +260,69 @@ describe("index lifecycle", () => {
     fs.rmSync(path.join(fixtureDir, "b.md"));
     const summary = await store.index({ path: fixtureDir });
     expect((summary.files as Record<string, number>).removed).toBe(1);
+    expect(store.stats().files).toBe(1);
+  });
+
+  test("reindexes a file whose mtime is preserved but content changed", async () => {
+    const root = tempDir("arive-rag-ctime-");
+    const file = path.join(root, "drift.ts");
+    fs.writeFileSync(file, "const alpha = 1;\n");
+    const store = openStore(ragConfig(path.join(root, "rag.db")));
+    await store.index({ path: root });
+
+    const stamp = fs.statSync(file);
+    // Same byte length, then mtime restored: only the inode's change time
+    // reveals that the content is new.
+    fs.writeFileSync(file, "const beta_ = 1;\n");
+    fs.utimesSync(file, stamp.atime, stamp.mtime);
+
+    const again = await store.index({ path: root });
+    expect((again.files as Record<string, number>).indexed).toBe(1);
+
+    const fresh = await store.query({ query: "beta_" });
+    expect(fresh.count as number).toBeGreaterThanOrEqual(1);
+    const stale = await store.query({ query: "alpha" });
+    expect(stale.count).toBe(0);
+  });
+
+  test("migrates an index created before ctime tracking", async () => {
+    const root = tempDir("arive-rag-migrate-");
+    const dbPath = path.join(root, "rag.db");
+    // The pre-ctime rag_files definition, which CREATE TABLE IF NOT EXISTS
+    // cannot upgrade.
+    const legacy = new Database(dbPath);
+    legacy.run(
+      `CREATE TABLE rag_files (
+         path TEXT PRIMARY KEY,
+         mtime_ms INTEGER NOT NULL,
+         size INTEGER NOT NULL,
+         sha256 TEXT NOT NULL,
+         indexed_at TEXT NOT NULL
+       )`,
+    );
+    legacy.run("CREATE TABLE rag_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+    legacy.run(
+      `INSERT INTO rag_files (path, mtime_ms, size, sha256, indexed_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      [
+        path.join(root, "old.ts"),
+        1,
+        1,
+        "sha",
+        "2024-01-01T00:00:00.000Z",
+      ],
+    );
+    legacy.close();
+
+    const store = openStore(ragConfig(dbPath));
+    const columns = (
+      new Database(dbPath).prepare("PRAGMA table_info(rag_files)").all() as Array<{
+        name: string;
+      }>
+    ).map((column) => column.name);
+    expect(columns).toContain("ctime_ms");
+    // An old row carries 0, so it mismatches once and self-heals on the next
+    // index instead of being trusted forever.
     expect(store.stats().files).toBe(1);
   });
 

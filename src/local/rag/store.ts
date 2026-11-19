@@ -31,6 +31,7 @@ export interface QueryArgs {
 interface FileRow {
   path: string;
   mtime_ms: number;
+  ctime_ms: number;
   size: number;
   sha256: string;
 }
@@ -110,6 +111,7 @@ const SCHEMA = `
   CREATE TABLE IF NOT EXISTS rag_files (
     path TEXT PRIMARY KEY,
     mtime_ms INTEGER NOT NULL,
+    ctime_ms INTEGER NOT NULL DEFAULT 0,
     size INTEGER NOT NULL,
     sha256 TEXT NOT NULL,
     indexed_at TEXT NOT NULL
@@ -149,6 +151,15 @@ export class RagStore {
     this.db.run("PRAGMA busy_timeout=5000;");
     try {
       this.db.run(SCHEMA);
+      // CREATE TABLE IF NOT EXISTS cannot add a column to an existing index.
+      const columns = this.db
+        .prepare("PRAGMA table_info(rag_files)")
+        .all() as Array<{ name: string }>;
+      if (!columns.some((column) => column.name === "ctime_ms")) {
+        this.db.run(
+          "ALTER TABLE rag_files ADD COLUMN ctime_ms INTEGER NOT NULL DEFAULT 0",
+        );
+      }
     } catch (error) {
       this.db.close();
       throw new Error(
@@ -222,14 +233,18 @@ export class RagStore {
         continue;
       }
       const mtimeMs = Math.floor(stat.mtimeMs);
+      const ctimeMs = Math.floor(stat.ctimeMs);
       const existing = this.db
-        .prepare("SELECT path, mtime_ms, size, sha256 FROM rag_files WHERE path = ?")
+        .prepare(
+          "SELECT path, mtime_ms, ctime_ms, size, sha256 FROM rag_files WHERE path = ?",
+        )
         .get(abs) as FileRow | null;
 
       if (
         existing &&
         !force &&
         existing.mtime_ms === mtimeMs &&
+        existing.ctime_ms === ctimeMs &&
         existing.size === stat.size
       ) {
         counts.unchanged += 1;
@@ -255,9 +270,9 @@ export class RagStore {
       if (existing && !force && existing.sha256 === sha256) {
         this.db
           .prepare(
-            "UPDATE rag_files SET mtime_ms = ?, size = ?, indexed_at = ? WHERE path = ?",
+            "UPDATE rag_files SET mtime_ms = ?, ctime_ms = ?, size = ?, indexed_at = ? WHERE path = ?",
           )
-          .run(mtimeMs, stat.size, now(), abs);
+          .run(mtimeMs, ctimeMs, stat.size, now(), abs);
         counts.unchanged += 1;
         continue;
       }
@@ -318,15 +333,16 @@ export class RagStore {
 
         this.db
           .prepare(
-            `INSERT INTO rag_files (path, mtime_ms, size, sha256, indexed_at)
-             VALUES (?, ?, ?, ?, ?)
+            `INSERT INTO rag_files (path, mtime_ms, ctime_ms, size, sha256, indexed_at)
+             VALUES (?, ?, ?, ?, ?, ?)
              ON CONFLICT(path) DO UPDATE SET
                mtime_ms = excluded.mtime_ms,
+               ctime_ms = excluded.ctime_ms,
                size = excluded.size,
                sha256 = excluded.sha256,
                indexed_at = excluded.indexed_at`,
           )
-          .run(abs, mtimeMs, stat.size, sha256, now());
+          .run(abs, mtimeMs, ctimeMs, stat.size, sha256, now());
       });
       write();
       chunksAdded += chunks.length;
