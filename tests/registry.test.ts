@@ -243,6 +243,18 @@ describe("ToolRegistry", () => {
     });
   });
 
+  test("reports a namespace with local tools as enabled even when its downstream is disabled", async () => {
+    const registry = new ToolRegistry(
+      [fakeClient("search", [], false)],
+      [localTool("search_query")],
+    );
+    await registry.refresh();
+    expect(registry.namespaceSummary().search).toEqual({
+      tools: 1,
+      enabled: true,
+    });
+  });
+
   test("sanitizes invalid tool name characters", () => {
     expect(sanitizeToolName("do/thing.v2")).toBe("do_thing_v2");
   });

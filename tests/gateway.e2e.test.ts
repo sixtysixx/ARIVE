@@ -254,13 +254,17 @@ describe("gateway end to end", () => {
       arguments: {},
     });
     const payload = JSON.parse(textOf(status)) as {
-      namespaces: Record<string, { tools: number }>;
+      namespaces: Record<string, { tools: number; enabled: boolean }>;
       downstreams: Array<{ namespace: string; enabled: boolean }>;
     };
     expect(Object.keys(payload.namespaces).sort()).toEqual(
       [...NAMESPACES].sort(),
     );
     expect(payload.namespaces.context?.tools).toBeGreaterThanOrEqual(3);
+    // Local-only namespaces have no downstream at all, so availability has to
+    // come from their routed tools.
+    expect(payload.namespaces.context?.enabled).toBe(true);
+    expect(payload.namespaces.rag?.enabled).toBe(true);
     expect(
       payload.downstreams.find((entry) => entry.namespace === "lsp")?.enabled,
     ).toBe(true);

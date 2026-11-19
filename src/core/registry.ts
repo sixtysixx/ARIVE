@@ -209,15 +209,16 @@ export class ToolRegistry {
     > = {};
     for (const namespace of NAMESPACES) {
       const error = this.discoveryErrors.get(namespace);
-      // "Disabled" and "healthy but empty" used to look identical here.
-      const enabled = this.clients.some(
-        (client) => client.namespace === namespace && client.enabled,
-      );
-      summary[namespace] = {
-        tools: this.toolCount(namespace),
-        enabled,
-        ...(error ? { error } : {}),
-      };
+      const tools = this.toolCount(namespace);
+      // "Disabled" and "healthy but empty" used to look identical here. A
+      // namespace that routes tools is usable whatever its downstream flag
+      // says: `context` and `rag` are local-only and have no client at all.
+      const enabled =
+        tools > 0 ||
+        this.clients.some(
+          (client) => client.namespace === namespace && client.enabled,
+        );
+      summary[namespace] = { tools, enabled, ...(error ? { error } : {}) };
     }
     return summary;
   }
