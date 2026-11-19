@@ -58,6 +58,9 @@ export function runCommand(
     });
 
     const timer = setTimeout(() => {
+      // The child can exit on the same tick the deadline fires; killing it
+      // then would turn a clean exit into a reported timeout.
+      if (settled) return;
       timedOut = true;
       child.kill("SIGKILL");
     }, timeoutMs);
@@ -135,7 +138,18 @@ export function runCommand(
       settled = true;
       clearTimeout(timer);
       if (!stopped) drain(true);
-      resolve({ code, stdout, stderr, timedOut, truncated, stopped, signal });
+      // A child that exited 0 in the same tick the deadline fired answered in
+      // time; the flag alone cannot tell those apart.
+      const didTimeOut = timedOut && !(code === 0 && signal === null);
+      resolve({
+        code,
+        stdout,
+        stderr,
+        timedOut: didTimeOut,
+        truncated,
+        stopped,
+        signal,
+      });
     };
 
     child.on("error", (error) => {

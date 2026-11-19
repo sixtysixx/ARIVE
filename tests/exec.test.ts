@@ -63,3 +63,25 @@ describe("runCommand", () => {
     expect(result.stderr).toContain("noise");
   });
 });
+
+describe("runCommand deadline", () => {
+  test("a clean exit at the deadline is not a timeout", async () => {
+    // The parent exits 0 immediately but leaves a grandchild holding the
+    // inherited stdio pipes, so `close` arrives long after the deadline. The
+    // child answered in time; only its pipes were still open. Reading the
+    // timer's flag instead of deriving it reports this as a timeout.
+    const holdPipes = [
+      'require("child_process")',
+      '.spawn(process.execPath, ["-e", "setTimeout(() => {}, 400)"], ',
+      '{ stdio: ["ignore", "inherit", "inherit"] })',
+      ".unref()",
+    ].join("");
+    const result = await runCommand(node, ["-e", holdPipes], {
+      timeoutMs: 100,
+    });
+
+    expect(result.code).toBe(0);
+    expect(result.signal).toBeNull();
+    expect(result.timedOut).toBe(false);
+  });
+});
