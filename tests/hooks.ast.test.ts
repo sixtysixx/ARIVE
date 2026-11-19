@@ -7,15 +7,28 @@ import { HookEngine } from "../src/core/hooks.js";
 // ast-grep is an optional dependency: without it the rules degrade, which the
 // engine's own tests cover. CI does not install it, so this suite skips there.
 // spawnSync throws instead of returning a code when the binary is absent.
-function astGrepAvailable(): boolean {
-  try {
-    return Bun.spawnSync(["sg", "--version"]).exitCode === 0;
-  } catch {
-    return false;
+//
+// Two traps this probe has to avoid: `sg` is also util-linux's setgroups tool,
+// which exits 0 on --version (so an exit code alone proves nothing), and Bun
+// does not apply PATHEXT, so `sg` may be unresolvable while `ast-grep` works.
+function astGrepVersion(): string | undefined {
+  for (const command of ["sg", "ast-grep"]) {
+    try {
+      const result = Bun.spawnSync([command, "--version"]);
+      if (result.exitCode !== 0) continue;
+      const version = result.stdout.toString().trim();
+      // Only ast-grep identifies itself this way; util-linux prints "sg from
+      // util-linux 2.41.5", which must not enable these tests.
+      if (/^ast-grep \d/.test(version)) return version;
+    } catch {
+      continue;
+    }
   }
+  return undefined;
 }
 
-const hasSg = astGrepAvailable();
+const astGrep = astGrepVersion();
+const hasSg = astGrep !== undefined;
 
 const NO_REQUIRE = {
   id: "no-require",
@@ -74,6 +87,10 @@ describe.skipIf(!hasSg)("ast-grep conditions", () => {
     expect(skipped.blocked).toBe(false);
     expect(skipped.degraded.length).toBeGreaterThan(0);
     expect(skipped.degraded[0]).toContain("ast-grep failed for guard rule \"bad\"");
+    // The reason must be the diagnosis: `sg` wrappers prepend a banner that
+    // used to be the first line.
+    expect(skipped.degraded[0]).toContain("ERROR node");
+    expect(skipped.degraded[0]).not.toContain("====");
     expect(skip.stats().astErrors).toBe(1);
 
     const blocked = engine({
