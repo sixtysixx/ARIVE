@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { mergeConfig } from "../src/core/config.js";
 import { runCommand } from "../src/core/exec.js";
-import { HookEngine } from "../src/core/hooks.js";
+import { blockedResult, HookEngine } from "../src/core/hooks.js";
 
 // ast-grep is an optional dependency: without it the rules degrade, which the
 // engine's own tests cover. CI does not install it, so this suite skips there.
@@ -73,8 +73,16 @@ describe.skipIf(!hasSg)("ast-grep conditions", () => {
       flags: ["require"],
     });
     expect(outcome.blocked).toBe(false);
-    // Nothing was parseable, so no process was spawned.
-    expect(hooks.stats().astChecks).toBe(0);
+    // "require" is a string leaf, but it is not a call expression.
+    expect(hooks.stats().astChecks).toBe(1);
+
+    const scalarOnly = engine({ guards: [NO_REQUIRE] });
+    const plain = await scalarOnly.checkCall("lsp_edit", {
+      code: 42,
+      flag: true,
+    });
+    expect(plain.blocked).toBe(false);
+    expect(scalarOnly.stats().astChecks).toBe(0);
   }, 20_000);
 
   test("degrades an unusable pattern instead of passing silently", async () => {
@@ -101,7 +109,12 @@ describe.skipIf(!hasSg)("ast-grep conditions", () => {
       code: 'const fs = require("fs");',
     });
     expect(closed.blocked).toBe(true);
+    expect(closed.violations[0]!.kind).toBe("unevaluated");
     expect(closed.violations[0]!.guidance).toContain("could not be evaluated");
+    const closedPayload = JSON.parse(texts(blockedResult(closed))[0]!) as {
+      retry: boolean;
+    };
+    expect(closedPayload.retry).toBe(false);
   }, 20_000);
 
   test("skips an argument larger than the scan window", async () => {
@@ -125,10 +138,9 @@ describe.skipIf(!hasSg)("ast-grep conditions", () => {
         code: 0,
         stdout: "[]",
         stderr: "",
-        timedOut: false,
         truncated: false,
-        stopped: false,
         signal: null,
+        outcome: "exited",
       };
     };
     const hooks = engine(
@@ -150,6 +162,53 @@ describe.skipIf(!hasSg)("ast-grep conditions", () => {
   });
 });
 
+describe("argument coverage", () => {
+  const matched: typeof runCommand = async () => ({
+    code: 0,
+    stdout: "[{}]",
+    stderr: "",
+    truncated: false,
+    signal: null,
+    outcome: "exited",
+  });
+
+  test("scans string leaves inside a nested object", async () => {
+    const hooks = engine({ guards: [NO_REQUIRE] }, { run: matched });
+    const outcome = await hooks.checkCall("lsp_edit", {
+      payload: { code: 'require("fs")' },
+    });
+    expect(outcome.blocked).toBe(true);
+    expect(outcome.violations[0]!.kind).toBe("violation");
+    expect(hooks.stats().astChecks).toBe(1);
+  });
+
+  test("scans string leaves inside an array", async () => {
+    const hooks = engine({ guards: [NO_REQUIRE] }, { run: matched });
+    const outcome = await hooks.checkCall("lsp_edit", {
+      files: ['require("fs")'],
+    });
+    expect(outcome.blocked).toBe(true);
+    expect(outcome.violations[0]!.kind).toBe("violation");
+  });
+
+  test("degrades deep nesting instead of skipping it", async () => {
+    const hooks = engine(
+      { guards: [NO_REQUIRE] },
+      {
+        run: async () => {
+          throw new Error("the walker must not reach the runner");
+        },
+      },
+    );
+    let deep: Record<string, unknown> = { code: 'require("fs")' };
+    for (let i = 0; i < 10; i += 1) deep = { nested: deep };
+    const outcome = await hooks.checkCall("lsp_edit", deep);
+    expect(outcome.blocked).toBe(false);
+    expect(outcome.degraded[0]).toContain("nested deeper than 8 levels");
+    expect(hooks.stats().astChecks).toBe(0);
+  });
+});
+
 describe("ast-grep absence", () => {
   test("reports a missing binary when the runner cannot spawn it", async () => {
     const hooks = engine(
@@ -159,10 +218,9 @@ describe("ast-grep absence", () => {
           code: null,
           stdout: "",
           stderr: "",
-          timedOut: false,
           truncated: false,
-          stopped: false,
           signal: null,
+          outcome: "spawnError",
         }),
       },
     );
@@ -181,10 +239,9 @@ describe("ast-grep absence", () => {
           code: null,
           stdout: "",
           stderr: "",
-          timedOut: true,
           truncated: false,
-          stopped: false,
           signal: "SIGKILL",
+          outcome: "timeout",
         }),
       },
     );
@@ -218,10 +275,9 @@ describe("degraded evaluations", () => {
           code: 0,
           stdout: "[]",
           stderr: "Warning: pattern is invalid: ERROR node in AST",
-          timedOut: false,
           truncated: false,
-          stopped: false,
           signal: null,
+          outcome: "exited",
         }),
       },
     );

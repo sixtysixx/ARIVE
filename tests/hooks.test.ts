@@ -275,6 +275,7 @@ describe("blockedResult", () => {
     expect(blocked.content).toHaveLength(2);
     const payload = JSON.parse(texts(blocked)[0]!) as Record<string, unknown>;
     expect(payload.rule).toBe("no-rm");
+    expect(payload.kind).toBe("violation");
     expect(payload.executed).toBe(false);
     expect(payload.retry).toBe(true);
     expect(payload.degraded).toBeUndefined();
@@ -288,6 +289,7 @@ describe("blockedResult", () => {
         {
           rule: "ast-only",
           action: "block",
+          kind: "unevaluated",
           guidance: "Not evaluable.",
           match: "",
         },
@@ -301,5 +303,7 @@ describe("blockedResult", () => {
       unknown
     >;
     expect(payload.degraded).toEqual(["sg missing"]);
+    expect(payload.kind).toBe("unevaluated");
+    expect(payload.retry).toBe(false);
   });
 });

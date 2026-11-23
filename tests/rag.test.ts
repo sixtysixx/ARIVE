@@ -370,6 +370,52 @@ describe("vector search", () => {
     expect(result.degraded).toBeUndefined();
   });
 
+  test("refuses force without embed when a provider is configured", async () => {
+    const root = tempDir("arive-rag-force-");
+    fs.writeFileSync(path.join(root, "one.ts"), "const ForceProbe = 1;\n");
+    const store = openStore(
+      ragConfig(path.join(root, "rag.db")),
+      fakeProvider(),
+    );
+    await store.index({ path: root });
+
+    await expect(
+      store.index({ path: root, force: true, embed: false }),
+    ).rejects.toThrow(/embed:true/);
+    // The rejected call must not have touched the vectors it would discard.
+    expect(Number(store.stats().embeddedChunks)).toBeGreaterThan(0);
+  });
+
+  test("reports vectors whose width does not match", async () => {
+    const root = tempDir("arive-rag-width-");
+    const dbPath = path.join(root, "rag.db");
+    fs.writeFileSync(path.join(root, "notes.md"), "unrelated wording\n");
+    const first = openStore(ragConfig(dbPath), fakeProvider());
+    await first.index({ path: root });
+    first.close();
+
+    // Simulate an index written before the dimensions key existed.
+    const raw = new Database(dbPath);
+    raw.prepare("DELETE FROM rag_meta WHERE key = ?").run(
+      "embedding.dimensions",
+    );
+    raw.close();
+
+    const widened: EmbeddingProvider = {
+      id: "fake:unit",
+      provider: "ollama",
+      model: "unit",
+      embed: async (texts: string[]) =>
+        texts.map(() => new Float32Array([1, 0, 0])),
+    };
+    const second = openStore(ragConfig(dbPath), widened);
+    const result = await second.query({ query: "unrelated wording" });
+    const vectorSearch = result.vectorSearch as Record<string, unknown>;
+    expect(Number(vectorSearch.skipped)).toBeGreaterThan(0);
+    const degraded = result.degraded as { reason: string };
+    expect(degraded.reason).toContain("do not match");
+  });
+
   test("degrades to lexical results when the provider fails", async () => {
     const root = tempDir("arive-rag-degrade-");
     fs.writeFileSync(
@@ -418,6 +464,67 @@ describe("vector search", () => {
     expect(Number(vectorSearch.scanned)).toBe(1);
   });
 
+  test("reports the candidate bound and when ranking truncated", async () => {
+    // A small corpus fits: every candidate is fused and nothing is hidden.
+    const smallRoot = tempDir("arive-rag-bound-small-");
+    fs.writeFileSync(path.join(smallRoot, "small.md"), "alpha beta\n");
+    const small = openStore(
+      ragConfig(path.join(smallRoot, "rag.db")),
+      fakeProvider(),
+    );
+    await small.index({ path: smallRoot });
+    const smallResult = await small.query({ query: "alpha" });
+    expect(smallResult.candidateLimit).toBe(2000);
+    expect(
+      (smallResult.vectorSearch as Record<string, unknown>).rankingTruncated,
+    ).toBe(false);
+
+    // 2100 one-line chunks exceed the bound; the response must say so rather
+    // than report a complete ranking it did not compute.
+    const largeRoot = tempDir("arive-rag-bound-large-");
+    fs.writeFileSync(
+      path.join(largeRoot, "large.md"),
+      Array.from(
+        { length: 2100 },
+        (_, i) => `alpha${String(i).padStart(4, "0")}`,
+      ).join("\n"),
+    );
+    const large = openStore(
+      ragConfig(path.join(largeRoot, "rag.db"), {
+        chunkChars: 10,
+        chunkOverlapChars: 0,
+      }),
+      fakeProvider(),
+    );
+    await large.index({ path: largeRoot });
+    const largeResult = await large.query({ query: "alpha" });
+    expect(largeResult.candidateLimit).toBe(2000);
+    expect(
+      (largeResult.vectorSearch as Record<string, unknown>).rankingTruncated,
+    ).toBe(true);
+  }, 30_000);
+
+  test("reports how many vector candidates were ranked", async () => {
+    const root = tempDir("arive-rag-ranked-");
+    fs.writeFileSync(
+      path.join(root, "long.md"),
+      Array.from({ length: 250 }, (_, i) => `alpha line ${i}`).join("\n"),
+    );
+    const store = openStore(
+      ragConfig(path.join(root, "rag.db"), {
+        chunkChars: 20,
+        chunkOverlapChars: 0,
+        maxVectorScan: 300,
+      }),
+      fakeProvider(),
+    );
+    await store.index({ path: root });
+    const result = await store.query({ query: "alpha" });
+    const vectorSearch = result.vectorSearch as Record<string, unknown>;
+    expect(vectorSearch.ranked).toBe(250);
+    expect(vectorSearch.rankingTruncated).toBe(false);
+  });
+
   test("filters by path", async () => {
     const root = tempDir("arive-rag-filter-");
     const keep = path.join(root, "keep");
@@ -439,6 +546,18 @@ describe("vector search", () => {
     const results = scoped.results as Array<Record<string, unknown>>;
     expect(results).toHaveLength(1);
     expect(String(results[0]!.citation)).toContain("keep");
+  });
+
+  test("refuses to forget while an index run is in flight", async () => {
+    const root = tempDir("arive-rag-forget-race-");
+    fs.writeFileSync(path.join(root, "r.ts"), "const RaceProbe = 1;\n");
+    const store = openStore(ragConfig(path.join(root, "rag.db")));
+
+    const pending = store.index({ path: root });
+    expect(() => store.forget(root)).toThrow(/rag_index call is running/);
+    await pending;
+
+    expect(store.stats().files).toBe(1);
   });
 
   test("forget drops a subtree and refuses the filesystem root", async () => {

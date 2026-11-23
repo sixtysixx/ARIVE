@@ -23,6 +23,15 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+export interface NamespaceHealth {
+  tools: number;
+  /** Enabled in config or backed by routes; says nothing about reachability. */
+  configured: boolean;
+  /** A tool can be called right now. */
+  usable: boolean;
+  error?: string;
+}
+
 export function sanitizeToolName(name: string): string {
   return name.replace(/[^A-Za-z0-9_-]/g, "_");
 }
@@ -199,26 +208,31 @@ export class ToolRegistry {
     return count;
   }
 
-  namespaceSummary(): Record<
-    string,
-    { tools: number; enabled: boolean; error?: string }
-  > {
-    const summary: Record<
-      string,
-      { tools: number; enabled: boolean; error?: string }
-    > = {};
+  namespaceSummary(): Record<string, NamespaceHealth> {
+    const summary: Record<string, NamespaceHealth> = {};
     for (const namespace of NAMESPACES) {
       const error = this.discoveryErrors.get(namespace);
+      const routes = [...this.routes.values()].filter(
+        (route) => route.namespace === namespace,
+      );
       const tools = this.toolCount(namespace);
-      // "Disabled" and "healthy but empty" used to look identical here. A
-      // namespace that routes tools is usable whatever its downstream flag
-      // says: `context` and `rag` are local-only and have no client at all.
-      const enabled =
-        tools > 0 ||
-        this.clients.some(
-          (client) => client.namespace === namespace && client.enabled,
-        );
-      summary[namespace] = { tools, enabled, ...(error ? { error } : {}) };
+      const client = this.clients.find(
+        (entry) => entry.namespace === namespace,
+      );
+      // "Configured" is a config fact; "usable" is what the next call will do.
+      // A namespace that routes tools is configured whatever its flag says:
+      // `context` and `rag` are local-only and have no client at all.
+      const configured = tools > 0 || (client?.enabled ?? false);
+      const hasLocalRoute = routes.some((route) => route.kind === "local");
+      const usable =
+        tools > 0 &&
+        (hasLocalRoute || client === undefined || client.status().connected);
+      summary[namespace] = {
+        tools,
+        configured,
+        usable,
+        ...(error ? { error } : {}),
+      };
     }
     return summary;
   }

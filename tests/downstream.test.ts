@@ -69,6 +69,15 @@ describe("downstream multiplexing", () => {
     await late.close();
   }, 20_000);
 
+  test("does not resurrect a closed client", async () => {
+    const scoped = new DownstreamClient(config);
+    await scoped.listTools();
+    await scoped.close();
+    expect(scoped.status().closed).toBe(true);
+    expect(scoped.status().connected).toBe(false);
+    await expect(scoped.listTools()).rejects.toThrow(/was closed/);
+  }, 20_000);
+
   // Declared last: it leaves its child dead.
   test("concurrent calls survive a downstream crash without a spurious startup error", async () => {
     // The child dies 50ms after answering `die`, while both `wait` calls are
@@ -77,14 +86,16 @@ describe("downstream multiplexing", () => {
       ...config,
       env: { FAKE_DIE_MS: "50" },
     });
-    // A repair is a close plus a connect. One burst must produce one repair:
-    // a second close() would bump `generation` and abort the handshake the
-    // other call is waiting on.
+    // A repair is a teardown plus a connect. One burst must produce one
+    // repair: a second teardown would bump `generation` and abort the
+    // handshake the other call is waiting on. Teardown is internal, so count
+    // it through the runtime object rather than the terminal close().
     let repairs = 0;
-    const closeOnce = crashy.close.bind(crashy);
-    crashy.close = async () => {
+    const internals = crashy as unknown as { teardown: () => Promise<void> };
+    const teardownOnce = internals.teardown.bind(crashy);
+    internals.teardown = async () => {
       repairs += 1;
-      return closeOnce();
+      return teardownOnce();
     };
     try {
       await crashy.callTool("die", {});

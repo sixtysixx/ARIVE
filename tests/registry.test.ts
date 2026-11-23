@@ -30,6 +30,7 @@ function fakeClient(
       namespace,
       enabled,
       connected: true,
+      closed: false,
       toolCount: tools.length,
       command: "fake",
     }),
@@ -226,7 +227,8 @@ describe("ToolRegistry", () => {
     expect(after).not.toContain("lsp_echo");
     expect(registry.namespaceSummary().lsp).toEqual({
       tools: 0,
-      enabled: true,
+      configured: true,
+      usable: false,
       error: 'downstream "lsp" transport closed',
     });
   });
@@ -239,7 +241,8 @@ describe("ToolRegistry", () => {
     await registry.refresh();
     expect(registry.namespaceSummary().dap).toEqual({
       tools: 0,
-      enabled: false,
+      configured: false,
+      usable: false,
     });
   });
 
@@ -251,8 +254,25 @@ describe("ToolRegistry", () => {
     await registry.refresh();
     expect(registry.namespaceSummary().search).toEqual({
       tools: 1,
-      enabled: true,
+      configured: true,
+      usable: true,
     });
+  });
+
+  test("keeps a namespace configured but unusable when discovery fails", async () => {
+    const broken = {
+      ...fakeClient("lsp", [remoteTool("echo")]),
+      listTools: async () => {
+        throw new Error('Failed to start downstream "lsp"');
+      },
+    } as unknown as DownstreamClient;
+    const registry = new ToolRegistry([broken], []);
+    await registry.refresh();
+
+    const health = registry.namespaceSummary().lsp!;
+    expect(health.configured).toBe(true);
+    expect(health.usable).toBe(false);
+    expect(health.error).toContain("Failed to start");
   });
 
   test("sanitizes invalid tool name characters", () => {

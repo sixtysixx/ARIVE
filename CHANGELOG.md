@@ -1,5 +1,35 @@
 # Changelog
 
+## 3.0.0 — 2026-11-22
+
+Thirteen implicit state machines gained one explicit vocabulary each: impossible combinations are now unrepresentable or rejected with an error that names the field and the fix, and every reported state matches what the next call will do.
+
+The major bump covers one breaking wire change: `arive_status.namespaces.<ns>.enabled` was replaced by `configured` plus `usable`. Every other response change is additive.
+
+### Added
+
+- `arive_status.namespaces.<ns>` now reports `configured` (enabled in config or backed by routes) and `usable` (a tool can be called right now). A hard spawn failure is `{tools: 0, configured: true, usable: false, error}`; a disabled namespace is `configured: false`.
+- `arive_status.downstreams.*` gained `closed`. A closed client is terminal: `close()` then `listTools()` rejects instead of respawning the child.
+- Guard blocks carry `kind: "violation" | "unevaluated"`. An unevaluable rule blocks with `retry: false` and increments `hooks.unevaluated` instead of counting as an enforced policy.
+- `rag_query.vectorSearch` gained `skipped`, `ranked`, and `rankingTruncated`, and the response gained `candidateLimit: 2000`. `rag_stats.embeddings.staleVectors` counts vectors whose width does not match the indexed dimensions.
+- The debug composite records `dap_terminate` (and fails the run when the session leaks).
+
+### Changed
+
+- **`runCommand` reports one `outcome`** (`exited`/`timeout`/`stopped`/`capExceeded`/`spawnError`) instead of `timedOut`/`stopped` booleans that could both be true.
+- **Guard AST rules scan nested arguments.** Every string leaf of the call arguments is parsed (bounded to 8 levels and 50 values); deeper or extra values are reported in `degraded`, never skipped silently.
+- **`ctx:` durability follows the write.** A failed disk spill reports `durable: false` with the failure, and reusing a ref whose file was pruned rewrites it before returning.
+- **`rag_index` rejects `force:true, embed:false`** when a provider is configured: the reset would discard every vector and the run could not replace them.
+- **`rag_forget` refuses to run during `rag_index`**, because the in-flight run would write the forgotten file back.
+- **Debug breakpoints are set before launch**, with exactly one post-launch retry for adapters that reject pre-launch configuration.
+- **Memory drawer identity includes `hall`**, so rewriting the same content into a different hall creates a second drawer instead of moving the first.
+- **Config paths anchor to the config file.** Relative `memory.dbPath`, `rag.dbPath`, and `compression.storeDir` resolve against the config file's directory; `ARIVE_*` env values stay cwd-relative.
+- **`ARIVE_ENABLE` and `ARIVE_DISABLE` naming the same namespace is an error** instead of a silent disable.
+
+### Fixed
+
+- `search_query` no longer reports truncation when the result count is exactly `maxResults`; ripgrep's trailing `end` event is not a dropped match.
+
 ## 2.3.0 — 2026-11-18
 
 Guard hooks at the tool boundary, one catalogue for namespace knowledge, and four hot-path fixes. No wire-protocol change: the gateway gains one tool (`arive_guard`), one config block (`hooks`), and `arive_status.hooks`.

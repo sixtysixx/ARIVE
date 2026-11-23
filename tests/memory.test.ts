@@ -107,6 +107,44 @@ describe("memory adapter", () => {
     expect(rows[0]!.tags).toEqual(["a", "b"]);
   });
 
+  test("keeps the same content in two halls as two drawers", async () => {
+    const base = {
+      content: "hall is part of the drawer identity",
+      wing: "codebase",
+      room: "general",
+    };
+    const factsFirst = jsonOf(
+      await tools.mem_remember!.handler({ ...base, hall: "facts" }),
+    );
+    const factsAgain = jsonOf(
+      await tools.mem_remember!.handler({
+        ...base,
+        hall: "facts",
+        tags: ["merged"],
+      }),
+    );
+    const decision = jsonOf(
+      await tools.mem_remember!.handler({ ...base, hall: "decisions" }),
+    );
+    expect(factsAgain.drawerId).toBe(factsFirst.drawerId);
+    expect(decision.drawerId).not.toBe(factsFirst.drawerId);
+
+    const recalled = jsonOf(
+      await tools.mem_recall!.handler({ hall: "facts", limit: 10 }),
+    );
+    const rows = recalled.results as Array<{
+      content: string;
+      hall: string;
+      tags: string[];
+    }>;
+    const matching = rows.filter((row) =>
+      row.content.includes("hall is part of the drawer identity"),
+    );
+    expect(matching).toHaveLength(1);
+    expect(matching[0]!.hall).toBe("facts");
+    expect(matching[0]!.tags).toEqual(["merged"]);
+  });
+
   test("enforces a lowered maxItems at startup", async () => {
     const capDir = fs.mkdtempSync(path.join(os.tmpdir(), "arive-cap-"));
     const dbPath = path.join(capDir, "memory.db");

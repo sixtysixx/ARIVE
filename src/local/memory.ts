@@ -95,7 +95,9 @@ export class MemoryStore {
       throw new Error("content exceeds 100k characters");
 
     const digest = createHash("sha256")
-      .update(`${input.wing}\x00${input.room}\x00${content}`)
+      .update(
+        `${input.hall}\x00${input.wing}\x00${input.room}\x00${content}`,
+      )
       .digest("hex")
       .slice(0, 16);
     const drawerId = `mem:${digest}`;
@@ -301,7 +303,7 @@ export function createMemoryTools(store: MemoryStore): LocalTool[] {
     {
       name: "mem_remember",
       description:
-        "[MEM] Store a durable fact, decision, or finding in the spatial memory hierarchy (wing/room/hall). Idempotent per (wing, room, content); re-writing the same drawer merges tags and updates hall/importance.",
+        "[MEM] Store a durable fact, decision, or finding in the spatial memory hierarchy (wing/room/hall). Idempotent per (wing, room, hall, content); re-writing the same drawer merges tags and updates importance.",
       inputSchema: {
         type: "object",
         properties: {

@@ -108,7 +108,7 @@ async function main(): Promise<void> {
           memoryDb: config.memory.dbPath,
           ragDb: config.rag.dbPath,
         },
-        note: "Namespaces with a local adapter (context, search, mem, rag) stay available even when no downstream server is configured.",
+        note: "Namespaces with a local adapter (context, search, mem, rag) stay usable even when no downstream server is configured; 'usable' means a tool can be called right now, 'configured' means the namespace is enabled in config.",
       }),
   };
 

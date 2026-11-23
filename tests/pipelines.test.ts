@@ -38,6 +38,7 @@ function makeDeps(options: FakeOptions = {}): PipelineDeps {
         return match(dap, {
           launch: "dap_launch",
           set_breakpoint: "dap_set_breakpoint",
+          terminate: "dap_terminate",
         });
       }
       return undefined;
@@ -52,6 +53,8 @@ function makeDeps(options: FakeOptions = {}): PipelineDeps {
           return text({ launched: true });
         case "dap_set_breakpoint":
           return text({ breakpoints: 1 });
+        case "dap_terminate":
+          return text({ terminated: true });
         default:
           return text({ ok: true });
       }
@@ -126,9 +129,43 @@ describe("reasoned debug pipeline", () => {
     const byStep = Object.fromEntries(steps.map((s) => [s.step, s.status]));
     expect(byStep.dap_launch).toBe("ok");
     expect(byStep.dap_breakpoints).toBe("ok");
+    expect(byStep.dap_terminate).toBe("ok");
     const observations = result.observations as Record<string, unknown>;
     expect(observations.launch).toEqual({ launched: true });
     expect(observations.breakpoints).toEqual({ breakpoints: 1 });
+  });
+
+  test("retries breakpoints after launch when the pre-launch set failed", async () => {
+    const deps = makeDeps({ dap: true });
+    let breakpointCalls = 0;
+    const flaky: PipelineDeps = {
+      ...deps,
+      call: async (name, args) => {
+        if (name === "dap_set_breakpoint") {
+          breakpointCalls += 1;
+          if (breakpointCalls === 1) throw new Error("adapter not attached");
+        }
+        return deps.call(name, args);
+      },
+    };
+    const result = parse(
+      await debug(flaky).handler({
+        symptom: "bad state",
+        program: "./app",
+        filePath: "app.ts",
+        breakpoints: [7],
+      }),
+    );
+    const steps = result.steps as Array<{
+      step: string;
+      status: string;
+      detail?: string;
+    }>;
+    const byStep = Object.fromEntries(steps.map((s) => [s.step, s.status]));
+    expect(byStep.dap_breakpoints).toBe("ok");
+    expect(steps.find((s) => s.step === "dap_breakpoints")?.detail).toBeUndefined();
+    expect(breakpointCalls).toBe(2);
+    expect(result.ok).toBe(true);
   });
 
   test("marks follow-up steps skipped when the launch fails", async () => {
@@ -155,8 +192,9 @@ describe("reasoned debug pipeline", () => {
     }>;
     const byStep = Object.fromEntries(steps.map((s) => [s.step, s.status]));
     expect(byStep.dap_launch).toBe("failed");
+    // Breakpoints are attempted before launch, so this one still ran.
+    expect(byStep.dap_breakpoints).toBe("ok");
     for (const step of [
-      "dap_breakpoints",
       "dap_continue",
       "dap_stack",
       "dap_variables",

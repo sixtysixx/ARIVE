@@ -10,7 +10,7 @@ describe("runCommand", () => {
       "console.log('a');console.log('b')",
     ]);
     expect(result.stdout).toBe("a\nb\n");
-    expect(result.stopped).toBe(false);
+    expect(result.outcome).toBe("exited");
     expect(result.truncated).toBe(false);
   });
 
@@ -22,7 +22,7 @@ describe("runCommand", () => {
         onStdoutLine: (line) => line !== "a",
       },
     );
-    expect(result.stopped).toBe(true);
+    expect(result.outcome).toBe("stopped");
     // The callback owns stdout: buffering it as well would defeat the point.
     expect(result.stdout).toBe("");
   });
@@ -38,7 +38,7 @@ describe("runCommand", () => {
         },
       },
     );
-    expect(result.stopped).toBe(false);
+    expect(result.outcome).toBe("exited");
     // A trailing fragment without a newline still reaches the callback.
     expect(lines).toEqual(["a", "b", "c"]);
   });
@@ -50,7 +50,7 @@ describe("runCommand", () => {
       { maxBytes: 1000, onStdoutLine: () => {} },
     );
     expect(result.truncated).toBe(true);
-    expect(result.stopped).toBe(true);
+    expect(result.outcome).toBe("capExceeded");
   });
 
   test("keeps stderr available for a stopped child", async () => {
@@ -59,7 +59,7 @@ describe("runCommand", () => {
       ["-e", "console.error('noise');console.log('a');console.log('b')"],
       { onStdoutLine: () => false },
     );
-    expect(result.stopped).toBe(true);
+    expect(result.outcome).toBe("stopped");
     expect(result.stderr).toContain("noise");
   });
 });
@@ -82,6 +82,6 @@ describe("runCommand deadline", () => {
 
     expect(result.code).toBe(0);
     expect(result.signal).toBeNull();
-    expect(result.timedOut).toBe(false);
+    expect(result.outcome).toBe("exited");
   });
 });

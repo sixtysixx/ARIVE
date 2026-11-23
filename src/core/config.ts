@@ -565,15 +565,30 @@ export function mergeConfig(raw: unknown): AriveConfig {
 function applyEnvOverrides(config: AriveConfig): void {
   const enable = process.env.ARIVE_ENABLE?.trim();
   const disable = process.env.ARIVE_DISABLE?.trim();
+  const allowed = enable
+    ? new Set(enable.split(",").map((s) => s.trim()))
+    : undefined;
+  const blocked = disable
+    ? new Set(disable.split(",").map((s) => s.trim()))
+    : undefined;
 
-  if (enable) {
-    const allowed = new Set(enable.split(",").map((s) => s.trim()));
+  // Enabling and disabling the same namespace is a contradiction, and the
+  // silent "disable wins" answer is not what either variable asked for.
+  if (allowed && blocked) {
+    const conflict = [...allowed].filter((namespace) => blocked.has(namespace));
+    if (conflict.length > 0) {
+      throw new Error(
+        `Invalid environment: namespace(s) ${conflict.join(", ")} are both allowed by ARIVE_ENABLE and blocked by ARIVE_DISABLE`,
+      );
+    }
+  }
+
+  if (allowed) {
     for (const d of config.downstreams) {
       if (!allowed.has(d.namespace)) d.enabled = false;
     }
   }
-  if (disable) {
-    const blocked = new Set(disable.split(",").map((s) => s.trim()));
+  if (blocked) {
     for (const d of config.downstreams) {
       if (blocked.has(d.namespace)) d.enabled = false;
     }
@@ -710,6 +725,22 @@ function validate(config: AriveConfig): void {
 }
 
 /**
+ * Anchors paths that came from a config file to that file's directory. Values
+ * from `ARIVE_*` env vars are applied afterwards, so they stay cwd-relative as
+ * documented; the same config file must not mean different corpora depending
+ * on where the gateway was started.
+ */
+function anchorPaths(config: AriveConfig, baseDir: string): void {
+  const anchor = (value: string): string =>
+    path.isAbsolute(value) ? value : path.resolve(baseDir, value);
+  config.memory.dbPath = anchor(config.memory.dbPath);
+  config.rag.dbPath = anchor(config.rag.dbPath);
+  if (config.compression.storeDir !== undefined) {
+    config.compression.storeDir = anchor(config.compression.storeDir);
+  }
+}
+
+/**
  * Loads configuration from an explicit path, $ARIVE_CONFIG, or ./arive.config.json.
  * An explicitly requested file that does not exist is an error: silently
  * falling back to defaults hides a typo behind a working gateway.
@@ -725,6 +756,7 @@ export function loadConfig(explicitPath?: string): AriveConfig {
   });
 
   let raw: unknown = {};
+  let sourceDir = process.cwd();
   for (const candidate of candidates) {
     const resolved = path.resolve(process.cwd(), candidate.path);
     if (!fs.existsSync(resolved)) {
@@ -740,11 +772,13 @@ export function loadConfig(explicitPath?: string): AriveConfig {
         `Failed to parse config at ${resolved}: ${errorMessage(error)}`,
       );
     }
+    sourceDir = path.dirname(resolved);
     log("info", `loaded config from ${resolved}`);
     break;
   }
 
   const config = mergeConfig(raw);
+  anchorPaths(config, sourceDir);
   applyEnvOverrides(config);
   validate(config);
   return config;

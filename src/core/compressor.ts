@@ -45,6 +45,7 @@ export class ContextCompressor {
   private compressions = 0;
   private lastDiskPrune = 0;
   private pendingWrites: Promise<void> = Promise.resolve();
+  private readonly writeFailures = new Map<string, string>();
   private readonly config: CompressionConfig;
 
   constructor(config: CompressionConfig) {
@@ -81,6 +82,12 @@ export class ContextCompressor {
     if (existing) {
       this.entries.delete(ref);
       this.entries.set(ref, existing);
+      // TTL pruning deletes the file, not the memory entry; reusing the ref
+      // must restore the disk copy or `durable` becomes a lie again.
+      if (this.config.storeDir) {
+        const file = path.resolve(this.config.storeDir, `${digest}.txt`);
+        if (!fs.existsSync(file)) this.persist(ref, existing.text);
+      }
       return ref;
     }
 
@@ -151,12 +158,18 @@ export class ContextCompressor {
         ? `${text.slice(0, this.config.previewChars)}…`
         : text;
 
-    // Durability is a property of the store, not of the caller: say which one
-    // this ref lives in so the reader knows whether it can wait.
-    const durable = this.config.storeDir !== undefined;
-    const hint = durable
-      ? `Original retained losslessly on disk. Call context_retrieve with {"ref":"${ref}"} to recover it.`
-      : `Original retained in memory only (LRU, ${this.config.maxEntries} entries) and may be evicted; call context_retrieve with {"ref":"${ref}"} soon.`;
+    // Durability is a property of the write, not of the config: say which one
+    // this ref actually lives in so the reader knows whether it can wait.
+    const requested = this.config.storeDir !== undefined;
+    const failure = this.writeFailures.get(ref);
+    const durable = requested && failure === undefined;
+    const memoryHint = `Original retained in memory only (LRU, ${this.config.maxEntries} entries) and may be evicted; call context_retrieve with {"ref":"${ref}"} soon.`;
+    const hint =
+      failure !== undefined
+        ? `Disk retention failed for this payload (${failure}); ${memoryHint}`
+        : durable
+          ? `Original retained losslessly on disk. Call context_retrieve with {"ref":"${ref}"} to recover it.`
+          : memoryHint;
     const envelope = {
       _arive_compressed: true,
       ref,
@@ -229,13 +242,17 @@ export class ContextCompressor {
     // catch keeps one failure from poisoning the queue for every later ref.
     this.pendingWrites = this.pendingWrites
       .then(() => fs.promises.writeFile(file, text, "utf8"))
-      .then(() => this.pruneDisk())
-      .catch((error: unknown) =>
+      .then(() => {
+        this.writeFailures.delete(ref);
+        return this.pruneDisk();
+      })
+      .catch((error: unknown) => {
+        this.writeFailures.set(ref, errorMessage(error));
         log(
           "warn",
           `failed persisting compressed payload: ${errorMessage(error)}`,
-        ),
-      );
+        );
+      });
   }
 
   /** Resolves once every queued spill has been written and pruned. */

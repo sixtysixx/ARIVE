@@ -274,6 +274,31 @@ describe("ContextCompressor envelope", () => {
     }
   });
 
+  test("a failed disk write is reported instead of promising durability", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "arive-store-"));
+    try {
+      // A regular file where the store dir should be makes both mkdir and
+      // writeFile fail with ENOTDIR.
+      const blocker = path.join(dir, "not-a-dir");
+      fs.writeFileSync(blocker, "x");
+      const compressor = new ContextCompressor({
+        enabled: true,
+        thresholdTokens: 10,
+        maxEntries: 10,
+        previewChars: 40,
+        storeDir: path.join(blocker, "store"),
+      });
+      const longText = "d".repeat(5000);
+      compressor.compressText(longText, "x");
+      await compressor.flush();
+      const envelope = envelopeOf(compressor.compressText(longText, "x").text);
+      expect(envelope.durable).toBe(false);
+      expect(envelope.hint).toContain("Disk retention failed");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("the envelope records omitted structured content", () => {
     const compressor = makeCompiler();
     const compressed = compressor.apply(

@@ -10,22 +10,29 @@ export interface ExecOptions {
   /**
    * Consumes stdout line by line as it arrives, so a caller that only needs the
    * first N records never waits for (or buffers) the whole stream. Returning
-   * false kills the child and marks the result `stopped`. `stdout` stays empty
+   * false kills the child and sets `outcome` to `stopped`. `stdout` stays empty
    * when this is set: the callback owns the output.
    */
   onStdoutLine?: (line: string) => boolean | void;
 }
 
+/** Why the process ended. Exactly one applies, so the cases cannot drift apart. */
+export type ExecOutcome =
+  | "exited"
+  | "timeout"
+  | "stopped"
+  | "capExceeded"
+  | "spawnError";
+
 export interface ExecResult {
   code: number | null;
   stdout: string;
   stderr: string;
-  timedOut: boolean;
+  /** The byte cap discarded output; orthogonal to `outcome`. */
   truncated: boolean;
-  /** The callback asked to stop, so the exit code reflects the kill. */
-  stopped: boolean;
   /** Termination signal, present only when the child was killed by one. */
   signal: string | null;
+  outcome: ExecOutcome;
 }
 
 /**
@@ -45,8 +52,8 @@ export function runCommand(
     let stdout = "";
     let stderr = "";
     let truncated = false;
-    let timedOut = false;
-    let stopped = false;
+    let killedBy: "callback" | "cap" | "timeout" | undefined;
+    let spawnFailed = false;
     let pending = "";
     let settled = false;
 
@@ -61,7 +68,7 @@ export function runCommand(
       // The child can exit on the same tick the deadline fires; killing it
       // then would turn a clean exit into a reported timeout.
       if (settled) return;
-      timedOut = true;
+      killedBy = "timeout";
       child.kill("SIGKILL");
     }, timeoutMs);
 
@@ -82,8 +89,8 @@ export function runCommand(
       return next;
     };
 
-    const stop = (): void => {
-      stopped = true;
+    const stop = (reason: "callback" | "cap"): void => {
+      if (!killedBy) killedBy = reason;
       pending = "";
       child.kill("SIGKILL");
     };
@@ -96,7 +103,7 @@ export function runCommand(
         const line = pending.slice(0, index);
         pending = pending.slice(index + 1);
         if (onStdoutLine(line) === false) {
-          stop();
+          stop("callback");
           return;
         }
         index = pending.indexOf("\n");
@@ -104,13 +111,13 @@ export function runCommand(
       if (flush && pending !== "") {
         const tail = pending;
         pending = "";
-        if (onStdoutLine(tail) === false) stopped = true;
+        if (onStdoutLine(tail) === false && !killedBy) killedBy = "callback";
         return;
       }
       // A single line larger than the cap would grow memory without bound.
       if (!flush && pending.length > maxBytes) {
         truncated = true;
-        stop();
+        stop("cap");
       }
     };
 
@@ -119,7 +126,7 @@ export function runCommand(
         stdout = append(stdout, chunk);
         return;
       }
-      if (stopped) return;
+      if (killedBy) return;
       pending += chunk.toString("utf8");
       drain(false);
     });
@@ -137,22 +144,31 @@ export function runCommand(
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      if (!stopped) drain(true);
+      if (killedBy !== "callback" && killedBy !== "cap") drain(true);
       // A child that exited 0 in the same tick the deadline fired answered in
       // time; the flag alone cannot tell those apart.
-      const didTimeOut = timedOut && !(code === 0 && signal === null);
+      const timedOut = killedBy === "timeout" && !(code === 0 && signal === null);
+      const outcome: ExecOutcome = spawnFailed
+        ? "spawnError"
+        : timedOut
+          ? "timeout"
+          : killedBy === "cap"
+            ? "capExceeded"
+            : killedBy === "callback"
+              ? "stopped"
+              : "exited";
       resolve({
         code,
         stdout,
         stderr,
-        timedOut: didTimeOut,
         truncated,
-        stopped,
         signal,
+        outcome,
       });
     };
 
     child.on("error", (error) => {
+      spawnFailed = true;
       stderr += `spawn error: ${error.message}`;
       finish(null);
     });

@@ -43,6 +43,17 @@ describe("search adapter", () => {
     expect(capped.truncated).toBe(true);
     expect((capped.matches as unknown[]).length).toBe(2);
 
+    // Exactly at the cap: the trailing rg "end" event is not a dropped match.
+    const exact = jsonOf(
+      await tools.search_query!.handler({
+        pattern: "needle",
+        path: dir,
+        maxResults: 3,
+      }),
+    );
+    expect(exact.count).toBe(3);
+    expect(exact.truncated).toBe(false);
+
     const full = jsonOf(
       await tools.search_query!.handler({
         pattern: "needle",

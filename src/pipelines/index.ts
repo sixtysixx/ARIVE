@@ -30,14 +30,16 @@ function record(
   step: string,
   status: StepStatus,
   detail?: string,
-): void {
-  steps.push({
+): PipelineStep {
+  const entry: PipelineStep = {
     step,
     status,
     ...(detail
       ? { detail: detail.length > 900 ? `${detail.slice(0, 900)}…` : detail }
       : {}),
-  });
+  };
+  steps.push(entry);
+  return entry;
 }
 
 function textOf(result: CallToolResult): string {
@@ -148,6 +150,41 @@ export function createPipelineTools(deps: PipelineDeps): LocalTool[] {
           "add_breakpoint",
           "setbreakpoint",
         ]);
+        const terminateTool = deps.find("dap", [
+          "terminate",
+          "disconnect",
+          "stop",
+          "close",
+        ]);
+
+        // Breakpoints must be configured before launch: adapters that bind
+        // them during launch never see a breakpoint set afterwards.
+        let breakpointStep: PipelineStep;
+        if (breakpointTool && filePath && breakpoints.length > 0) {
+          breakpointStep = record(steps, "dap_breakpoints", "ok");
+          try {
+            observations.breakpoints = parseJson(
+              unwrap(
+                await deps.call(breakpointTool, {
+                  file: filePath,
+                  filePath,
+                  lines: breakpoints,
+                  breakpoints,
+                }),
+              ),
+            );
+          } catch (error) {
+            breakpointStep.status = "failed";
+            breakpointStep.detail = errorMessage(error);
+          }
+        } else {
+          breakpointStep = record(
+            steps,
+            "dap_breakpoints",
+            "skipped",
+            "Need filePath, at least one breakpoint, and a DAP breakpoint tool.",
+          );
+        }
 
         if (!program) {
           record(
@@ -174,104 +211,133 @@ export function createPipelineTools(deps: PipelineDeps): LocalTool[] {
         const launched = steps.some(
           (step) => step.step === "dap_launch" && step.status === "ok",
         );
-        if (!launched) {
-          for (const step of [
-            "dap_breakpoints",
-            "dap_continue",
-            "dap_stack",
-            "dap_variables",
-          ]) {
-            record(steps, step, "skipped", "Debug session did not launch.");
-          }
-        } else {
-          if (breakpointTool && filePath && breakpoints.length > 0) {
-            try {
-              observations.breakpoints = parseJson(
-                unwrap(
-                  await deps.call(breakpointTool, {
-                    file: filePath,
-                    filePath,
-                    lines: breakpoints,
-                    breakpoints,
-                  }),
-                ),
-              );
-              record(steps, "dap_breakpoints", "ok");
-            } catch (error) {
-              record(steps, "dap_breakpoints", "failed", errorMessage(error));
-            }
-          } else {
-            record(
-              steps,
-              "dap_breakpoints",
-              "skipped",
-              "Need filePath, at least one breakpoint, and a DAP breakpoint tool.",
+        // Some adapters reject breakpoints before launch; one retry after a
+        // successful launch is the only recovery that can still bind them.
+        if (
+          launched &&
+          breakpointStep.status === "failed" &&
+          breakpointTool &&
+          filePath &&
+          breakpoints.length > 0
+        ) {
+          try {
+            observations.breakpoints = parseJson(
+              unwrap(
+                await deps.call(breakpointTool, {
+                  file: filePath,
+                  filePath,
+                  lines: breakpoints,
+                  breakpoints,
+                }),
+              ),
             );
+            breakpointStep.status = "ok";
+            delete breakpointStep.detail;
+          } catch (error) {
+            const prior = breakpointStep.detail
+              ? `${breakpointStep.detail}; `
+              : "";
+            breakpointStep.detail = `${prior}retry after launch failed: ${errorMessage(error)}`;
           }
+        }
 
-          const continueTool = deps.find("dap", ["continue", "resume", "run"]);
-          if (continueTool) {
-            try {
-              observations.continued = parseJson(
-                unwrap(await deps.call(continueTool, {})),
-              );
-              record(steps, "dap_continue", "ok");
-            } catch (error) {
-              record(steps, "dap_continue", "failed", errorMessage(error));
-            }
-          } else {
-            record(
-              steps,
+        try {
+          if (!launched) {
+            for (const step of [
               "dap_continue",
-              "skipped",
-              "No continue capability advertised by the dap namespace.",
-            );
-          }
-
-          const stackTool = deps.find("dap", [
-            "stack_trace",
-            "get_stack_trace",
-            "stacktrace",
-          ]);
-          if (stackTool) {
-            try {
-              observations.stack = parseJson(
-                unwrap(await deps.call(stackTool, {})),
-              );
-              record(steps, "dap_stack", "ok");
-            } catch (error) {
-              record(steps, "dap_stack", "failed", errorMessage(error));
-            }
-          } else {
-            record(
-              steps,
               "dap_stack",
-              "skipped",
-              "No stack_trace capability advertised by the dap namespace.",
-            );
-          }
-
-          const variablesTool = deps.find("dap", [
-            "variables",
-            "get_variables",
-            "scopes",
-          ]);
-          if (variablesTool) {
-            try {
-              observations.variables = parseJson(
-                unwrap(await deps.call(variablesTool, {})),
-              );
-              record(steps, "dap_variables", "ok");
-            } catch (error) {
-              record(steps, "dap_variables", "failed", errorMessage(error));
+              "dap_variables",
+            ]) {
+              record(steps, step, "skipped", "Debug session did not launch.");
             }
           } else {
+            const continueTool = deps.find("dap", ["continue", "resume", "run"]);
+            if (continueTool) {
+              try {
+                observations.continued = parseJson(
+                  unwrap(await deps.call(continueTool, {})),
+                );
+                record(steps, "dap_continue", "ok");
+              } catch (error) {
+                record(steps, "dap_continue", "failed", errorMessage(error));
+              }
+            } else {
+              record(
+                steps,
+                "dap_continue",
+                "skipped",
+                "No continue capability advertised by the dap namespace.",
+              );
+            }
+
+            const stackTool = deps.find("dap", [
+              "stack_trace",
+              "get_stack_trace",
+              "stacktrace",
+            ]);
+            if (stackTool) {
+              try {
+                observations.stack = parseJson(
+                  unwrap(await deps.call(stackTool, {})),
+                );
+                record(steps, "dap_stack", "ok");
+              } catch (error) {
+                record(steps, "dap_stack", "failed", errorMessage(error));
+              }
+            } else {
+              record(
+                steps,
+                "dap_stack",
+                "skipped",
+                "No stack_trace capability advertised by the dap namespace.",
+              );
+            }
+
+            const variablesTool = deps.find("dap", [
+              "variables",
+              "get_variables",
+              "scopes",
+            ]);
+            if (variablesTool) {
+              try {
+                observations.variables = parseJson(
+                  unwrap(await deps.call(variablesTool, {})),
+                );
+                record(steps, "dap_variables", "ok");
+              } catch (error) {
+                record(steps, "dap_variables", "failed", errorMessage(error));
+              }
+            } else {
+              record(
+                steps,
+                "dap_variables",
+                "skipped",
+                "No variables capability advertised by the dap namespace.",
+              );
+            }
+          }
+        } finally {
+          if (!launched) {
             record(
               steps,
-              "dap_variables",
+              "dap_terminate",
               "skipped",
-              "No variables capability advertised by the dap namespace.",
+              "Debug session did not launch.",
             );
+          } else if (!terminateTool) {
+            record(
+              steps,
+              "dap_terminate",
+              "skipped",
+              "No terminate capability advertised by the dap namespace.",
+            );
+          } else {
+            try {
+              await deps.call(terminateTool, {});
+              record(steps, "dap_terminate", "ok");
+            } catch (error) {
+              record(steps, "dap_terminate", "failed", errorMessage(error));
+            }
           }
         }
 

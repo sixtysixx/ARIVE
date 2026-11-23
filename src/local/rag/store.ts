@@ -63,6 +63,9 @@ interface Hit {
 /** Signals a configuration problem that must not be retried per chunk. */
 class EmbeddingDimensionError extends Error {}
 
+/** Candidates fused per call: enough to survive maxPerFile/maxChars filtering. */
+const CANDIDATE_LIMIT = 2000;
+
 /** Escapes SQL LIKE wildcards so a literal `%` or `_` in a path stays literal. */
 function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (match) => `\\${match}`);
@@ -190,6 +193,14 @@ export class RagStore {
     const isDirectory = rootStat.isDirectory();
     const force = args.force ?? false;
     const embed = args.embed !== false;
+
+    // The reset inside ensureEmbeddingCompatibility is what makes force
+    // destructive; rejecting before it is the only safe order.
+    if (this.provider && force && !embed) {
+      throw new Error(
+        "rag_index with force:true re-embeds the corpus; embed:false would discard every vector. Pass embed:true, or drop force.",
+      );
+    }
 
     await this.ensureEmbeddingCompatibility(force);
 
@@ -556,14 +567,16 @@ export class RagStore {
       timeoutMs: 60_000,
       maxBytes: 8_000_000,
     });
-    if (result.timedOut) throw new Error("ripgrep timed out while enumerating files.");
-    if (result.code === null) {
-      if (result.signal) {
-        throw new Error(`ripgrep was killed by ${result.signal}.`);
-      }
+    if (result.outcome === "timeout") {
+      throw new Error("ripgrep timed out while enumerating files.");
+    }
+    if (result.outcome === "spawnError") {
       throw new Error(
         "ripgrep (rg) is required for rag_index but was not runnable. Install ripgrep and ensure it is on PATH.",
       );
+    }
+    if (result.code === null && result.signal) {
+      throw new Error(`ripgrep was killed by ${result.signal}.`);
     }
     if (result.code === 1) return { files: [], truncated: false };
     if (result.code !== 0) {
@@ -617,9 +630,13 @@ export class RagStore {
         vectorSearch: {
           enabled: Boolean(this.provider),
           scanned: 0,
+          skipped: 0,
+          ranked: 0,
+          rankingTruncated: false,
           truncated: false,
           pending: 0,
         },
+        candidateLimit: CANDIDATE_LIMIT,
         degraded: { reason: "No indexed chunks; call rag_index first." },
         trimmed: false,
         timingsMs: { lexical: 0, vector: 0 },
@@ -627,11 +644,11 @@ export class RagStore {
     }
 
     let degraded: string | undefined;
+    let rankingTruncated = false;
 
     const lexicalStarted = performance.now();
     const hits = new Map<number, Hit>();
     const lexicalTerms = buildFtsQuery(query);
-    const lexicalLimit = Math.max(50, topK * 10);
     if (lexicalTerms) {
       const sql =
         `SELECT c.id, c.path, c.start_line, c.end_line, c.text, ` +
@@ -642,8 +659,11 @@ export class RagStore {
         ` ORDER BY bm25_score ASC LIMIT ?`;
       const rows = this.db
         .prepare(sql)
-        .all(lexicalTerms, ...filterParams, lexicalLimit) as LexicalRow[];
-      rows.forEach((row, index) => {
+        .all(lexicalTerms, ...filterParams, CANDIDATE_LIMIT + 1) as LexicalRow[];
+      // A capped candidate set must announce itself: `truncated: false` may
+      // only mean nothing was dropped anywhere in the pipeline.
+      if (rows.length > CANDIDATE_LIMIT) rankingTruncated = true;
+      rows.slice(0, CANDIDATE_LIMIT).forEach((row, index) => {
         hits.set(row.id, {
           id: row.id,
           path: row.path,
@@ -659,6 +679,9 @@ export class RagStore {
 
     const vectorStarted = performance.now();
     let vectorScanned = 0;
+    let vectorRanked = 0;
+    let vectorSkipped = 0;
+    let queryWidth = 0;
     let vectorTruncated = false;
     let embeddingPending = 0;
     const provider = this.provider;
@@ -682,6 +705,7 @@ export class RagStore {
           if (!queryVector) {
             throw new Error("Embeddings provider returned no vector");
           }
+          queryWidth = queryVector.length;
           const storedDims = this.metaNumber("embedding.dimensions");
           if (storedDims !== undefined && storedDims !== queryVector.length) {
             degraded = `Embedding dimension mismatch: index has ${storedDims}, provider "${provider.id}" returned ${queryVector.length}. Re-run rag_index with force:true after switching models.`;
@@ -698,8 +722,9 @@ export class RagStore {
             vectorTruncated = rows.length > this.config.maxVectorScan;
             const scored = rows.slice(0, this.config.maxVectorScan);
             vectorScanned = scored.length;
+            vectorRanked = scored.length;
 
-            const ranked = scored
+            const rankedAll = scored
               .map((row) => {
                 // A dimension mismatch is a stale vector, not a match; the
                 // length precheck keeps it out of the dot product entirely.
@@ -707,6 +732,7 @@ export class RagStore {
                   !row.embedding ||
                   vectorLength(row.embedding) !== queryVector.length
                 ) {
+                  vectorSkipped += 1;
                   return undefined;
                 }
                 return {
@@ -718,8 +744,9 @@ export class RagStore {
                 (entry): entry is { row: ChunkRow; similarity: number } =>
                   entry !== undefined,
               )
-              .sort((a, b) => b.similarity - a.similarity)
-              .slice(0, Math.max(50, topK * 10));
+              .sort((a, b) => b.similarity - a.similarity);
+            if (rankedAll.length > CANDIDATE_LIMIT) rankingTruncated = true;
+            const ranked = rankedAll.slice(0, CANDIDATE_LIMIT);
 
             ranked.forEach(({ row, similarity }, index) => {
               const existingHit = hits.get(row.id);
@@ -749,6 +776,11 @@ export class RagStore {
     // failed: a half-embedded index answers worse than it claims to.
     if (embeddingPending > 0 && !degraded) {
       degraded = `${embeddingPending} of ${total} chunk(s) have no embedding for "${provider?.id}"; run rag_index with embed enabled to complete vector search.`;
+    }
+    // A width mismatch is not a missing vector: the index claims coverage the
+    // query cannot use. Say so instead of under-reporting silently.
+    if (vectorSkipped > 0 && !degraded && provider) {
+      degraded = `${vectorSkipped} vector(s) in the index do not match the ${queryWidth}-dimensional query vector for "${provider.id}"; they were skipped. Re-run rag_index with force:true.`;
     }
     const vectorMs = Math.round(performance.now() - vectorStarted);
 
@@ -797,9 +829,13 @@ export class RagStore {
       vectorSearch: {
         enabled: vectorEnabled,
         scanned: vectorScanned,
+        skipped: vectorSkipped,
+        ranked: vectorRanked,
+        rankingTruncated,
         truncated: vectorTruncated,
         pending: embeddingPending,
       },
+      candidateLimit: CANDIDATE_LIMIT,
       trimmed,
       timingsMs: { lexical: lexicalMs, vector: vectorMs },
     };
@@ -842,10 +878,26 @@ export class RagStore {
     const embeddings: JsonObject = {
       provider: this.provider?.id ?? "none",
     };
+    let usableChunks = embeddedChunks;
     if (this.provider) {
       embeddings.model = this.provider.model;
       const dimensions = this.metaNumber("embedding.dimensions");
-      if (dimensions !== undefined) embeddings.dimensions = dimensions;
+      if (dimensions !== undefined) {
+        embeddings.dimensions = dimensions;
+        // Count coverage the query can actually use: a blob of another width
+        // is skipped by vector search, so it is not embedded in any useful
+        // sense. `length()` on a BLOB is its byte count.
+        usableChunks = (
+          this.db
+            .prepare(
+              "SELECT COUNT(*) AS c FROM rag_chunks WHERE embedding_id = ? AND length(embedding) = ?",
+            )
+            .get(this.provider.id, dimensions * 4) as { c: number }
+        ).c;
+        if (usableChunks < embeddedChunks) {
+          embeddings.staleVectors = embeddedChunks - usableChunks;
+        }
+      }
     }
 
     const stats: JsonObject = {
@@ -853,7 +905,7 @@ export class RagStore {
       files,
       chunks,
       textBytes,
-      embeddedChunks,
+      embeddedChunks: usableChunks,
       embeddings,
       maxFiles: this.config.maxFiles,
     };
@@ -863,6 +915,13 @@ export class RagStore {
   }
 
   forget(input: string): JsonObject {
+    // Indexing writes files back after this check, so an accepted forget would
+    // be undone by the run that is already in flight.
+    if (this.indexing) {
+      throw new Error(
+        "A rag_index call is running; retry rag_forget after it completes.",
+      );
+    }
     const abs = path.resolve(process.cwd(), input);
     if (abs === path.parse(abs).root) {
       throw new Error("Refusing to forget the filesystem root.");

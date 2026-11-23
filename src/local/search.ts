@@ -113,24 +113,23 @@ export function createSearchTools(defaultMaxResults: number): LocalTool[] {
           },
         });
         // A stopped child exits by signal with a null code; the exit-code
-        // branches below would report that as an unrunnable binary.
-        if (!result.stopped) {
-          if (result.timedOut) {
-            return errorResult("ripgrep timed out after 20000ms.", {
+        // branches would report that as an unrunnable binary.
+        if (result.outcome === "timeout") {
+          return errorResult("ripgrep timed out after 20000ms.", {
+            path: target,
+          });
+        }
+        if (result.outcome === "spawnError") {
+          return errorResult(
+            "ripgrep (rg) is required for search_query but was not runnable. Install ripgrep and ensure it is on PATH.",
+            { detail: result.stderr.trim() },
+          );
+        }
+        if (result.outcome === "exited") {
+          if (result.code === null && result.signal) {
+            return errorResult(`ripgrep was killed by ${result.signal}.`, {
               path: target,
             });
-          }
-          if (result.code === null) {
-            // A killed process and an unusable binary are different problems.
-            if (result.signal) {
-              return errorResult(`ripgrep was killed by ${result.signal}.`, {
-                path: target,
-              });
-            }
-            return errorResult(
-              "ripgrep (rg) is required for search_query but was not runnable. Install ripgrep and ensure it is on PATH.",
-              { detail: result.stderr.trim() },
-            );
           }
           if (result.code === 1) {
             return textResult({
@@ -198,22 +197,22 @@ export function createSearchTools(defaultMaxResults: number): LocalTool[] {
             files.push(relative(trimmed));
           },
         });
-        if (!result.stopped) {
-          if (result.timedOut) {
-            return errorResult("ripgrep timed out after 20000ms.", {
+        if (result.outcome === "timeout") {
+          return errorResult("ripgrep timed out after 20000ms.", {
+            path: target,
+          });
+        }
+        if (result.outcome === "spawnError") {
+          return errorResult(
+            "ripgrep (rg) is required for search_files but was not runnable. Install ripgrep and ensure it is on PATH.",
+            { detail: result.stderr.trim() },
+          );
+        }
+        if (result.outcome === "exited") {
+          if (result.code === null && result.signal) {
+            return errorResult(`ripgrep was killed by ${result.signal}.`, {
               path: target,
             });
-          }
-          if (result.code === null) {
-            if (result.signal) {
-              return errorResult(`ripgrep was killed by ${result.signal}.`, {
-                path: target,
-              });
-            }
-            return errorResult(
-              "ripgrep (rg) is required for search_files but was not runnable. Install ripgrep and ensure it is on PATH.",
-              { detail: result.stderr.trim() },
-            );
           }
           if (result.code === 1) {
             return textResult({ count: 0, truncated: false, files: [] });
@@ -229,7 +228,7 @@ export function createSearchTools(defaultMaxResults: number): LocalTool[] {
         return textResult({
           count: files.length,
           // Stopping early is itself the truncation signal.
-          truncated: result.stopped || result.truncated,
+          truncated: result.outcome === "stopped" || result.truncated,
           files,
         });
       },

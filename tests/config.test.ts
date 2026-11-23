@@ -161,6 +161,29 @@ describe("config", () => {
     expect(config.rag.dbPath).toBe(process.env.ARIVE_RAG_DB);
   });
 
+  test("rejects a namespace both enabled and disabled by the environment", () => {
+    process.env.ARIVE_ENABLE = "lsp";
+    process.env.ARIVE_DISABLE = "lsp";
+    expect(() => loadConfig(writeConfig({}))).toThrow(
+      /both allowed .* and blocked/,
+    );
+  });
+
+  test("anchors relative database paths to the config file directory", () => {
+    const file = writeConfig({
+      memory: { dbPath: ".arive/memory.db" },
+      rag: { dbPath: ".arive/rag.db" },
+    });
+    const dir = path.dirname(file);
+    const config = loadConfig(file);
+    expect(config.memory.dbPath).toBe(path.join(dir, ".arive/memory.db"));
+    expect(config.rag.dbPath).toBe(path.join(dir, ".arive/rag.db"));
+  });
+
+  test("keeps default database paths relative", () => {
+    expect(defaultConfig().memory.dbPath).toBe(".arive/memory.db");
+  });
+
   test("rejects rag settings that cannot work", () => {
     expect(() =>
       loadConfig(

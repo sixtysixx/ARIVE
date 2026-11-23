@@ -12,6 +12,8 @@ import type { JsonObject } from "./results.js";
 export interface HookViolation {
   rule: string;
   action: HookAction;
+  /** A matched rule (`violation`) is different from a rule that could not run. */
+  kind: "violation" | "unevaluated";
   guidance: string;
   /** First matched text, capped so a match cannot echo a whole payload back. */
   match: string;
@@ -31,6 +33,8 @@ export interface HookStats {
   docs: number;
   checks: number;
   blocked: number;
+  /** Blocks where at least one rule could not run; a subset of `blocked`. */
+  unevaluated: number;
   warned: number;
   astChecks: number;
   astErrors: number;
@@ -57,6 +61,40 @@ type AstExec =
 const MAX_MATCH_CHARS = 200;
 /** ast-grep's stderr when the pattern itself is not a valid AST. */
 const AST_PATTERN_WARNING = /^Warning: .*ERROR node/m;
+const MAX_AST_DEPTH = 8;
+const MAX_AST_TEXTS = 50;
+
+/** Every string leaf of a JSON value, labelled by its path. */
+function stringLeaves(
+  value: unknown,
+  label: string,
+  out: Array<{ label: string; text: string }>,
+  skipped: string[],
+  depth = 0,
+): void {
+  if (out.length >= MAX_AST_TEXTS) return;
+  if (typeof value === "string") {
+    if (value !== "") out.push({ label, text: value });
+    return;
+  }
+  if (depth >= MAX_AST_DEPTH) {
+    skipped.push(
+      `argument "${label}" is nested deeper than ${MAX_AST_DEPTH} levels; astCondition rules skipped it`,
+    );
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) =>
+      stringLeaves(entry, `${label}[${index}]`, out, skipped, depth + 1),
+    );
+    return;
+  }
+  if (typeof value === "object" && value !== null) {
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      stringLeaves(entry, `${label}.${key}`, out, skipped, depth + 1);
+    }
+  }
+}
 
 function emptyOutcome(): HookOutcome {
   return { violations: [], blocked: false, degraded: [], scannedChars: 0 };
@@ -108,6 +146,7 @@ export class HookEngine {
   private readonly run: typeof runCommand;
   private checks = 0;
   private blockedCount = 0;
+  private unevaluatedCount = 0;
   private warnedCount = 0;
   private astChecks = 0;
   private astErrors = 0;
@@ -158,10 +197,23 @@ export class HookEngine {
     const scanned = serialized.slice(0, this.config.maxScanChars);
     outcome.scannedChars = scanned.length;
 
-    // Only string values can be parsed as code; a number has no AST.
-    const astTexts = Object.entries(args)
-      .filter((entry): entry is [string, string] => typeof entry[1] === "string")
-      .map(([label, text]) => ({ label, text }));
+    // A regex sees the serialized arguments, so the AST subjects must cover
+    // every string leaf, not just top-level values, or a nested payload is
+    // scanned by one rule and silently skipped by the other.
+    const astTexts: Array<{ label: string; text: string }> = [];
+    const skippedLeaves: string[] = [];
+    const hasAstRule = this.guards.some(
+      (guard) => guard.rule.scope !== "text" && guard.rule.astCondition !== undefined,
+    );
+    if (hasAstRule) {
+      stringLeaves(args, "args", astTexts, skippedLeaves);
+      if (astTexts.length >= MAX_AST_TEXTS) {
+        skippedLeaves.push(
+          `more than ${MAX_AST_TEXTS} string arguments; astCondition rules scanned the first ${MAX_AST_TEXTS}`,
+        );
+      }
+      outcome.degraded.push(...skippedLeaves);
+    }
     const cache = new Map<string, AstExec>();
 
     for (const guard of this.guards) {
@@ -215,6 +267,7 @@ export class HookEngine {
         return {
           rule: rule.id,
           action: rule.action,
+          kind: "violation",
           guidance: rule.guidance,
           match: found[0].slice(0, MAX_MATCH_CHARS),
         };
@@ -239,6 +292,7 @@ export class HookEngine {
           return {
             rule: rule.id,
             action: "block",
+            kind: "unevaluated",
             guidance: `Guard rule ${rule.id} could not be evaluated: ${reason}`,
             match: "",
           };
@@ -249,6 +303,7 @@ export class HookEngine {
         return {
           rule: rule.id,
           action: rule.action,
+          kind: "violation",
           guidance: rule.guidance,
           match: entry.text.trim().slice(0, MAX_MATCH_CHARS),
         };
@@ -298,9 +353,9 @@ export class HookEngine {
     });
 
     let executed: AstExec;
-    if (result.timedOut) {
+    if (result.outcome === "timeout") {
       executed = { kind: "timeout" };
-    } else if (result.code === null && !result.signal) {
+    } else if (result.outcome === "spawnError") {
       executed = { kind: "missing" };
     } else if (result.code === 0 || result.code === 1) {
       // A match exits 0 with a JSON array, no match exits 1 with `[]`, and a
@@ -390,6 +445,7 @@ export class HookEngine {
       docs: this.config.docs.length,
       checks: this.checks,
       blocked: this.blockedCount,
+      unevaluated: this.unevaluatedCount,
       warned: this.warnedCount,
       astChecks: this.astChecks,
       astErrors: this.astErrors,
@@ -397,12 +453,21 @@ export class HookEngine {
   }
 
   private finish(outcome: HookOutcome): HookOutcome {
-    outcome.blocked = outcome.violations.some(
+    const blocking = outcome.violations.filter(
       (violation) => violation.action === "block",
     );
-    // Counters are per evaluated outcome, not per matching rule.
-    if (outcome.blocked) this.blockedCount += 1;
-    else if (outcome.violations.length > 0) this.warnedCount += 1;
+    outcome.blocked = blocking.length > 0;
+    // Counters are per evaluated outcome, not per matching rule. A block that
+    // only exists because a rule could not run is not proof the policy held.
+    if (blocking.some((violation) => violation.kind === "unevaluated")) {
+      this.unevaluatedCount += 1;
+    }
+    if (blocking.some((violation) => violation.kind === "violation")) {
+      this.blockedCount += 1;
+    }
+    if (!outcome.blocked && outcome.violations.length > 0) {
+      this.warnedCount += 1;
+    }
     return outcome;
   }
 }
@@ -413,6 +478,8 @@ export function blockedResult(outcome: HookOutcome): CallToolResult {
     outcome.violations.find((entry) => entry.action === "block") ??
     outcome.violations[0];
 
+  const kind = violation?.kind ?? "violation";
+
   return {
     isError: true,
     content: [
@@ -420,10 +487,15 @@ export function blockedResult(outcome: HookOutcome): CallToolResult {
         type: "text",
         text: JSON.stringify(
           {
-            error: `Blocked by guard rule "${violation?.rule}": ${violation?.guidance}`,
+            error:
+              kind === "unevaluated"
+                ? `Guard rule "${violation?.rule}" could not be evaluated: ${violation?.guidance}`
+                : `Blocked by guard rule "${violation?.rule}": ${violation?.guidance}`,
             rule: violation?.rule,
+            kind,
             executed: false,
-            retry: true,
+            // Retrying cannot fix an unavailable evaluator; it can fix a match.
+            retry: kind === "violation",
             violations: outcome.violations,
             ...(outcome.degraded.length ? { degraded: outcome.degraded } : {}),
           },

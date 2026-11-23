@@ -18,6 +18,7 @@ export interface ClientStatus {
   namespace: Namespace;
   enabled: boolean;
   connected: boolean;
+  closed: boolean;
   toolCount: number;
   error?: string;
   /** Milliseconds until the next automatic reconnect attempt is allowed. */
@@ -51,6 +52,8 @@ export class DownstreamClient {
   private reconnecting?: Promise<void>;
   /** Bumped by `close()` so an in-flight connect cannot resurrect the client. */
   private generation = 0;
+  /** Terminal: a closed client never spawns again, unlike a transport repair. */
+  private closed = false;
   private closeHandler?: () => void;
 
   constructor(config: DownstreamConfig) {
@@ -76,6 +79,7 @@ export class DownstreamClient {
       namespace: this.namespace,
       enabled: this.config.enabled,
       connected: this.client !== undefined,
+      closed: this.closed,
       toolCount: this.tools?.length ?? 0,
       ...(this.lastError ? { error: this.lastError } : {}),
       ...(this.retryAt > Date.now()
@@ -93,12 +97,18 @@ export class DownstreamClient {
     }
     await this.connect();
     if (this.tools && !force) return this.tools;
+    const generation = this.generation;
 
     const client = this.requireClient();
     try {
       const result = await client.listTools(undefined, {
         timeout: this.config.connectTimeoutMs,
       });
+      if (generation !== this.generation) {
+        throw new Error(
+          `Namespace "${this.namespace}" was closed during tools/list.`,
+        );
+      }
       this.tools = result.tools;
       this.lastError = undefined;
       return this.tools;
@@ -140,7 +150,7 @@ export class DownstreamClient {
     this.reconnecting = (async () => {
       this.lastError = undefined;
       this.retryAt = 0;
-      await this.close();
+      await this.teardown();
       await this.connect(false);
     })().finally(() => {
       this.reconnecting = undefined;
@@ -148,7 +158,13 @@ export class DownstreamClient {
     return this.reconnecting;
   }
 
+  /** Terminal: after this, any call fails instead of respawning the child. */
   async close(): Promise<void> {
+    this.closed = true;
+    await this.teardown();
+  }
+
+  private async teardown(): Promise<void> {
     // Increment first: any connect() awaiting a handshake must observe the
     // close and refuse to install its client afterwards.
     this.generation += 1;
@@ -202,6 +218,9 @@ export class DownstreamClient {
       throw new Error(
         `Namespace "${this.namespace}" is disabled in configuration.`,
       );
+    }
+    if (this.closed) {
+      throw new Error(`Namespace "${this.namespace}" was closed.`);
     }
     if (this.client) return;
     if (this.connecting) return this.connecting;
