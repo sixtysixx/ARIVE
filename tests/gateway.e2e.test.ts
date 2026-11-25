@@ -12,6 +12,7 @@ const fakeDownstream = path.resolve(
   import.meta.dir,
   "fixtures/fake_downstream.ts",
 );
+const fakeLh = path.resolve(import.meta.dir, "fixtures/fake_lh.ts");
 
 let client: Client;
 let transport: StdioClientTransport;
@@ -55,13 +56,20 @@ beforeAll(async () => {
       compression: { thresholdTokens: 25 },
       memory: { dbPath: path.join(tempDir, "memory.db") },
       rag: { dbPath: path.join(tempDir, "rag.db") },
-      downstreams: NAMESPACES.map((namespace) => ({
-        namespace,
-        enabled: namespace === "lsp",
-        command: "bun",
-        ...(namespace === "lsp" ? { args: ["run", fakeDownstream] } : {}),
-      })),
+      downstreams: NAMESPACES.filter((namespace) => namespace !== "fable").map(
+        (namespace) => ({
+          namespace,
+          enabled: namespace === "lsp" || namespace === "lh",
+          command: "bun",
+          args: [
+            "run",
+            namespace === "lh" ? fakeLh : fakeDownstream,
+          ],
+        }),
+      ),
       hooks: {
+        // The default docs would append text blocks and break JSON parsing.
+        docs: [],
         guards: [
           {
             id: "no-credential-scan",
@@ -117,6 +125,7 @@ describe("gateway end to end", () => {
     const names = tools.map((tool) => tool.name);
     for (const expected of [
       "arive_guard",
+      "arive_capabilities",
       "context_compress",
       "context_retrieve",
       "search_query",
@@ -126,13 +135,71 @@ describe("gateway end to end", () => {
       "rag_stats",
       "arive_reasoned_debug",
       "arive_status",
+      "fable_method",
+      "fable_plan",
+      "fable_judge",
     ]) {
       expect(names).toContain(expected);
     }
     expect(names.every((name) => !name.startsWith("think_"))).toBe(true);
 
     expect(await waitForTool("lsp_echo")).toBe(true);
+    // The downstream names its tools lh_* already; the gateway must not
+    // prefix them twice.
+    expect(await waitForTool("lh_start_run")).toBe(true);
+    expect(names).not.toContain("lh_lh_start_run");
     expect(await waitForNotification()).toBeGreaterThan(0);
+  }, 20_000);
+
+  test("drives a long-horizon run through its namespace", async () => {
+    const result = await client.callTool({
+      name: "lh_start_run",
+      arguments: { workspace: projectRoot },
+    });
+    const payload = JSON.parse(textOf(result)) as {
+      success: boolean;
+      run_id: string;
+    };
+    expect(payload.success).toBe(true);
+    expect(payload.run_id).toBe("run-1");
+  }, 20_000);
+
+  test("builds a fable plan artifact", async () => {
+    const result = await client.callTool({
+      name: "fable_plan",
+      arguments: {
+        classification: "task",
+        task: "bump the cache header",
+        done: "clients see max-age=60",
+        verification: "curl -sI shows max-age=60",
+        recommendation: "set it in the CDN config",
+      },
+    });
+    const plan = JSON.parse(textOf(result)) as {
+      ok: boolean;
+      artifact: string;
+    };
+    expect(plan.ok).toBe(true);
+    expect(plan.artifact).toContain("## Checklist");
+  }, 20_000);
+
+  test("routes jobs through arive_capabilities", async () => {
+    const result = await client.callTool({
+      name: "arive_capabilities",
+      arguments: {},
+    });
+    const payload = JSON.parse(textOf(result)) as {
+      instructions: string;
+      capabilities: Array<{ tool: string }>;
+      namespaces: Record<string, { usable: boolean }>;
+    };
+    expect(payload.instructions).toContain("Route by job");
+    const tools = payload.capabilities.map((entry) => entry.tool);
+    expect(tools).toContain("fable_judge");
+    expect(tools).toContain("lh_start_run");
+    // Both new namespaces are live: one in-process, one over stdio.
+    expect(payload.namespaces.fable?.usable).toBe(true);
+    expect(payload.namespaces.lh?.usable).toBe(true);
   }, 20_000);
 
   test("blocks a tool call before it executes", async () => {
@@ -254,18 +321,24 @@ describe("gateway end to end", () => {
       arguments: {},
     });
     const payload = JSON.parse(textOf(status)) as {
-      namespaces: Record<string, { tools: number }>;
+      namespaces: Record<string, { tools: number; enabled: boolean; usable: boolean }>;
       downstreams: Array<{ namespace: string; enabled: boolean }>;
     };
     expect(Object.keys(payload.namespaces).sort()).toEqual(
       [...NAMESPACES].sort(),
     );
     expect(payload.namespaces.context?.tools).toBeGreaterThanOrEqual(3);
+    // The in-process ruleset is live without any downstream server.
+    expect(payload.namespaces.fable).toEqual({
+      tools: 3,
+      enabled: false,
+      usable: true,
+    });
     expect(
       payload.downstreams.find((entry) => entry.namespace === "lsp")?.enabled,
     ).toBe(true);
     expect(payload.downstreams.filter((entry) => entry.enabled)).toHaveLength(
-      1,
+      2,
     );
   });
 

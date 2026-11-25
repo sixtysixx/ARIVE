@@ -20,6 +20,7 @@ import {
   type LocalTool,
 } from "./core/results.js";
 import { createLocalTools } from "./local/index.js";
+import { createCapabilityTool } from "./local/capabilities.js";
 import { MemoryStore } from "./local/memory.js";
 import { RagStore } from "./local/rag/store.js";
 import { createPipelineTools } from "./pipelines/index.js";
@@ -71,13 +72,17 @@ async function main(): Promise<void> {
     hooks,
   });
 
+  // The same routing text is advertised at handshake and served by
+  // arive_capabilities, so a reconnecting client cannot see two versions.
+  const instructions = buildInstructions(config.hooks);
+
   // The server exists before the registry so discovery can announce late
   // arrivals through notifications/tools/list_changed.
   const server = new Server(
     { name: config.server.name, version: config.server.version },
     {
       capabilities: { tools: { listChanged: true } },
-      instructions: buildInstructions(config.hooks),
+      instructions,
     },
   );
 
@@ -112,9 +117,14 @@ async function main(): Promise<void> {
       }),
   };
 
+  const capabilityTool = createCapabilityTool({
+    instructions,
+    summary: () => registry.namespaceSummary(),
+  });
+
   registry = new ToolRegistry(
     clients,
-    [...localTools, ...pipelines, statusTool],
+    [...localTools, ...pipelines, statusTool, capabilityTool],
     () => {
       void server
         .sendToolListChanged()

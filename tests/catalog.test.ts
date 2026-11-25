@@ -98,6 +98,8 @@ describe("namespace catalogue", () => {
         localTool("search_query"),
         localTool("context_retrieve"),
         localTool("rag_query"),
+        localTool("lh_run_status"),
+        localTool("fable_judge"),
         localTool("arive_status", false),
       ],
     );
@@ -107,6 +109,9 @@ describe("namespace catalogue", () => {
     expect(registry.isCompressible("context_retrieve")).toBe(false);
     expect(registry.isCompressible("rag_query")).toBe(false);
     expect(registry.isCompressible("arive_status")).toBe(false);
+    // A run status and a judge verdict are answers too.
+    expect(registry.isCompressible("lh_run_status")).toBe(false);
+    expect(registry.isCompressible("fable_judge")).toBe(false);
     // Search results are noise-sized; a downstream can still opt out.
     expect(registry.isCompressible("search_query")).toBe(true);
     expect(registry.isCompressible("lsp_echo")).toBe(false);

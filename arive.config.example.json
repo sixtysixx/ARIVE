@@ -39,7 +39,21 @@
     "astTimeoutMs": 3000,
     "onAstError": "skip",
     "guards": [],
-    "docs": []
+    "docs": [
+      {
+        "id": "arive-awareness",
+        "tool": ".",
+        "title": "ARIVE capabilities",
+        "once": true,
+        "text": "ARIVE gateway: search_query/search_files locate code; rag_index+rag_query retrieve passages from a corpus; mem_remember/mem_recall persist decisions; context_retrieve recovers a ctx: reference; fable_method loads the step-by-step loop, its deep references, and the eight domain adapters; fable_plan builds a plan artifact before non-trivial work; fable_judge verdicts each 'done' claim before you report it; lh_start_run hands a multi-round or unattended task to a manager/executor/auditor run (poll lh_run_status, steer with lh_inject_feedback, stop with lh_stop_run). Call arive_capabilities for the live job-to-tool map."
+      },
+      {
+        "id": "lh-driver",
+        "tool": "^lh_start_run$",
+        "title": "Driving a long-horizon run",
+        "text": "The run executes in its own worker: poll lh_run_status, queue corrections with lh_inject_feedback (drained at the next round gate), and stop with lh_stop_run. Pass workspace explicitly. Treat the run's claims as claims and verify them with fable_judge before reporting them as done. Upstream runs on macOS, Linux, and WSL; its POSIX-only control bus means a native Windows host returns a locking error instead of starting the run."
+      }
+    ]
   },
   "downstreams": [
     {
@@ -96,6 +110,22 @@
       "enabled": false,
       "command": "uvx",
       "args": ["mcp-server-qdrant"]
+    },
+    {
+      "namespace": "lh",
+      "enabled": true,
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/AMAP-ML/LongHorizon-Harness@634030370a9d41ac1c1c6ea7c07bc96ca1d24462",
+        "lh-harness",
+        "mcp-server",
+        "--transport",
+        "stdio"
+      ],
+      "connectTimeoutMs": 120000,
+      "callTimeoutMs": 60000,
+      "compress": false
     }
   ]
 }

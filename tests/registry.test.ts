@@ -227,6 +227,7 @@ describe("ToolRegistry", () => {
     expect(registry.namespaceSummary().lsp).toEqual({
       tools: 0,
       enabled: true,
+      usable: false,
       error: 'downstream "lsp" transport closed',
     });
   });
@@ -240,6 +241,7 @@ describe("ToolRegistry", () => {
     expect(registry.namespaceSummary().dap).toEqual({
       tools: 0,
       enabled: false,
+      usable: false,
     });
   });
 

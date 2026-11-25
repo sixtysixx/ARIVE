@@ -36,6 +36,16 @@ export const NAMESPACE_INFO: Record<Namespace, NamespaceInfo> = {
     summary: "hybrid retrieval over an indexed corpus",
     compressible: false,
   },
+  lh: {
+    prefix: "lh",
+    summary: "long-horizon manager/executor/auditor runs",
+    compressible: false,
+  },
+  fable: {
+    prefix: "fable",
+    summary: "fable method: loop, plan artifacts, adversarial judge",
+    compressible: false,
+  },
 };
 
 /** Resolves the namespace prefix of an exposed tool name, if it has one. */
@@ -68,6 +78,7 @@ export function buildInstructions(hooks: HooksConfig): string {
     "Oversized outputs are replaced by an envelope containing a ctx: reference; call context_retrieve with that ref to recover the original losslessly.",
     "Use arive_reasoned_debug for reflection plus debugger inspection.",
     "Call arive_status to see which namespaces are live before relying on a downstream tool.",
+    "Route by job: search_query/search_files to locate code, rag_index+rag_query to retrieve from a corpus, mem_remember/mem_recall for durable decisions, fable_method before non-trivial work, fable_plan to produce a plan artifact, fable_judge before reporting any work as done, lh_start_run for long unattended runs (poll lh_run_status, steer with lh_inject_feedback, stop with lh_stop_run), and arive_capabilities for the live job-to-tool map.",
     "Downstream tools are discovered after startup; the gateway emits notifications/tools/list_changed when the tool list changes.",
   ];
 

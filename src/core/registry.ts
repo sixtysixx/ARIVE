@@ -19,6 +19,15 @@ interface Route {
 /** How long the first `tools/list` may wait for downstream discovery. */
 const LIST_GRACE_MS = 1_000;
 
+/** A namespace as `arive_status` and `arive_capabilities` report it. */
+export interface NamespaceHealth {
+  tools: number;
+  enabled: boolean;
+  /** It can serve a call right now: no discovery failure and at least one tool. */
+  usable: boolean;
+  error?: string;
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -199,23 +208,22 @@ export class ToolRegistry {
     return count;
   }
 
-  namespaceSummary(): Record<
-    string,
-    { tools: number; enabled: boolean; error?: string }
-  > {
-    const summary: Record<
-      string,
-      { tools: number; enabled: boolean; error?: string }
-    > = {};
+  namespaceSummary(): Record<string, NamespaceHealth> {
+    const summary: Record<string, NamespaceHealth> = {};
     for (const namespace of NAMESPACES) {
       const error = this.discoveryErrors.get(namespace);
       // "Disabled" and "healthy but empty" used to look identical here.
       const enabled = this.clients.some(
         (client) => client.namespace === namespace && client.enabled,
       );
+      const tools = this.toolCount(namespace);
+      // A namespace with no tools or a discovery failure cannot serve a call,
+      // so a router that offers it would be advertising a dead end.
+      const usable = error === undefined && tools > 0;
       summary[namespace] = {
-        tools: this.toolCount(namespace),
+        tools,
         enabled,
+        usable,
         ...(error ? { error } : {}),
       };
     }

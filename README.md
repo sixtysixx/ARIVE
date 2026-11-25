@@ -15,7 +15,8 @@
              ┌──────────▼─────────┐   ┌──────────▼─────────┐       ┌──────────▼──────────┐
              │ spawned MCP servers│   │ in-process adapters│       │ composite pipeline  │
              │ think · lsp · dap  │   │ search · mem · rag │       │ arive_reasoned_*    │
-             │ (optional overrides│   │ context            │       │                     │
+             │ · lh               │   │ context · fable    │       │                     │
+             │ (optional overrides│   │                    │       │                     │
              │ for mem/search/rag)│   │                    │       │                     │
              └────────────────────┘   └────────────────────┘       └─────────────────────┘
 ```
@@ -33,10 +34,14 @@ Every exposed tool carries a strict prefix, so a server can never collide with a
 | `mem_*`     | **in-process** SQLite spatial memory                        | `mem_remember`, `mem_recall`, `mem_forget`, `mem_stats` |
 | `context_*` | **in-process** reversible compressor                        | `context_compress`, `context_retrieve`, `context_stats` |
 | `rag_*`     | **in-process** SQLite FTS5 retrieval, optional embeddings   | `rag_index`, `rag_query`, `rag_stats`, `rag_forget`     |
+| `lh_*`      | **LongHorizon-Harness** MCP server, built by `uvx` from the pinned commit | `lh_start_run`, `lh_run_status`, `lh_stop_run`, `lh_resume_run`, `lh_inject_feedback` |
+| `fable_*`   | **in-process** fable-method ruleset + judge                 | `fable_method`, `fable_plan`, `fable_judge`             |
 
-Several upstream projects in this lineage are libraries or rulesets rather than installable MCP servers. Spawning a command that does not exist would be worse than useless, so those capabilities are implemented locally with the same semantics (reversible compression, ripgrep search, spatial memory, hybrid retrieval). The three real MCP packages are spawned over stdio and their full tool surface is aggregated.
+Several upstream projects in this lineage are libraries or rulesets rather than installable MCP servers. Spawning a command that does not exist would be worse than useless, so those capabilities are implemented locally with the same semantics (reversible compression, ripgrep search, spatial memory, hybrid retrieval, the fable-method ruleset). The four real MCP packages are spawned over stdio and their full tool surface is aggregated.
 
 Local adapters win name collisions. Everything else from a downstream server is exposed as `<namespace>_<sanitized tool name>`, with routing back to the original tool name preserved.
+
+The `lh` server is the one downstream pinned to a git commit rather than a release: `lh-harness` 0.1.8 on PyPI predates `lh-harness mcp-server`, so `uvx` builds commit `6340303` on first use. Runs are POSIX-only upstream (macOS, Linux, WSL); on a native Windows host `lh_start_run` returns upstream's own error instead of starting, and the namespace stays visible in `arive_status`.
 
 ## Gateway tools
 
@@ -45,6 +50,7 @@ Local adapters win name collisions. Everything else from a downstream server is 
 | `arive_reasoned_debug` | Runs sequential-thinking steps, then launches a DAP session with breakpoints, stack, and variables when a debugger and `program` are available, and stores findings in memory. |
 | `arive_status`         | Reports namespace tool counts, whether each namespace is enabled, downstream connection state and reconnect cooldown, discovery state, memory and retrieval paths, compression store usage, and hook counters. A transport that dies invalidates its routes immediately, so a dead namespace reports `tools: 0` with the failure rather than its last known count. |
 | `arive_guard`          | Evaluates the configured guard rules against generated text and returns `abort: true` with the matching rule's guidance. Pass `includeRules: true` to receive the rule set. |
+| `arive_capabilities`   | Returns the job-to-tool map, each tool's use-when trigger, live namespace availability, and the same routing text the gateway advertises in `instructions`. |
 
 The composite returns a `steps` array with `ok`, `skipped`, or `failed` per step. A missing capability is reported as `skipped` with a reason — it is never silently fabricated. When the debug session does not launch, the follow-up steps (`dap_breakpoints`, `dap_continue`, `dap_stack`, `dap_variables`) are recorded as `skipped` rather than omitted, and `ok` is `false` for any run where no step succeeded.
 
@@ -119,8 +125,11 @@ Rules live in `arive.config.json` under `hooks` and are compiled once at startup
 | `guards[].action`    | `block` (default) returns guidance instead of running the tool; `warn` appends guidance to the result.        |
 | `guards[].guidance`  | What the caller must do instead. This is the text a blocked call returns.                                     |
 | `docs[].tool`        | Regular expression selecting the tools whose results receive this snippet.                                    |
+| `docs[].once`        | Inject this snippet at most once per gateway process.                                                          |
 
 `condition` and `astCondition` are independent: a rule can carry either or both, and either one matching satisfies it.
+
+Two docs ship by default: `arive-awareness` (every tool, once per process, naming the capability router) and `lh-driver` (each `lh_start_run`, describing how to poll, steer, and stop a run). A client that parses a single JSON block should set `"docs": []` to restore the undecorated result.
 
 `astCondition` matches structure instead of bytes, so `{ "pattern": "require($M)", "lang": "ts" }` blocks CommonJS requires whatever the quoting or spacing. Only string arguments are parsed, and an argument longer than `maxScanChars` is skipped with a `degraded` note. `ast-grep` is optional: a missing `sg`, a pattern it cannot apply, or a run past `astTimeoutMs` is reported in `degraded` and counted as no match — never as a silent pass. Set `onAstError` to `block` to make an unevaluable rule block the call instead. Identical patterns run `sg` once per check.
 
@@ -152,7 +161,7 @@ Requirements: Bun ≥ 1.1 and ripgrep (`rg`) on `PATH`. `git` is only needed if 
 
 ## Configuration
 
-Configuration is optional. Defaults live in `src/core/config.ts`: three spawned servers (`think`, `lsp`, `dap`) enabled, four local adapters active (`search`, `mem`, `context`, `rag`). Override precedence:
+Configuration is optional. Defaults live in `src/core/config.ts`: four spawned servers (`think`, `lsp`, `dap`, `lh`) enabled, five local adapters active (`search`, `mem`, `context`, `rag`, `fable`). Override precedence:
 
 1. `--config <path>`
 2. `$ARIVE_CONFIG`

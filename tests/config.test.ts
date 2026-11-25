@@ -31,19 +31,37 @@ function writeConfig(raw: unknown): string {
 }
 
 describe("config", () => {
-  test("defaults cover all seven namespaces exactly once", () => {
+  test("defaults cover every spawnable namespace exactly once", () => {
     const config = defaultConfig();
+    const spawnable = NAMESPACES.filter((namespace) => namespace !== "fable");
     const namespaces = config.downstreams.map((d) => d.namespace).sort();
-    expect(namespaces).toEqual([...NAMESPACES].sort());
-    expect(new Set(namespaces).size).toBe(7);
+    expect(namespaces).toEqual([...spawnable].sort());
+    expect(new Set(namespaces).size).toBe(spawnable.length);
   });
 
-  test("defaults spawn only the three real MCP servers", () => {
+  test("defaults spawn only the four real MCP servers", () => {
     const enabled = defaultConfig()
       .downstreams.filter((d) => d.enabled)
       .map((d) => d.namespace)
       .sort();
-    expect(enabled).toEqual(["dap", "lsp", "think"]);
+    expect(enabled).toEqual(["dap", "lh", "lsp", "think"]);
+  });
+
+  test("the long-horizon server is pinned and enabled by default", () => {
+    const lh = defaultConfig().downstreams.find((d) => d.namespace === "lh");
+    expect(lh?.enabled).toBe(true);
+    expect(lh?.command).toBe("uvx");
+    expect(lh?.args).toContain(
+      "git+https://github.com/AMAP-ML/LongHorizon-Harness@634030370a9d41ac1c1c6ea7c07bc96ca1d24462",
+    );
+    expect(lh?.args).toContain("mcp-server");
+    expect(lh?.compress).toBe(false);
+  });
+
+  test("rejects a downstream override for an in-process namespace", () => {
+    expect(() =>
+      mergeConfig({ downstreams: [{ namespace: "fable", enabled: true }] }),
+    ).toThrow(/served in-process/);
   });
 
   test("merges a downstream override without dropping the others", () => {
@@ -57,7 +75,7 @@ describe("config", () => {
         },
       ],
     });
-    expect(config.downstreams).toHaveLength(7);
+    expect(config.downstreams).toHaveLength(NAMESPACES.length - 1);
     const search = config.downstreams.find((d) => d.namespace === "search");
     expect(search?.enabled).toBe(true);
     expect(search?.command).toBe("custom-search");
