@@ -8,17 +8,16 @@
 - **Vectorize** — optional Ollama/OpenAI embeddings, cosine fusion with BM25
 - **Envelope** — oversized output replaced by a `ctx:` ref that recovers losslessly
 ```text
-                ┌────────────────────────────── ARIVE gateway ─────────────────────────────┐
- MCP client ──▶ │ stdio transport → namespaced router → compression middleware → result   │
-                └───────┬────────────────────────┬────────────────────────────┬────────────┘
-                        │                        │                            │
-             ┌──────────▼─────────┐   ┌──────────▼─────────┐       ┌──────────▼──────────┐
-             │ spawned MCP servers│   │ in-process adapters│       │ composite pipeline  │
-             │ think · lsp · dap  │   │ search · mem · rag │       │ arive_reasoned_*    │
-             │ · lh               │   │ context · fable    │       │                     │
-             │ (optional overrides│   │                    │       │                     │
-             │ for mem/search/rag)│   │                    │       │                     │
-             └────────────────────┘   └────────────────────┘       └─────────────────────┘
+                ┌───────────────────────────────── ARIVE gateway ──────────────────────────────────┐
+ MCP client ──▶ │ stdio transport → namespaced router → compression middleware → result            │
+                └─────────────┬───────────────────────────┬───────────────────────────┬────────────┘
+                              │                           │                           │
+                 ┌────────────▼───────────┐  ┌────────────▼───────────┐  ┌────────────▼───────────┐
+                 │ spawned MCP servers    │  │ in-process adapters    │  │ composite pipeline     │
+                 │ think · lsp · dap · lh │  │ search · mem · context │  │ arive_reasoned_debug   │
+                 │ (optional overrides    │  │ rag · fable            │  │                        │
+                 │ for mem/search/rag)    │  │                        │  │                        │
+                 └────────────────────────┘  └────────────────────────┘  └────────────────────────┘
 ```
 
 ## Namespaces
