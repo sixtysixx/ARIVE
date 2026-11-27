@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## 3.1.0 — 2026-11-27
 
-Two new namespaces, an active-use router, and one-shot doc hooks. `NAMESPACES` grows to nine (`lh`, `fable`), the gateway gains one tool (`arive_capabilities`), and every client now receives an awareness snippet after its first successful call.
+Two new namespaces, an active-use router, and one-shot doc hooks. `NAMESPACES` grows to nine (`lh`, `fable`), the gateway gains one tool (`arive_capabilities`), and every client now receives an awareness snippet after its first successful call. Minor, not major: every change adds to the 3.0.0 surface — no existing tool, response field, or config key changed meaning. The one difference a client can observe in ordinary use is the default doc snippet described under Changed, and `"docs": []` restores the undecorated result.
 
 ### Added
 
