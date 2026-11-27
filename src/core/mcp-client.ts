@@ -32,6 +32,23 @@ const RECONNECT_PATTERN =
 /** How long a failed downstream is left alone before an automatic retry. */
 const RETRY_COOLDOWN_MS = 30_000;
 
+/**
+ * The SDK's default environment is a curated allowlist, and on Windows it
+ * omits `PATHEXT`. Launchers that resolve a console tool by name — `uv`, and
+ * the `git` it shells out to for a git-pinned package — then report the tool as
+ * missing even though it is on `PATH`. A gateway can itself be started by a
+ * client that narrowed the environment, so the standard list is the fallback.
+ */
+const WINDOWS_PATHEXT = ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC";
+
+function downstreamEnv(): Record<string, string> {
+  const env = getDefaultEnvironment();
+  if (process.platform === "win32") {
+    env.PATHEXT = process.env.PATHEXT ?? WINDOWS_PATHEXT;
+  }
+  return env;
+}
+
 function isTimeout(error: unknown): boolean {
   return error instanceof McpError && error.code === ErrorCode.RequestTimeout;
 }
@@ -233,7 +250,7 @@ export class DownstreamClient {
       const transport = new StdioClientTransport({
         command: this.config.command,
         args: this.config.args,
-        env: { ...getDefaultEnvironment(), ...this.config.env },
+        env: { ...downstreamEnv(), ...this.config.env },
         ...(this.config.cwd ? { cwd: this.config.cwd } : {}),
         stderr: "pipe",
       });

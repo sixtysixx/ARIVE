@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { loadConfig, mergeConfig } from "../src/core/config.js";
+import { defaultConfig, loadConfig, mergeConfig } from "../src/core/config.js";
 import { blockedResult, HookEngine, type HookOutcome } from "../src/core/hooks.js";
 
 function engine(rawHooks: unknown): HookEngine {
@@ -61,6 +61,7 @@ describe("HookEngine argument guards", () => {
   test("warn rules report without blocking and annotate the result", async () => {
     const hooks = engine({
       guards: [{ ...NO_RM, action: "warn", guidance: "Prefer a scoped path." }],
+      docs: [],
     });
     const outcome = await hooks.checkCall("search_query", {
       pattern: "rm -rf /",
@@ -155,6 +156,36 @@ describe("HookEngine docs", () => {
     };
     expect(hooks.annotate("lsp_diagnostics", failure)).toBe(failure);
   });
+
+  test("a once doc is injected once and a plain doc every time", () => {
+    const hooks = engine({
+      docs: [
+        { id: "awareness", tool: ".", text: "capabilities", once: true },
+        { id: "always", tool: ".", text: "every call" },
+      ],
+    });
+
+    const first = texts(hooks.annotate("search_query", result()));
+    expect(first).toHaveLength(3);
+    expect(first[1]).toContain('<arive-doc id="awareness"');
+    expect(first[2]).toContain('<arive-doc id="always"');
+
+    const second = texts(hooks.annotate("search_query", result()));
+    expect(second).toHaveLength(2);
+    expect(second.join("\n")).not.toContain('id="awareness"');
+    expect(second[1]).toContain('<arive-doc id="always"');
+  });
+
+  test("a skipped matching tool does not consume the one shot", () => {
+    const hooks = engine({
+      docs: [{ id: "judge", tool: "^lsp_", text: "verify", once: true }],
+    });
+    // The name does not match, so nothing is spent.
+    expect(hooks.annotate("search_query", result())).toEqual(result());
+    const first = texts(hooks.annotate("lsp_diagnostics", result()));
+    expect(first[1]).toContain('id="judge"');
+    expect(texts(hooks.annotate("lsp_diagnostics", result()))).toHaveLength(1);
+  });
 });
 
 describe("hook configuration", () => {
@@ -245,6 +276,28 @@ describe("hook configuration", () => {
     // Untouched scalars keep their defaults.
     expect(config.hooks.maxScanChars).toBe(20_000);
     expect(config.hooks.onAstError).toBe("skip");
+  });
+
+  test("keeps once on a configured doc and rejects a non-boolean", () => {
+    const config = mergeConfig({
+      hooks: { docs: [{ id: "d", tool: "^x$", text: "t", once: true }] },
+    });
+    expect(config.hooks.docs[0]!.once).toBe(true);
+    expect(() =>
+      mergeConfig({
+        hooks: { docs: [{ id: "d", tool: "^x$", text: "t", once: "yes" }] },
+      }),
+    ).toThrow(/Invalid hooks\.docs\[0\]/);
+  });
+
+  test("ships an awareness doc and a run-driving doc by default", () => {
+    const docs = defaultConfig().hooks.docs;
+    const awareness = docs.find((doc) => doc.id === "arive-awareness");
+    expect(awareness?.once).toBe(true);
+    expect(awareness?.text).toContain("arive_capabilities");
+    const driver = docs.find((doc) => doc.id === "lh-driver");
+    expect(driver?.tool).toBe("^lh_start_run$");
+    expect(driver?.text).toContain("lh_run_status");
   });
 
   test("validation rejects a scan window that would disable every rule", () => {

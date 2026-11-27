@@ -266,6 +266,8 @@ describe("degraded evaluations", () => {
     // unusable pattern: no match, and nothing actually evaluated.
     const hooks = engine(
       {
+        // The default doc hooks would append a block after the reminder.
+        docs: [],
         guards: [
           { ...NO_REQUIRE, id: "bad", astCondition: { pattern: "require(", lang: "ts" } },
         ],

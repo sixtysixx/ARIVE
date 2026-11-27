@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+Two new namespaces, an active-use router, and one-shot doc hooks. `NAMESPACES` grows to nine (`lh`, `fable`), the gateway gains one tool (`arive_capabilities`), and every client now receives an awareness snippet after its first successful call.
+
+### Added
+
+- **`lh_*` namespace.** The five-tool LongHorizon-Harness MCP server (`lh_start_run`, `lh_run_status`, `lh_stop_run`, `lh_resume_run`, `lh_inject_feedback`) is spawned over stdio, enabled by default, and never compressed — a run status is the answer. The pin is commit `634030370a9d41ac1c1c6ea7c07bc96ca1d24462` rather than the 0.1.8 release, because `lh-harness` 0.1.8 on PyPI predates `lh-harness mcp-server`; `uvx` builds it on first use. Upstream is POSIX-only, so a native Windows host gets upstream's own control-bus error from `lh_start_run` instead of a started run, and the namespace stays visible in `arive_status`.
+- **`fable_*` namespace (in-process).** The fable-method 1.4.0 ruleset is vendored at commit `9924067e` under `src/local/fable/content` (16 markdown files plus its MIT licence), so the gateway works offline. `fable_method` serves the loop, its deep references, and the eight domain adapters; `fable_plan` builds the method's plan artifact and reports the fields it is missing instead of refusing; `fable_judge` verdicts caller-supplied claims as VERIFIED / VERIFIED WITH CAVEATS / REFUTED, naming the frauds visible in those facts (refuted claim, unauthorized outward action, weakened check, scope creep, debris) and the report lines the method requires. The judge executes nothing and says so in `checked`.
+- **`arive_capabilities`.** A job-to-tool map with each entry's use-when trigger, live namespace availability, and the same routing text advertised in `instructions`; `job` filters it by substring.
+- **`hooks.docs[].once`.** A doc can be injected at most once per gateway process, which is what makes a default awareness snippet affordable. The one shot is spent when the block is appended, so a call that does not match costs nothing.
+- **Two default docs.** `arive-awareness` (every tool, once) routes a new session to search, retrieval, memory, fable, and long-horizon runs; `lh-driver` (each `lh_start_run`) explains polling, steering, and stopping a run.
+
+### Changed
+
+- **`mergeConfig` rejects a downstream for an in-process namespace** instead of silently ignoring it. `fable` has no server, so an entry naming it now fails startup with the reason.
+- **`arive_capabilities` consumes `usable`** from `arive_status` to avoid advertising a dead end: a namespace whose discovery failed is listed but not offered.
+- **Downstreams get `PATHEXT` on Windows.** The SDK's curated default environment omits it, so launchers that resolve a console tool by name — `uv`, and the `git` it runs for a git-pinned package — reported the tool as missing. The standard list is passed when the gateway's own environment lacks it.
+
+### Tests
+
+- New `tests/fable.test.ts` (frontmatter stripping, every document and domain, plan gaps and stop-for-approval, judge verdicts and fraud classes, report lines), `tests/capabilities.test.ts` (availability, filter, instruction echo), and `tests/fixtures/fake_lh.ts` (the five upstream tools).
+- `tests/gateway.e2e.test.ts` now boots with `lh` pointed at that fixture and asserts `lh_start_run` is not double-prefixed, `fable_plan` builds an artifact, and `arive_capabilities` routes. `tests/hooks.test.ts` covers the one-shot doc, and `tests/catalog.test.ts` covers the two new compression policies.
+
 ## 3.0.0 — 2026-11-22
 
 Thirteen implicit state machines gained one explicit vocabulary each: impossible combinations are now unrepresentable or rejected with an error that names the field and the fix, and every reported state matches what the next call will do.

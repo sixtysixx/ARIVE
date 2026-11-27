@@ -3,6 +3,7 @@ import type { AriveConfig } from "../core/config.js";
 import type { HookEngine } from "../core/hooks.js";
 import type { LocalTool } from "../core/results.js";
 import { createContextTools } from "./context.js";
+import { createFableTools } from "./fable/index.js";
 import { createGuardTools } from "./guard.js";
 import { createMemoryTools, MemoryStore } from "./memory.js";
 import { RagStore } from "./rag/store.js";
@@ -19,6 +20,7 @@ export interface LocalToolOptions {
 
 export function createLocalTools(options: LocalToolOptions): LocalTool[] {
   return [
+    ...createFableTools(),
     ...createGuardTools(options.hooks),
     ...createContextTools(options.compressor),
     ...createSearchTools(options.config.search.maxResults),

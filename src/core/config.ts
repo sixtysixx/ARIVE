@@ -11,6 +11,8 @@ export const NAMESPACES = [
   "search",
   "context",
   "rag",
+  "lh",
+  "fable",
 ] as const;
 
 export type Namespace = (typeof NAMESPACES)[number];
@@ -90,6 +92,8 @@ export interface DocHookConfig {
   tool: string;
   title?: string;
   text: string;
+  /** Inject this snippet at most once per gateway process. */
+  once?: boolean;
 }
 
 export interface HooksConfig {
@@ -143,8 +147,9 @@ const DEFAULT_DOWNSTREAMS: DownstreamConfig[] = [
     callTimeoutMs: 120_000,
     compress: true,
   },
-  // These three are served in-process by local adapters. Enable a downstream
-  // entry only if you want to override the adapter with a real server.
+  // The rest are served in-process by local adapters. Enable a downstream
+  // entry only if you want to override the adapter with a real server; `fable`
+  // has no downstream at all, so it has no entry here.
   {
     namespace: "search",
     enabled: false,
@@ -185,6 +190,27 @@ const DEFAULT_DOWNSTREAMS: DownstreamConfig[] = [
     callTimeoutMs: 60_000,
     compress: true,
   },
+  {
+    namespace: "lh",
+    enabled: true,
+    command: "uvx",
+    // The MCP server landed upstream after the 0.1.8 wheel was published, so
+    // the pin is the commit and not the release. uvx builds it on first use,
+    // like `bun x agent-lsp` does for lsp/dap.
+    args: [
+      "--from",
+      "git+https://github.com/AMAP-ML/LongHorizon-Harness@634030370a9d41ac1c1c6ea7c07bc96ca1d24462",
+      "lh-harness",
+      "mcp-server",
+      "--transport",
+      "stdio",
+    ],
+    env: {},
+    connectTimeoutMs: 120_000,
+    callTimeoutMs: 60_000,
+    // Run status and reports are the answer, not noise.
+    compress: false,
+  },
 ];
 
 const DEFAULT_CONFIG: AriveConfig = {
@@ -220,7 +246,21 @@ const DEFAULT_CONFIG: AriveConfig = {
     astTimeoutMs: 3_000,
     onAstError: "skip",
     guards: [],
-    docs: [],
+    docs: [
+      {
+        id: "arive-awareness",
+        tool: ".",
+        title: "ARIVE capabilities",
+        once: true,
+        text: "ARIVE gateway: search_query/search_files locate code; rag_index+rag_query retrieve passages from a corpus; mem_remember/mem_recall persist decisions; context_retrieve recovers a ctx: reference; fable_method loads the step-by-step loop, its deep references, and the eight domain adapters; fable_plan builds a plan artifact before non-trivial work; fable_judge verdicts each 'done' claim before you report it; lh_start_run hands a multi-round or unattended task to a manager/executor/auditor run (poll lh_run_status, steer with lh_inject_feedback, stop with lh_stop_run). Call arive_capabilities for the live job-to-tool map.",
+      },
+      {
+        id: "lh-driver",
+        tool: "^lh_start_run$",
+        title: "Driving a long-horizon run",
+        text: "The run executes in its own worker: poll lh_run_status, queue corrections with lh_inject_feedback (drained at the next round gate), and stop with lh_stop_run. Pass workspace explicitly. Treat the run's claims as claims and verify them with fable_judge before reporting them as done. Upstream runs on macOS, Linux, and WSL; its POSIX-only control bus means a native Windows host returns a locking error instead of starting the run.",
+      },
+    ],
   },
   downstreams: DEFAULT_DOWNSTREAMS,
 };
@@ -410,11 +450,17 @@ function parseDocHook(value: unknown, index: number): DocHookConfig {
     );
   }
   const title = nonEmptyString(value.title);
+  if (value.once !== undefined && typeof value.once !== "boolean") {
+    throw new Error(
+      `Invalid hooks.docs[${index}]: once must be a boolean`,
+    );
+  }
   return {
     id,
     tool: value.tool,
     ...(title ? { title } : {}),
     text,
+    ...(value.once === true ? { once: true } : {}),
   };
 }
 
@@ -533,7 +579,11 @@ export function mergeConfig(raw: unknown): AriveConfig {
         );
       }
       const current = byNamespace.get(item.namespace);
-      if (!current) continue;
+      if (!current) {
+        throw new Error(
+          `Invalid downstream entry: namespace "${item.namespace}" is served in-process and cannot be replaced by a downstream server`,
+        );
+      }
       const merged: DownstreamConfig = { ...current };
       if (typeof item.enabled === "boolean") merged.enabled = item.enabled;
       if (typeof item.command === "string") merged.command = item.command;

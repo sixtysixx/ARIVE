@@ -143,6 +143,8 @@ export class HookEngine {
   private readonly config: HooksConfig;
   private readonly guards: CompiledGuard[];
   private readonly docs: CompiledDoc[];
+  /** Doc ids already injected; a `once` doc is spent after its first block. */
+  private readonly firedDocs = new Set<string>();
   private readonly run: typeof runCommand;
   private checks = 0;
   private blockedCount = 0;
@@ -426,7 +428,9 @@ export class HookEngine {
     if (!result.isError) {
       for (const entry of this.docs) {
         if (!entry.tool.test(tool)) continue;
+        if (entry.doc.once && this.firedDocs.has(entry.doc.id)) continue;
         const title = entry.doc.title ?? entry.doc.id;
+        if (entry.doc.once) this.firedDocs.add(entry.doc.id);
         blocks.push({
           type: "text",
           text: `<arive-doc id="${entry.doc.id}" title="${title}">\n${entry.doc.text}\n</arive-doc>`,
